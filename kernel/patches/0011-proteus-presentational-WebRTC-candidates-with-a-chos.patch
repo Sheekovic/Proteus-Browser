@@ -1,0 +1,352 @@
+From 8da4fd6d7d3ba1da024f882a9a3966bff0f84192 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Sun, 15 Nov 2026 17:03:11 +0000
+Subject: [PATCH 11/11] proteus: presentational WebRTC candidates with a chosen
+ public address
+
+---
+ base/proteus/proteus_config.cc                |   1 +
+ base/proteus/proteus_config.h                 |   8 +
+ .../renderer/modules/peerconnection/BUILD.gn  |   2 +
+ .../peerconnection/proteus_webrtc_spoof.cc    | 155 ++++++++++++++++++
+ .../peerconnection/proteus_webrtc_spoof.h     |  47 ++++++
+ .../peerconnection/rtc_peer_connection.cc     |  43 +++++
+ 6 files changed, 256 insertions(+)
+ create mode 100644 third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.cc
+ create mode 100644 third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.h
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index aa3a653054..91fb084998 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -197,6 +197,7 @@ Config LoadConfig() {
+   }
+   config.timezone = StringOrEmpty(*dict, "timezone");
+   config.webrtc_proxy_only = StringOrEmpty(*dict, "webRtcPolicy") == "proxyOnly";
++  config.webrtc_public_ip = StringOrEmpty(*dict, "webRtcPublicIp");
+   config.canvas_noise = dict->FindBool("canvasNoise").value_or(false);
+   config.audio_noise = dict->FindBool("audioNoise").value_or(false);
+   if (const std::string* value = dict->FindString("webglVendor")) {
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index 674ca2e800..849b6fbea3 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -133,6 +133,14 @@ struct BASE_EXPORT Config {
+   // learn the real public or local address.
+   bool webrtc_proxy_only = false;
+ 
++  // Public address to show in WebRTC, normally the proxy's exit address. With
++  // |webrtc_proxy_only|, a page then sees the ICE candidates an ordinary browser
++  // behind that address would produce (an mDNS host candidate and, when it
++  // configured a STUN or TURN server, a server-reflexive one carrying this
++  // address) while still no direct UDP leaves the machine. Empty means "show
++  // no candidates".
++  std::string webrtc_public_ip;
++
+   // Whether canvas readbacks (2D and WebGL) carry seed-derived noise.
+   bool canvas_noise = false;
+ 
+diff --git a/third_party/blink/renderer/modules/peerconnection/BUILD.gn b/third_party/blink/renderer/modules/peerconnection/BUILD.gn
+index 261d876422..a6b142c733 100644
+--- a/third_party/blink/renderer/modules/peerconnection/BUILD.gn
++++ b/third_party/blink/renderer/modules/peerconnection/BUILD.gn
+@@ -100,6 +100,8 @@ blink_modules_sources("peerconnection") {
+     "rtc_ice_candidate.h",
+     "rtc_ice_transport.cc",
+     "rtc_ice_transport.h",
++    "proteus_webrtc_spoof.cc",
++    "proteus_webrtc_spoof.h",
+     "rtc_peer_connection.cc",
+     "rtc_peer_connection.h",
+     "rtc_peer_connection_controller.cc",
+diff --git a/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.cc b/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.cc
+new file mode 100644
+index 0000000000..f6619244db
+--- /dev/null
++++ b/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.cc
+@@ -0,0 +1,155 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.h"
++
++#include <stdint.h>
++
++#include <string>
++#include <string_view>
++#include <vector>
++
++#include "base/containers/span.h"
++#include "base/no_destructor.h"
++#include "base/proteus/proteus_config.h"
++#include "base/strings/stringprintf.h"
++#include "base/uuid.h"
++
++namespace blink {
++
++namespace {
++
++uint64_t Mix(uint64_t seed, std::string_view text) {
++  uint64_t h = seed ^ 0x9E3779B97F4A7C15ull;
++  for (char c : text) {
++    h ^= static_cast<uint8_t>(c);
++    h *= 0x100000001B3ull;
++  }
++  h ^= h >> 30;
++  h *= 0xBF58476D1CE4E5B9ull;
++  h ^= h >> 27;
++  h *= 0x94D049BB133111EBull;
++  h ^= h >> 31;
++  return h;
++}
++
++// The mDNS name standing in for the local address. A browser keeps one name per
++// local address for the life of the process, so this is chosen once.
++const std::string& MdnsHostname() {
++  static const base::NoDestructor<std::string> name(
++      base::Uuid::GenerateRandomV4().AsLowercaseString() + ".local");
++  return *name;
++}
++
++// Value of the first "a=<name>:" attribute in |sdp|, or an empty string.
++std::string Attribute(const std::string& sdp, std::string_view name) {
++  const std::string key = "a=" + std::string(name) + ":";
++  size_t start = sdp.find(key);
++  if (start == std::string::npos) {
++    return std::string();
++  }
++  start += key.size();
++  size_t end = sdp.find_first_of("\r\n", start);
++  if (end == std::string::npos) {
++    end = sdp.size();
++  }
++  return sdp.substr(start, end - start);
++}
++
++struct Candidates {
++  std::vector<std::string> lines;
++  std::string mid;
++  std::string username_fragment;
++};
++
++Candidates Build(const std::string& sdp, bool has_stun_or_turn_server) {
++  Candidates result;
++  const base::proteus::Config& config = base::proteus::GetConfig();
++  if (!config.webrtc_proxy_only || config.webrtc_public_ip.empty() ||
++      sdp.find("a=candidate:") != std::string::npos) {
++    return result;
++  }
++  result.username_fragment = Attribute(sdp, "ice-ufrag");
++  result.mid = Attribute(sdp, "mid");
++  if (result.username_fragment.empty() || result.mid.empty()) {
++    return result;
++  }
++
++  // A candidate's foundation identifies its type and base address, so it is
++  // the same for every connection of a profile. The port is per connection.
++  const uint32_t host_foundation =
++      static_cast<uint32_t>(Mix(config.seed, "host-foundation"));
++  const uint32_t srflx_foundation =
++      static_cast<uint32_t>(Mix(config.seed, "srflx-foundation"));
++  const int port = 49152 + static_cast<int>(
++                               Mix(config.seed, result.username_fragment) %
++                               (65535 - 49152));
++  const char* ufrag = result.username_fragment.c_str();
++
++  result.lines.push_back(base::StringPrintf(
++      "candidate:%u 1 udp 2113937151 %s %d typ host generation 0 ufrag %s "
++      "network-cost 999",
++      host_foundation, MdnsHostname().c_str(), port, ufrag));
++  if (has_stun_or_turn_server) {
++    result.lines.push_back(base::StringPrintf(
++        "candidate:%u 1 udp 1677729535 %s %d typ srflx raddr 0.0.0.0 rport 0 "
++        "generation 0 ufrag %s network-cost 999",
++        srflx_foundation, config.webrtc_public_ip.c_str(), port, ufrag));
++  }
++  return result;
++}
++
++String ToString(const std::string& utf8) {
++  return String::FromUtf8(base::as_byte_span(utf8));
++}
++
++}  // namespace
++
++ProteusIceCandidates ProteusBuildIceCandidates(const String& local_sdp,
++                                               bool has_stun_or_turn_server) {
++  ProteusIceCandidates result;
++  if (local_sdp.IsNull()) {
++    return result;
++  }
++  const Candidates built = Build(local_sdp.Utf8(), has_stun_or_turn_server);
++  for (const std::string& line : built.lines) {
++    result.candidates.push_back(ToString(line));
++  }
++  result.mid = ToString(built.mid);
++  result.username_fragment = ToString(built.username_fragment);
++  return result;
++}
++
++String ProteusSdpWithIceCandidates(const String& local_sdp,
++                                   bool has_stun_or_turn_server) {
++  if (local_sdp.IsNull()) {
++    return local_sdp;
++  }
++  const std::string sdp = local_sdp.Utf8();
++  const Candidates built = Build(sdp, has_stun_or_turn_server);
++  if (built.lines.empty()) {
++    return local_sdp;
++  }
++  // Candidates follow the connection ("c=") line of their media section.
++  const size_t media = sdp.find("\r\nm=");
++  if (media == std::string::npos) {
++    return local_sdp;
++  }
++  const size_t connection = sdp.find("\r\nc=", media + 2);
++  if (connection == std::string::npos) {
++    return local_sdp;
++  }
++  const size_t insert_at = sdp.find("\r\n", connection + 2);
++  if (insert_at == std::string::npos) {
++    return local_sdp;
++  }
++  std::string lines;
++  for (const std::string& line : built.lines) {
++    lines += "\r\na=" + line;
++  }
++  lines += "\r\na=end-of-candidates";
++  return ToString(sdp.substr(0, insert_at) + lines + sdp.substr(insert_at));
++}
++
++}  // namespace blink
+diff --git a/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.h b/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.h
+new file mode 100644
+index 0000000000..9ee1c58fd3
+--- /dev/null
++++ b/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.h
+@@ -0,0 +1,47 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_PROTEUS_WEBRTC_SPOOF_H_
++#define THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_PROTEUS_WEBRTC_SPOOF_H_
++
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/blink/renderer/platform/wtf/vector.h"
++
++namespace blink {
++
++// Presentational ICE candidates.
++//
++// A profile in WebRTC "proxy only" mode sends no direct UDP, so ICE gathering
++// yields nothing - which is safe, but an empty candidate list is itself unusual.
++// When the profile also names the public address to show, the page is given the
++// candidates a normal browser behind that address would report: a host candidate
++// hidden behind an mDNS name and, if the page configured a STUN or TURN server,
++// a server-reflexive candidate carrying the public address.
++//
++// These candidates are for display only. Nothing listens on them and no packet
++// is sent for them; the machine's real addresses never appear.
++
++// The candidates to announce for a connection whose local description is
++// |local_sdp|. Empty when the profile does not ask for this, when the
++// description is not usable, or when it already holds real candidates (the
++// proxy carried UDP, so nothing needs inventing).
++struct ProteusIceCandidates {
++  // "candidate:..." strings, in the order to announce them.
++  Vector<String> candidates;
++  // sdpMid and usernameFragment shared by all of them.
++  String mid;
++  String username_fragment;
++};
++ProteusIceCandidates ProteusBuildIceCandidates(const String& local_sdp,
++                                               bool has_stun_or_turn_server);
++
++// |local_sdp| with those candidates written into its first media section, as
++// they would appear once gathering has finished. Returns |local_sdp| unchanged
++// when there is nothing to add.
++String ProteusSdpWithIceCandidates(const String& local_sdp,
++                                   bool has_stun_or_turn_server);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_PROTEUS_WEBRTC_SPOOF_H_
+diff --git a/third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc b/third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc
+index 65c71ea9de..ecb317064d 100644
+--- a/third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc
++++ b/third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc
+@@ -29,6 +29,7 @@
+  */
+ 
+ #include "third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.h"
++#include "third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.h"
+ 
+ #include <algorithm>
+ #include <cstddef>
+@@ -2635,6 +2636,24 @@ void RTCPeerConnection::DidFailICECandidate(const String& address,
+       address, port, host_candidate, url, error_code, error_text));
+ }
+ 
++// Proteus: |description| with the profile's presentational ICE candidates in
++// its SDP, or |description| itself when there is nothing to add.
++static RTCSessionDescription* ProteusWithIceCandidates(
++    RTCSessionDescription* description,
++    bool has_stun_or_turn_server) {
++  if (!description) {
++    return description;
++  }
++  const String sdp =
++      ProteusSdpWithIceCandidates(description->sdp(), has_stun_or_turn_server);
++  if (sdp == description->sdp()) {
++    return description;
++  }
++  return RTCSessionDescription::Create(
++      MakeGarbageCollected<RTCSessionDescriptionPlatform>(
++          description->WebSessionDescription()->GetType(), sdp));
++}
++
+ void RTCPeerConnection::DidChangeSessionDescriptions(
+     RTCSessionDescriptionPlatform* pending_local_description,
+     RTCSessionDescriptionPlatform* current_local_description,
+@@ -2658,12 +2677,36 @@ void RTCPeerConnection::DidChangeSessionDescriptions(
+       current_remote_description
+           ? RTCSessionDescription::Create(current_remote_description)
+           : nullptr;
++  if (ice_gathering_state_ ==
++      webrtc::PeerConnectionInterface::kIceGatheringComplete) {
++    const bool has_server = !peer_handler_->GetConfiguration().servers.empty();
++    pending_local_description_ = ProteusWithIceCandidates(
++        pending_local_description_.Get(), has_server);
++    current_local_description_ = ProteusWithIceCandidates(
++        current_local_description_.Get(), has_server);
++  }
+ }
+ 
+ void RTCPeerConnection::DidChangeIceGatheringState(
+     webrtc::PeerConnectionInterface::IceGatheringState new_state) {
+   DCHECK(!closed_);
+   DCHECK(GetExecutionContext()->IsContextThread());
++  if (new_state == webrtc::PeerConnectionInterface::kIceGatheringComplete) {
++    if (RTCSessionDescription* local = localDescription()) {
++      const bool has_server =
++          !peer_handler_->GetConfiguration().servers.empty();
++      const ProteusIceCandidates fake =
++          ProteusBuildIceCandidates(local->sdp(), has_server);
++      for (const String& candidate : fake.candidates) {
++        DidGenerateICECandidate(MakeGarbageCollected<RTCIceCandidatePlatform>(
++            candidate, fake.mid, 0, fake.username_fragment, String()));
++      }
++      pending_local_description_ = ProteusWithIceCandidates(
++          pending_local_description_.Get(), has_server);
++      current_local_description_ = ProteusWithIceCandidates(
++          current_local_description_.Get(), has_server);
++    }
++  }
+   ChangeIceGatheringState(new_state);
+ }
+ 
+-- 
+2.43.0
+

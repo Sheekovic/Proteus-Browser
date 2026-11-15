@@ -1,0 +1,77 @@
+<!doctype html>
+<body>
+<script>
+// Emits one line of key=value pairs describing what a page can read from canvases.
+function fnv(bytes) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+const text = s => fnv(new TextEncoder().encode(s));
+
+function scene() {
+  const c = document.createElement('canvas');
+  c.width = 240; c.height = 80;
+  const g = c.getContext('2d');
+  g.fillStyle = '#f60'; g.fillRect(10, 10, 100, 40);
+  g.fillStyle = '#069'; g.font = '18px Arial';
+  g.fillText('Proteus canvas test, 1234567890', 4, 60);
+  g.strokeStyle = 'rgba(102,204,0,0.7)';
+  g.beginPath(); g.arc(180, 30, 22, 0, Math.PI * 2); g.stroke();
+  return c;
+}
+
+function flat() {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = '#3a7bd5'; g.fillRect(0, 0, 64, 64);
+  return c;
+}
+
+const c = scene();
+const g = c.getContext('2d');
+const full = g.getImageData(0, 0, c.width, c.height).data;
+
+// A sub-rectangle read must agree with the full read on every shared pixel.
+const X = 37, Y = 11, W = 90, H = 50;
+const part = g.getImageData(X, Y, W, H).data;
+let subrect = true;
+for (let y = 0; y < H && subrect; y++) {
+  for (let x = 0; x < W * 4; x++) {
+    if (part[y * W * 4 + x] !== full[(Y + y) * c.width * 4 + X * 4 + x]) {
+      subrect = false; break;
+    }
+  }
+}
+
+const url1 = c.toDataURL(), url2 = c.toDataURL();
+const again = g.getImageData(0, 0, c.width, c.height).data;
+
+const f = flat();
+const flatData = f.getContext('2d').getImageData(0, 0, 64, 64).data;
+let flatExact = true;
+for (let i = 0; i < flatData.length; i += 4) {
+  if (flatData[i] !== 0x3a || flatData[i + 1] !== 0x7b ||
+      flatData[i + 2] !== 0xd5 || flatData[i + 3] !== 0xff) {
+    flatExact = false; break;
+  }
+}
+
+c.toBlob(async blob => {
+  const blobHash = fnv(new Uint8Array(await blob.arrayBuffer()));
+  document.body.innerText = 'RESULT ' + [
+    'data=' + fnv(full),
+    'url=' + text(url1),
+    'blob=' + blobHash,
+    'stable=' + (url1 === url2 && fnv(again) === fnv(full)),
+    'subrect=' + subrect,
+    'flat=' + flatExact,
+    'flaturl=' + text(f.toDataURL()),
+  ].join(' ');
+});
+</script>
+</body>

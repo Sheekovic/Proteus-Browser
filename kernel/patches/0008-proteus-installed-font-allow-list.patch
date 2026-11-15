@@ -1,0 +1,279 @@
+From 41ec71e07bfc235669ec70955fcbff9eefaeb878 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Sun, 15 Nov 2026 15:59:19 +0000
+Subject: [PATCH 08/11] proteus: installed-font allow-list
+
+---
+ base/proteus/proteus_config.cc                |   7 +
+ base/proteus/proteus_config.h                 |   5 +
+ third_party/blink/renderer/platform/BUILD.gn  |   2 +
+ .../renderer/platform/fonts/font_cache.cc     |  11 ++
+ .../platform/fonts/proteus_font_filter.cc     | 123 ++++++++++++++++++
+ .../platform/fonts/proteus_font_filter.h      |  35 +++++
+ 6 files changed, 183 insertions(+)
+ create mode 100644 third_party/blink/renderer/platform/fonts/proteus_font_filter.cc
+ create mode 100644 third_party/blink/renderer/platform/fonts/proteus_font_filter.h
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index adfc04d49c..e895cd68f3 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -169,6 +169,13 @@ Config LoadConfig() {
+       config.accept_languages += language.GetString();
+     }
+   }
++  if (const ListValue* fonts = dict->FindList("fonts")) {
++    for (const Value& font : *fonts) {
++      if (font.is_string() && !font.GetString().empty()) {
++        config.fonts.push_back(font.GetString());
++      }
++    }
++  }
+   config.timezone = StringOrEmpty(*dict, "timezone");
+   config.webrtc_proxy_only = StringOrEmpty(*dict, "webRtcPolicy") == "proxyOnly";
+   config.canvas_noise = dict->FindBool("canvasNoise").value_or(false);
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index a28f14810f..a7cfee8276 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -99,6 +99,11 @@ struct BASE_EXPORT Config {
+   // IANA time zone id ("America/New_York"). Empty means real.
+   std::string timezone;
+ 
++  // Font families a page may find installed. Any other installed family is
++  // hidden from font-family matching and local() sources. Empty means "all
++  // fonts on this machine".
++  std::vector<std::string> fonts;
++
+   // When true, WebRTC may only send traffic through the configured proxy: no
+   // direct UDP leaves the machine, so neither a STUN server nor the page can
+   // learn the real public or local address.
+diff --git a/third_party/blink/renderer/platform/BUILD.gn b/third_party/blink/renderer/platform/BUILD.gn
+index 91580daad1..4b5a29be60 100644
+--- a/third_party/blink/renderer/platform/BUILD.gn
++++ b/third_party/blink/renderer/platform/BUILD.gn
+@@ -714,6 +714,8 @@ component("platform") {
+     "fonts/font.h",
+     "fonts/font_baseline.h",
+     "fonts/font_cache.cc",
++    "fonts/proteus_font_filter.cc",
++    "fonts/proteus_font_filter.h",
+     "fonts/font_cache.h",
+     "fonts/font_cache_client.h",
+     "fonts/font_cache_key.h",
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+index 07c2f084f9..9ad316bf01 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -28,6 +28,7 @@
+  */
+ 
+ #include "third_party/blink/renderer/platform/fonts/font_cache.h"
++#include "third_party/blink/renderer/platform/fonts/proteus_font_filter.h"
+ 
+ #include <unicode/uscript.h>
+ 
+@@ -178,6 +179,10 @@ const SimpleFontData* FontCache::GetFontData(
+     const FontDescription& font_description,
+     const AtomicString& family,
+     AlternateFontName altername_font_name) {
++  if (altername_font_name != AlternateFontName::kLastResort &&
++      ProteusIsFontFamilyHidden(family)) {
++    return nullptr;
++  }
+   if (const FontPlatformData* platform_data = GetFontPlatformData(
+           font_description,
+           FontFaceCreationParams(
+@@ -199,6 +204,9 @@ const SimpleFontData* FontCache::FontDataFromFontPlatformData(
+ bool FontCache::IsPlatformFamilyMatchAvailable(
+     const FontDescription& font_description,
+     const AtomicString& family) {
++  if (ProteusIsFontFamilyHidden(family)) {
++    return false;
++  }
+   return GetFontPlatformData(
+       font_description,
+       FontFaceCreationParams(AdjustFamilyNameToAvoidUnsupportedFonts(family)),
+@@ -212,6 +220,9 @@ bool FontCache::IsPlatformFontUniqueNameMatchAvailable(
+   if (unique_font_name.empty()) {
+     return false;
+   }
++  if (ProteusIsUniqueFontNameHidden(unique_font_name)) {
++    return false;
++  }
+ 
+   return GetFontPlatformData(font_description,
+                              FontFaceCreationParams(unique_font_name),
+diff --git a/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc b/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc
+new file mode 100644
+index 0000000000..3cddd1229b
+--- /dev/null
++++ b/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc
+@@ -0,0 +1,123 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "third_party/blink/renderer/platform/fonts/proteus_font_filter.h"
++
++#include <string>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++#include "base/containers/flat_set.h"
++#include "base/no_destructor.h"
++#include "base/proteus/proteus_config.h"
++#include "base/strings/string_util.h"
++
++namespace blink {
++
++namespace {
++
++// Families the browser resolves the CSS generic keywords and its own UI to.
++// Always allowed, so ordinary pages render as they would without a font list.
++constexpr std::string_view kAlwaysAllowed[] = {
++    "serif",      "sans-serif", "sans",        "monospace",
++    "cursive",    "fantasy",    "system-ui",   "math",
++    "arial",      "times new roman",           "courier new",
++    "helvetica",  "times",      "courier",     "ui-sans-serif",
++    "ui-serif",   "ui-monospace",              "ui-rounded",
++    "emoji",      "fangsong",
++};
++
++// The profile's font list in lower case; empty when no list is configured.
++const std::vector<std::string>& AllowedFamilies() {
++  static const base::NoDestructor<std::vector<std::string>> families([] {
++    std::vector<std::string> result;
++    for (const std::string& font : base::proteus::GetConfig().fonts) {
++      result.push_back(base::ToLowerASCII(font));
++    }
++    return result;
++  }());
++  return *families;
++}
++
++const base::flat_set<std::string>& AllowedFamilySet() {
++  static const base::NoDestructor<base::flat_set<std::string>> set([] {
++    std::vector<std::string> names = AllowedFamilies();
++    for (std::string_view name : kAlwaysAllowed) {
++      names.emplace_back(name);
++    }
++    return base::flat_set<std::string>(std::move(names));
++  }());
++  return *set;
++}
++
++// Words that name a style of a family rather than a different family. Longer
++// words come before their prefixes so the greedy match below takes them whole.
++constexpr std::string_view kStyleWords[] = {
++    "extralight", "ultralight", "extrabold", "ultrabold", "semibold",
++    "demibold",   "hairline",   "regular",   "oblique",   "italic",
++    "medium",     "normal",     "light",     "black",     "heavy",
++    "roman",      "bold",       "book",      "thin",      "demi",
++    "psmt",       "mt",         "ps",
++};
++
++// True when |rest|, the part of a font name after its family, consists only of
++// style words: "" or " bold italic" or "-boldoblique", but not " mono", which
++// would make it the separate family "DejaVu Sans Mono".
++bool IsStyleSuffix(std::string_view rest) {
++  while (!rest.empty()) {
++    if (rest.front() == ' ' || rest.front() == '-') {
++      rest.remove_prefix(1);
++      continue;
++    }
++    bool matched = false;
++    for (std::string_view word : kStyleWords) {
++      if (rest.starts_with(word)) {
++        rest.remove_prefix(word.size());
++        matched = true;
++        break;
++      }
++    }
++    if (!matched) {
++      return false;
++    }
++  }
++  return true;
++}
++
++}  // namespace
++
++bool ProteusIsFontFamilyHidden(const AtomicString& family) {
++  if (AllowedFamilies().empty() || family.empty()) {
++    return false;
++  }
++  return !AllowedFamilySet().contains(base::ToLowerASCII(family.Utf8()));
++}
++
++bool ProteusIsUniqueFontNameHidden(const AtomicString& name) {
++  if (AllowedFamilies().empty() || name.empty()) {
++    return false;
++  }
++  // A full font name starts with its family ("Arial Bold"); a PostScript name
++  // does so with the spaces removed ("Arial-BoldMT", "DejaVuSans-Bold").
++  const std::string full = base::ToLowerASCII(name.Utf8());
++  std::string compact_full;
++  base::RemoveChars(full, " ", &compact_full);
++  for (const std::string& family : AllowedFamilySet()) {
++    std::string compact_family;
++    base::RemoveChars(family, " ", &compact_family);
++    if (full.starts_with(family) &&
++        IsStyleSuffix(std::string_view(full).substr(family.size()))) {
++      return false;
++    }
++    if (compact_full.starts_with(compact_family) &&
++        IsStyleSuffix(
++            std::string_view(compact_full).substr(compact_family.size()))) {
++      return false;
++    }
++  }
++  return true;
++}
++
++}  // namespace blink
+diff --git a/third_party/blink/renderer/platform/fonts/proteus_font_filter.h b/third_party/blink/renderer/platform/fonts/proteus_font_filter.h
+new file mode 100644
+index 0000000000..a66b801d2d
+--- /dev/null
++++ b/third_party/blink/renderer/platform/fonts/proteus_font_filter.h
+@@ -0,0 +1,35 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_PROTEUS_FONT_FILTER_H_
++#define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_PROTEUS_FONT_FILTER_H_
++
++#include "third_party/blink/renderer/platform/platform_export.h"
++#include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
++
++namespace blink {
++
++// Installed-font allow-list.
++//
++// Pages detect installed fonts by asking for a family by name and observing
++// whether text changes size, or through @font-face local() sources. When the
++// active Proteus profile lists its fonts, a family outside that list is reported
++// as not installed, so the detectable font set belongs to the profile instead of
++// to the machine.
++//
++// The families the browser itself substitutes for the CSS generic keywords
++// (serif, sans-serif, monospace, ...) are always allowed; hiding them would
++// change how ordinary pages render. Character fallback for scripts the chosen
++// font lacks is not affected either.
++
++// True when a lookup of font family |family| must fail.
++PLATFORM_EXPORT bool ProteusIsFontFamilyHidden(const AtomicString& family);
++
++// True when a lookup by full or PostScript font name (an @font-face local()
++// source, e.g. "Arial Bold") must fail.
++PLATFORM_EXPORT bool ProteusIsUniqueFontNameHidden(const AtomicString& name);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_PROTEUS_FONT_FILTER_H_
+-- 
+2.43.0
+

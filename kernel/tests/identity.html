@@ -1,0 +1,48 @@
+<!doctype html>
+<body>
+<script>
+// Emits one line of key=value pairs describing the browser identity a page can see:
+// in the window, in a worker, and in the request headers the server received.
+const enc = v => encodeURIComponent(String(v));
+const brands = list => (list || []).map(b => b.brand + '/' + b.version).join(',');
+
+function workerIdentity() {
+  return new Promise(resolve => {
+    const w = new Worker(URL.createObjectURL(new Blob([
+      'postMessage({ua: navigator.userAgent, platform: navigator.platform,' +
+      ' chPlatform: navigator.userAgentData ? navigator.userAgentData.platform : ""})'])));
+    w.onmessage = e => resolve(e.data);
+  });
+}
+
+(async () => {
+  const uad = navigator.userAgentData;
+  const high = uad ? await uad.getHighEntropyValues([
+    'architecture', 'bitness', 'model', 'platformVersion', 'uaFullVersion',
+    'fullVersionList', 'wow64']) : {};
+  const headers = await (await fetch('/headers')).json();
+  const worker = await workerIdentity();
+
+  document.body.innerText = 'RESULT ' + [
+    'ua=' + enc(navigator.userAgent),
+    'appVersion=' + enc(navigator.appVersion),
+    'platform=' + enc(navigator.platform),
+    'chBrands=' + enc(brands(uad && uad.brands)),
+    'chPlatform=' + enc(uad ? uad.platform : ''),
+    'chMobile=' + (uad ? uad.mobile : ''),
+    'chArch=' + enc(high.architecture),
+    'chBitness=' + enc(high.bitness),
+    'chPlatformVersion=' + enc(high.platformVersion),
+    'chFullVersion=' + enc(high.uaFullVersion),
+    'chFullList=' + enc(brands(high.fullVersionList)),
+    'workerUa=' + enc(worker.ua),
+    'workerPlatform=' + enc(worker.platform),
+    'workerChPlatform=' + enc(worker.chPlatform),
+    'hdrUa=' + enc(headers['user-agent']),
+    'hdrCh=' + enc(headers['sec-ch-ua']),
+    'hdrChPlatform=' + enc(headers['sec-ch-ua-platform']),
+    'hdrChMobile=' + enc(headers['sec-ch-ua-mobile']),
+  ].join(' ');
+})();
+</script>
+</body>

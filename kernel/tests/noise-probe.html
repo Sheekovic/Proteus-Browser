@@ -1,0 +1,156 @@
+<!doctype html>
+<body>
+<div id="box" style="position:absolute;left:10.25px;top:20.5px;width:100.5px;height:40.25px"></div>
+<script>
+// Emits one line of key=value pairs that characterise HOW a browser perturbs its
+// fingerprint surfaces, by feeding it content whose true value is known in advance.
+// Used to compare anti-fingerprinting behaviour between browsers.
+function fnv(bytes) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) { h ^= bytes[i]; h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0');
+}
+
+// Deterministic pseudo-random bytes, so every browser gets the same "known" image.
+function prng(seed) {
+  let s = seed >>> 0;
+  return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s >>> 24; };
+}
+
+function diffStats(expected, actual) {
+  let pixels = 0, maxDelta = 0, alpha = 0;
+  for (let i = 0; i < expected.length; i += 4) {
+    let changed = false;
+    for (let c = 0; c < 4; c++) {
+      const d = Math.abs(expected[i + c] - actual[i + c]);
+      if (d) { changed = true; maxDelta = Math.max(maxDelta, d); if (c === 3) alpha++; }
+    }
+    if (changed) pixels++;
+  }
+  return `${pixels}/${expected.length / 4}:max${maxDelta}:alpha${alpha}`;
+}
+
+function canvas2d(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return [c, c.getContext('2d', { willReadFrequently: true })];
+}
+
+// 1. Known random opaque pixels written with putImageData, then read back.
+function knownNoiseImage(w, h) {
+  const [, g] = canvas2d(w, h);
+  const next = prng(12345);
+  const image = g.createImageData(w, h);
+  for (let i = 0; i < image.data.length; i += 4) {
+    image.data[i] = next(); image.data[i + 1] = next(); image.data[i + 2] = next(); image.data[i + 3] = 255;
+  }
+  g.putImageData(image, 0, 0);
+  return diffStats(image.data, g.getImageData(0, 0, w, h).data);
+}
+
+// 2. A known two-colour pattern (vertical stripes): every pixel value is known.
+function knownStripes(w, h) {
+  const [, g] = canvas2d(w, h);
+  g.fillStyle = '#204060'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#c08040';
+  for (let x = 0; x < w; x += 4) g.fillRect(x, 0, 2, h);
+  const expected = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const on = x % 4 < 2, i = (y * w + x) * 4;
+    expected[i] = on ? 0xc0 : 0x20; expected[i + 1] = on ? 0x80 : 0x40;
+    expected[i + 2] = on ? 0x40 : 0x60; expected[i + 3] = 255;
+  }
+  return diffStats(expected, g.getImageData(0, 0, w, h).data);
+}
+
+// 3. A single flat colour.
+function knownFlat(w, h) {
+  const [, g] = canvas2d(w, h);
+  g.fillStyle = '#3a7bd5'; g.fillRect(0, 0, w, h);
+  const expected = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < expected.length; i += 4) {
+    expected[i] = 0x3a; expected[i + 1] = 0x7b; expected[i + 2] = 0xd5; expected[i + 3] = 255;
+  }
+  return diffStats(expected, g.getImageData(0, 0, w, h).data);
+}
+
+// 4. Text: the classic fingerprint drawing. True pixels are unknown, so look at
+//    whether the result is repeatable within and across canvases.
+function drawText(g) {
+  g.fillStyle = '#f60'; g.fillRect(10, 10, 100, 40);
+  g.fillStyle = '#069'; g.font = '18px Arial';
+  g.fillText('Cwm fjordbank glyphs vext quiz, 1234567890', 4, 60);
+}
+function textBehaviour() {
+  const [c1, g1] = canvas2d(300, 80); drawText(g1);
+  const a = g1.getImageData(0, 0, 300, 80).data, b = g1.getImageData(0, 0, 300, 80).data;
+  const [c2, g2] = canvas2d(300, 80); drawText(g2);
+  const other = g2.getImageData(0, 0, 300, 80).data;
+  const part = g1.getImageData(40, 10, 100, 50).data;
+  let subrect = true;
+  for (let y = 0; y < 50 && subrect; y++) for (let x = 0; x < 400; x++) {
+    if (part[y * 400 + x] !== a[(10 + y) * 1200 + 160 + x]) { subrect = false; break; }
+  }
+  return {
+    hash: fnv(a),
+    repeat: fnv(a) === fnv(b),
+    twoCanvases: fnv(a) === fnv(other),
+    subrect,
+    urlRepeat: c1.toDataURL() === c1.toDataURL(),
+    urlTwoCanvases: c1.toDataURL() === c2.toDataURL(),
+  };
+}
+
+// 5. Audio: a known ramp played through an AudioBufferSourceNode must come out
+//    exactly as it went in on an unmodified browser.
+async function knownAudio() {
+  const n = 4096;
+  const ctx = new OfflineAudioContext(1, n, 44100);
+  const buffer = ctx.createBuffer(1, n, 44100);
+  const input = buffer.getChannelData(0);
+  for (let i = 0; i < n; i++) input[i] = Math.fround(Math.sin(i / 7) * 0.5);
+  const expected = Float32Array.from(input);
+  const src = ctx.createBufferSource();
+  src.buffer = buffer; src.connect(ctx.destination); src.start(0);
+  const out = (await ctx.startRendering()).getChannelData(0);
+  let changed = 0, maxRel = 0;
+  for (let i = 0; i < n; i++) {
+    if (out[i] !== expected[i]) {
+      changed++;
+      if (expected[i] !== 0) maxRel = Math.max(maxRel, Math.abs((out[i] - expected[i]) / expected[i]));
+    }
+  }
+  return `${changed}/${n}:rel${maxRel.toExponential(1)}`;
+}
+
+// 6. Geometry and text metrics, which some tools also perturb.
+function geometry() {
+  const r = document.getElementById('box').getBoundingClientRect();
+  const [, g] = canvas2d(10, 10);
+  g.font = '16px Arial';
+  return {
+    rect: [r.x, r.y, r.width, r.height].join(','),
+    textWidth: g.measureText('mmmmmmmmmmlli').width,
+  };
+}
+
+(async () => {
+  const text = textBehaviour(), geo = geometry();
+  document.body.innerText = 'RESULT ' + [
+    'knownNoise=' + knownNoiseImage(64, 64),
+    'knownStripes=' + knownStripes(64, 64),
+    'knownFlat=' + knownFlat(64, 64),
+    'smallNoise=' + knownNoiseImage(8, 8),
+    'textHash=' + text.hash,
+    'textRepeat=' + text.repeat,
+    'textTwoCanvases=' + text.twoCanvases,
+    'textSubrect=' + text.subrect,
+    'urlRepeat=' + text.urlRepeat,
+    'urlTwoCanvases=' + text.urlTwoCanvases,
+    'knownAudio=' + await knownAudio(),
+    'rect=' + geo.rect,
+    'textWidth=' + geo.textWidth,
+  ].join(' ');
+})();
+</script>
+</body>

@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proteus</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1c2330; --muted: #667085; --line: #e2e6ec;
+    --accent: #2f6fed; --accent-text: #ffffff; --danger: #c93c3c; --ok: #1f9d55;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b2029; --text: #e7eaf0; --muted: #98a2b3; --line: #2b323e;
+      --accent: #5b8cf5; --accent-text: #0d1117; --danger: #ef6b6b; --ok: #4cc38a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+           border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 18px; margin: 0; flex: 1; }
+  main { max-width: 1040px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line);
+           background: var(--panel); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .5; cursor: default; }
+  input, select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line);
+                  background: var(--bg); color: var(--text); width: 100%; }
+  label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.actions { display: flex; gap: 6px; }
+  .state { font-weight: 600; }
+  .state.running { color: var(--ok); }
+  .muted { color: var(--muted); }
+  #message { min-height: 20px; color: var(--danger); }
+  #message.ok { color: var(--ok); }
+  pre { margin: 0; overflow-x: auto; font: 12px/1.4 ui-monospace, Consolas, monospace; }
+  dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text);
+           max-width: min(760px, 92vw); padding: 16px; }
+  dialog::backdrop { background: rgba(0, 0, 0, .45); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Proteus</h1>
+  <button id="refresh">Refresh</button>
+</header>
+<main>
+  <div id="message" role="status"></div>
+
+  <section>
+    <h2>Profiles</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>OS</th><th>Screen</th><th>Time zone</th><th>Proxy</th><th>State</th><th></th></tr></thead>
+        <tbody id="profiles"></tbody>
+      </table>
+    </div>
+    <p id="empty" class="muted" hidden>No profiles yet. Create one below.</p>
+  </section>
+
+  <section>
+    <h2>New profile</h2>
+    <form id="create">
+      <div class="grid">
+        <label>Name <input name="name" required maxlength="200" placeholder="Shop account 1"></label>
+        <label>Operating system
+          <select name="os">
+            <option value="">Same as this computer</option>
+            <option value="windows">Windows</option>
+            <option value="macos">macOS</option>
+            <option value="linux">Linux</option>
+          </select>
+        </label>
+        <label>Languages (comma separated, optional) <input name="languages" placeholder="en-US, en"></label>
+        <label>Time zone (optional) <input name="timezone" placeholder="Europe/Berlin"></label>
+        <label>WebRTC
+          <select name="webrtc">
+            <option value="proxyOnly">Protected (never reveal real IP)</option>
+            <option value="real">Unprotected (stock browser)</option>
+          </select>
+        </label>
+        <label>Public IP shown in WebRTC (optional; your proxy's exit IP)
+          <input name="webrtcPublicIp" placeholder="203.0.113.7"></label>
+        <label>Proxy type
+          <select name="proxyType">
+            <option value="">No proxy</option>
+            <option value="http">HTTP</option>
+            <option value="socks5">SOCKS5</option>
+          </select>
+        </label>
+        <label>Proxy host <input name="proxyHost" placeholder="127.0.0.1"></label>
+        <label>Proxy port <input name="proxyPort" type="number" min="1" max="65535" placeholder="8080"></label>
+        <label>Start page (optional) <input name="startUrl" placeholder="https://example.com"></label>
+      </div>
+      <div class="row"><button class="primary" type="submit">Create profile</button>
+        <span class="muted">A device identity (browser, screen, GPU, noise seed) is generated automatically.</span></div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Kernel</h2>
+    <form id="settings">
+      <div class="grid">
+        <label>Kernel executable (chrome / chrome.exe) <input name="kernelPath" placeholder="C:\Proteus\kernel\chrome.exe"></label>
+        <label>Kernel version <input name="kernelVersion" placeholder="158.0.8127.37"></label>
+        <label>Extra launch arguments (space separated) <input name="extraArgs" placeholder=""></label>
+      </div>
+      <div class="row"><button type="submit">Save</button></div>
+    </form>
+  </section>
+</main>
+
+<dialog id="details">
+  <h2 id="details-title"></h2>
+  <pre id="details-body"></pre>
+  <div class="row"><button id="details-close">Close</button></div>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function say(text, ok = false) {
+  $('message').textContent = text;
+  $('message').className = ok ? 'ok' : '';
+}
+
+async function api(method, path, body) {
+  const response = await fetch(path, {
+    method,
+    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : undefined;
+  if (!response.ok) throw new Error(data && data.error ? data.error : `Request failed (${response.status})`);
+  return data;
+}
+
+function cell(text, className) {
+  const td = document.createElement('td');
+  td.textContent = text;
+  if (className) td.className = className;
+  return td;
+}
+
+function button(label, onClick, className) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = label;
+  if (className) b.className = className;
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    try { await onClick(); } catch (error) { say(error.message); } finally { b.disabled = false; }
+  });
+  return b;
+}
+
+function showDetails(profile) {
+  $('details-title').textContent = profile.name;
+  $('details-body').textContent = JSON.stringify(profile, null, 2);
+  $('details').showModal();
+}
+
+async function loadProfiles() {
+  const profiles = await api('GET', '/api/profiles');
+  const body = $('profiles');
+  body.replaceChildren();
+  $('empty').hidden = profiles.length > 0;
+  for (const p of profiles) {
+    const running = p.status.state === 'running';
+    const row = document.createElement('tr');
+    row.append(
+      cell(p.name),
+      cell(p.os),
+      cell(`${p.screen.width}×${p.screen.height}`),
+      cell(p.timezone || 'this computer', p.timezone ? '' : 'muted'),
+      cell(p.proxy ? `${p.proxy.type}://${p.proxy.host}:${p.proxy.port}` : 'none', p.proxy ? '' : 'muted'),
+      cell(running ? 'Running' : 'Stopped', 'state' + (running ? ' running' : '')),
+    );
+    const actions = document.createElement('td');
+    actions.className = 'actions';
+    if (running) {
+      actions.append(button('Stop', async () => {
+        await api('POST', `/api/profiles/${p.id}/stop`);
+        say(`Stopped "${p.name}".`, true);
+        await loadProfiles();
+      }));
+    } else {
+      actions.append(button('Start', async () => {
+        await api('POST', `/api/profiles/${p.id}/start`);
+        say(`Started "${p.name}".`, true);
+        await loadProfiles();
+      }, 'primary'));
+    }
+    actions.append(button('Details', async () => showDetails(await api('GET', `/api/profiles/${p.id}`))));
+    if (!running) {
+      actions.append(button('New identity', async () => {
+        if (!confirm(`Give "${p.name}" a new device identity? Sites will see it as a different device.`)) return;
+        await api('POST', `/api/profiles/${p.id}/regenerate`);
+        say(`"${p.name}" has a new identity.`, true);
+        await loadProfiles();
+      }));
+      actions.append(button('Delete', async () => {
+        if (!confirm(`Delete "${p.name}" and all of its browser data? This cannot be undone.`)) return;
+        await api('DELETE', `/api/profiles/${p.id}`);
+        say(`Deleted "${p.name}".`, true);
+        await loadProfiles();
+      }, 'danger'));
+    }
+    row.append(actions);
+    body.append(row);
+  }
+}
+
+async function loadSettings() {
+  const settings = await api('GET', '/api/settings');
+  const form = $('settings');
+  form.kernelPath.value = settings.kernelPath;
+  form.kernelVersion.value = settings.kernelVersion;
+  form.extraArgs.value = settings.extraArgs.join(' ');
+}
+
+$('create').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const f = event.target;
+  const input = { name: f.name.value.trim(), webrtc: f.webrtc.value };
+  if (f.webrtcPublicIp.value.trim()) input.webrtcPublicIp = f.webrtcPublicIp.value.trim();
+  if (f.os.value) input.os = f.os.value;
+  const languages = f.languages.value.split(',').map((s) => s.trim()).filter(Boolean);
+  if (languages.length) input.languages = languages;
+  if (f.timezone.value.trim()) input.timezone = f.timezone.value.trim();
+  if (f.startUrl.value.trim()) input.startUrl = f.startUrl.value.trim();
+  if (f.proxyType.value) {
+    input.proxy = { type: f.proxyType.value, host: f.proxyHost.value.trim(), port: Number(f.proxyPort.value) };
+  }
+  try {
+    const profile = await api('POST', '/api/profiles', input);
+    say(`Created "${profile.name}".`, true);
+    f.reset();
+    await loadProfiles();
+  } catch (error) {
+    say(error.message);
+  }
+});
+
+$('settings').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const f = event.target;
+  try {
+    await api('PUT', '/api/settings', {
+      kernelPath: f.kernelPath.value.trim(),
+      kernelVersion: f.kernelVersion.value.trim(),
+      extraArgs: f.extraArgs.value.split(' ').map((s) => s.trim()).filter(Boolean),
+    });
+    say('Kernel settings saved.', true);
+  } catch (error) {
+    say(error.message);
+  }
+});
+
+$('refresh').addEventListener('click', () => loadProfiles().catch((error) => say(error.message)));
+$('details-close').addEventListener('click', () => $('details').close());
+
+Promise.all([loadProfiles(), loadSettings()]).catch((error) => say(error.message));
+setInterval(() => loadProfiles().catch(() => {}), 5000);
+</script>
+</body>
+</html>

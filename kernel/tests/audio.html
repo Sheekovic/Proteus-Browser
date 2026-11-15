@@ -1,0 +1,58 @@
+<!doctype html>
+<body>
+<script>
+// Emits one line of key=value pairs describing what a page can read from offline audio.
+function fnv(bytes) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+const hashFloats = f => fnv(new Uint8Array(f.buffer, f.byteOffset, f.byteLength));
+
+// The classic audio fingerprint: an oscillator through a compressor.
+async function fingerprint() {
+  const ctx = new OfflineAudioContext(1, 5000, 44100);
+  const osc = ctx.createOscillator();
+  osc.type = 'triangle'; osc.frequency.value = 10000;
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -50; comp.knee.value = 40; comp.ratio.value = 12;
+  comp.attack.value = 0; comp.release.value = 0.25;
+  osc.connect(comp); comp.connect(ctx.destination);
+  osc.start(0);
+  const buffer = await ctx.startRendering();
+  const data = buffer.getChannelData(0);
+  let sum = 0;
+  for (let i = 4500; i < 5000; i++) sum += Math.abs(data[i]);
+  const copy = new Float32Array(5000);
+  buffer.copyFromChannel(copy, 0);
+  return {sum, hash: hashFloats(data), copyHash: hashFloats(copy)};
+}
+
+// A constant signal and silence must come back exactly.
+async function constant(value) {
+  const ctx = new OfflineAudioContext(1, 2000, 44100);
+  if (value !== 0) {
+    const src = ctx.createConstantSource();
+    src.offset.value = value;
+    src.connect(ctx.destination); src.start(0);
+  }
+  const data = (await ctx.startRendering()).getChannelData(0);
+  return data.every(v => v === value);
+}
+
+(async () => {
+  const a = await fingerprint(), b = await fingerprint();
+  document.body.innerText = 'RESULT ' + [
+    'sum=' + a.sum,
+    'hash=' + a.hash,
+    'stable=' + (a.hash === b.hash && a.sum === b.sum),
+    'copy=' + (a.hash === a.copyHash),
+    'constant=' + await constant(1),
+    'silence=' + await constant(0),
+  ].join(' ');
+})();
+</script>
+</body>

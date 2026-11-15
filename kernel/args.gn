@@ -1,0 +1,19 @@
+# Proteus kernel build settings, shared by the Linux and Windows builds.
+# server-build.sh appends target_os and copies this to out/<Target>/args.gn.
+#
+# This is the fast-iteration profile: optimised, but without the official-build
+# link-time optimisation, which needs far more RAM and time than the build server has
+# to spare. Switch is_official_build to true for release kernels.
+is_debug = false
+is_official_build = false
+dcheck_always_on = false
+is_component_build = false
+target_cpu = "x64"
+symbol_level = 0
+blink_symbol_level = 0
+v8_symbol_level = 0
+treat_warnings_as_errors = false
+
+# Media codecs so the browser plays the same content a retail browser does.
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"

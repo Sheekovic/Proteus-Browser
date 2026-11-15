@@ -1,0 +1,284 @@
+From b847df1440c6f6f4914281fc659a5f9add90d715 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Sun, 15 Nov 2026 11:38:58 +0000
+Subject: [PATCH 01/11] proteus: profile config loader, hardwareConcurrency and
+ deviceMemory overrides
+
+---
+ base/BUILD.gn                                 |   2 +
+ base/proteus/proteus_config.cc                | 118 ++++++++++++++++++
+ base/proteus/proteus_config.h                 |  55 ++++++++
+ .../browser/chrome_content_browser_client.cc  |   8 ++
+ .../frame/navigator_concurrent_hardware.cc    |   5 +
+ .../core/frame/navigator_device_memory.cc     |   5 +
+ 6 files changed, 193 insertions(+)
+ create mode 100644 base/proteus/proteus_config.cc
+ create mode 100644 base/proteus/proteus_config.h
+
+diff --git a/base/BUILD.gn b/base/BUILD.gn
+index c71d7a6434..291083e277 100644
+--- a/base/BUILD.gn
++++ b/base/BUILD.gn
+@@ -277,6 +277,8 @@ component("base") {
+     "barrier_closure.h",
+     "base64.cc",
+     "base64.h",
++    "proteus/proteus_config.cc",
++    "proteus/proteus_config.h",
+     "base64url.cc",
+     "base64url.h",
+     "base_switches.h",
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+new file mode 100644
+index 0000000000..70bd43a395
+--- /dev/null
++++ b/base/proteus/proteus_config.cc
+@@ -0,0 +1,118 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "base/proteus/proteus_config.h"
++
++#include <string_view>
++#include <vector>
++
++#include "base/base64.h"
++#include "base/command_line.h"
++#include "base/containers/span.h"
++#include "base/files/file_path.h"
++#include "base/files/file_util.h"
++#include "base/json/json_reader.h"
++#include "base/logging.h"
++#include "base/no_destructor.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/values.h"
++
++namespace base::proteus {
++
++const char kConfigFileSwitch[] = "proteus-config";
++const char kConfigDataSwitch[] = "proteus-config-data";
++
++namespace {
++
++// Profile configurations are small; refuse anything implausibly large.
++constexpr size_t kMaxConfigBytes = 1024 * 1024;
++
++// Returns the raw JSON for this process, or an empty string if none was given.
++std::string ReadConfigJson() {
++  if (!CommandLine::InitializedForCurrentProcess()) {
++    return std::string();
++  }
++  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
++
++  if (command_line.HasSwitch(kConfigDataSwitch)) {
++    std::optional<std::vector<uint8_t>> decoded =
++        Base64Decode(command_line.GetSwitchValueASCII(kConfigDataSwitch));
++    if (!decoded) {
++      LOG(ERROR) << "Proteus: malformed --" << kConfigDataSwitch;
++      return std::string();
++    }
++    return std::string(decoded->begin(), decoded->end());
++  }
++
++  if (command_line.HasSwitch(kConfigFileSwitch)) {
++    const FilePath path = command_line.GetSwitchValuePath(kConfigFileSwitch);
++    std::string json;
++    if (!ReadFileToStringWithMaxSize(path, &json, kMaxConfigBytes)) {
++      LOG(ERROR) << "Proteus: cannot read config file " << path;
++      return std::string();
++    }
++    return json;
++  }
++
++  return std::string();
++}
++
++// The seed may be written as a JSON number or, to keep all 64 bits, a string.
++uint64_t ParseSeed(const DictValue& dict) {
++  if (const std::string* text = dict.FindString("seed")) {
++    uint64_t seed = 0;
++    if (StringToUint64(*text, &seed)) {
++      return seed;
++    }
++    return 0;
++  }
++  if (std::optional<double> number = dict.FindDouble("seed")) {
++    return *number > 0 ? static_cast<uint64_t>(*number) : 0;
++  }
++  return 0;
++}
++
++Config LoadConfig() {
++  Config config;
++  const std::string json = ReadConfigJson();
++  if (json.empty()) {
++    return config;
++  }
++
++  std::optional<DictValue> dict = JSONReader::ReadDict(json, JSON_PARSE_RFC);
++  if (!dict) {
++    LOG(ERROR) << "Proteus: config is not a JSON object";
++    return config;
++  }
++
++  config.active = true;
++  config.seed = ParseSeed(*dict);
++  // The zygote is launched before base::FeatureList exists, so the regular
++  // Base64Encode(), which consults a feature, must not be used here.
++  config.serialized = Base64EncodeEarlyStartup(as_byte_span(json));
++
++  if (std::optional<int> value = dict->FindInt("hardwareConcurrency");
++      value && *value > 0) {
++    config.hardware_concurrency = *value;
++  }
++  if (std::optional<double> value = dict->FindDouble("deviceMemory");
++      value && *value > 0) {
++    config.device_memory = *value;
++  }
++  return config;
++}
++
++}  // namespace
++
++Config::Config() = default;
++Config::Config(const Config&) = default;
++Config& Config::operator=(const Config&) = default;
++Config::~Config() = default;
++
++const Config& GetConfig() {
++  static const NoDestructor<Config> config(LoadConfig());
++  return *config;
++}
++
++}  // namespace base::proteus
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+new file mode 100644
+index 0000000000..ddcfe54110
+--- /dev/null
++++ b/base/proteus/proteus_config.h
+@@ -0,0 +1,55 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef BASE_PROTEUS_PROTEUS_CONFIG_H_
++#define BASE_PROTEUS_PROTEUS_CONFIG_H_
++
++#include <stdint.h>
++
++#include <optional>
++#include <string>
++
++#include "base/base_export.h"
++
++namespace base::proteus {
++
++// --proteus-config=<path>: JSON profile configuration. Read once by the browser
++// process, which is the only process allowed to touch the file system.
++BASE_EXPORT extern const char kConfigFileSwitch[];
++
++// --proteus-config-data=<base64 JSON>: the same configuration, handed by the
++// browser process to every child process it launches.
++BASE_EXPORT extern const char kConfigDataSwitch[];
++
++// Per-profile identity settings. Every field is optional; an absent field means
++// "report the real value of this machine".
++struct BASE_EXPORT Config {
++  Config();
++  Config(const Config&);
++  Config& operator=(const Config&);
++  ~Config();
++
++  // True when a configuration was supplied and parsed successfully.
++  bool active = false;
++
++  // Stable per-profile seed for deterministic noise.
++  uint64_t seed = 0;
++
++  // navigator.hardwareConcurrency
++  std::optional<int> hardware_concurrency;
++
++  // navigator.deviceMemory, in GiB.
++  std::optional<double> device_memory;
++
++  // Base64 form of the source JSON, forwarded to child processes.
++  std::string serialized;
++};
++
++// Returns the configuration of the current process. Parsed on first use and
++// immutable afterwards; safe to call from any thread.
++BASE_EXPORT const Config& GetConfig();
++
++}  // namespace base::proteus
++
++#endif  // BASE_PROTEUS_PROTEUS_CONFIG_H_
+diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+index 565bd580ba..9579a3284c 100644
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -41,6 +41,7 @@
+ #include "base/notimplemented.h"
+ #include "base/notreached.h"
+ #include "base/path_service.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/stl_util.h"
+ #include "base/strings/strcat.h"
+ #include "base/strings/string_number_conversions.h"
+@@ -3097,6 +3098,13 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
+     base::CommandLine* command_line,
+     int child_process_id) {
+   crash_keys::AppendStringAnnotationsCommandLineSwitch(command_line);
++  if (const base::proteus::Config& proteus_config =
++          base::proteus::GetConfig();
++      proteus_config.active &&
++      !command_line->HasSwitch(base::proteus::kConfigDataSwitch)) {
++    command_line->AppendSwitchASCII(base::proteus::kConfigDataSwitch,
++                                    proteus_config.serialized);
++  }
+ #if BUILDFLAG(IS_MAC)
+   std::unique_ptr<metrics::ClientInfo> client_info =
+       GoogleUpdateSettings::LoadMetricsClientInfo();
+diff --git a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+index f5c0db2d1b..5ebaa4e6d3 100644
+--- a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
++++ b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+@@ -4,11 +4,16 @@
+ 
+ #include "third_party/blink/renderer/core/frame/navigator_concurrent_hardware.h"
+ 
++#include "base/proteus/proteus_config.h"
+ #include "base/system/sys_info.h"
+ 
+ namespace blink {
+ 
+ unsigned NavigatorConcurrentHardware::hardwareConcurrency() const {
++  if (const auto& forced =
++          base::proteus::GetConfig().hardware_concurrency) {
++    return static_cast<unsigned>(*forced);
++  }
+   return static_cast<unsigned>(base::SysInfo::NumberOfProcessors());
+ }
+ 
+diff --git a/third_party/blink/renderer/core/frame/navigator_device_memory.cc b/third_party/blink/renderer/core/frame/navigator_device_memory.cc
+index 05fa33e456..3f8d64a53e 100644
+--- a/third_party/blink/renderer/core/frame/navigator_device_memory.cc
++++ b/third_party/blink/renderer/core/frame/navigator_device_memory.cc
+@@ -9,9 +9,14 @@
+ #include "third_party/blink/renderer/core/dom/document.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ 
++#include "base/proteus/proteus_config.h"
++
+ namespace blink {
+ 
+ float NavigatorDeviceMemory::deviceMemory() const {
++  if (const auto& forced = base::proteus::GetConfig().device_memory) {
++    return static_cast<float>(*forced);
++  }
+   return ApproximatedDeviceMemory::GetApproximatedDeviceMemory();
+ }
+ 
+-- 
+2.43.0
+

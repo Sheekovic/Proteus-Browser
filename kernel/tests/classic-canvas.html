@@ -1,0 +1,75 @@
+<!doctype html>
+<body>
+<script>
+// Draws the canvas images that widely used fingerprinting scripts draw, and reports a
+// hash of each. Used to find out whether a browser treats these well-known drawings
+// differently from an arbitrary one.
+//
+// The two "fpjs" drawings follow the canvas source of FingerprintJS (MIT licence,
+// github.com/fingerprintjs/fingerprintjs); "leaks" follows the commonly published
+// BrowserLeaks-style text test. "custom" is a drawing of our own that no tool knows.
+function fnv(bytes) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) { h ^= bytes[i]; h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0');
+}
+const text = s => fnv(new TextEncoder().encode(s));
+
+function make(w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  draw(g, c);
+  return c;
+}
+
+const drawings = {
+  fpjsText: () => make(240, 60, g => {
+    g.textBaseline = 'alphabetic';
+    g.fillStyle = '#f60'; g.fillRect(100, 1, 62, 20);
+    g.fillStyle = '#069'; g.font = '11pt "Times New Roman"';
+    const printed = 'Cwm fjordbank gly ' + String.fromCharCode(55357, 56835);
+    g.fillText(printed, 2, 15);
+    g.fillStyle = 'rgba(102, 204, 0, 0.2)'; g.font = '18pt Arial';
+    g.fillText(printed, 4, 45);
+  }),
+  fpjsGeometry: () => make(122, 110, g => {
+    g.globalCompositeOperation = 'multiply';
+    for (const [color, x, y] of [['#f2f', 40, 40], ['#2ff', 80, 40], ['#ff2', 60, 80]]) {
+      g.fillStyle = color;
+      g.beginPath(); g.arc(x, y, 40, 0, Math.PI * 2, true); g.closePath(); g.fill();
+    }
+    g.fillStyle = '#f9c';
+    g.arc(60, 60, 60, 0, Math.PI * 2, true);
+    g.arc(60, 60, 20, 0, Math.PI * 2, true);
+    g.fill('evenodd');
+  }),
+  leaks: () => make(220, 30, g => {
+    const txt = 'BrowserLeaks,com <canvas> 1.0';
+    g.textBaseline = 'top'; g.font = "14px 'Arial'";
+    g.textBaseline = 'alphabetic';
+    g.fillStyle = '#f60'; g.fillRect(125, 1, 62, 20);
+    g.fillStyle = '#069'; g.fillText(txt, 2, 15);
+    g.fillStyle = 'rgba(102, 204, 0, 0.7)'; g.fillText(txt, 4, 17);
+  }),
+  custom: () => make(240, 60, g => {
+    g.fillStyle = '#135'; g.fillRect(7, 3, 91, 33);
+    g.fillStyle = '#b52'; g.font = '13pt Georgia';
+    g.fillText('Proteus probe 0xC0FFEE', 5, 41);
+  }),
+};
+
+const fields = [];
+for (const [name, draw] of Object.entries(drawings)) {
+  const a = draw(), b = draw();
+  const urlA = a.toDataURL(), urlB = b.toDataURL();
+  const g = a.getContext('2d');
+  const data = g.getImageData(0, 0, a.width, a.height).data;
+  fields.push(`${name}Url=${text(urlA)}`);
+  fields.push(`${name}Data=${fnv(data)}`);
+  fields.push(`${name}Same=${urlA === urlB && urlA === a.toDataURL()}`);
+  fields.push(`${name}Len=${urlA.length}`);
+}
+document.body.innerText = 'RESULT ' + fields.join(' ');
+</script>
+</body>

@@ -1,0 +1,95 @@
+From f568e492be9b84c30f9f6c33e3347bf37835fcd6 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Sun, 15 Nov 2026 16:48:57 +0000
+Subject: [PATCH 10/11] proteus: generate client hint brand lists from a brand
+ name
+
+---
+ base/proteus/proteus_config.cc                |  1 +
+ base/proteus/proteus_config.h                 |  7 ++++
+ .../embedder_support/user_agent_utils.cc      | 33 ++++++++++++++++---
+ 3 files changed, 36 insertions(+), 5 deletions(-)
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index 5893679f6d..aa3a653054 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -102,6 +102,7 @@ std::vector<UaBrand> ParseBrands(const DictValue& dict, std::string_view key) {
+ 
+ UaData ParseUaData(const DictValue& dict) {
+   UaData data;
++  data.brand = StringOrEmpty(dict, "brand");
+   data.brands = ParseBrands(dict, "brands");
+   data.full_version_list = ParseBrands(dict, "fullVersionList");
+   data.full_version = StringOrEmpty(dict, "fullVersion");
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index 7ba3509004..674ca2e800 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -36,6 +36,13 @@ struct BASE_EXPORT UaData {
+   UaData& operator=(const UaData&);
+   ~UaData();
+ 
++  // The browser's brand name, e.g. "Google Chrome". When set (together with
++  // |full_version|), the brand lists are generated the way a branded browser of
++  // that version builds them - including the GREASE entry and the ordering,
++  // both of which change with every major version - and |brands| /
++  // |full_version_list| are ignored.
++  std::string brand;
++
+   std::vector<UaBrand> brands;             // Sec-CH-UA
+   std::vector<UaBrand> full_version_list;  // Sec-CH-UA-Full-Version-List
+   std::string full_version;
+diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
+index 437d74622c..c18990a3ad 100644
+--- a/components/embedder_support/user_agent_utils.cc
++++ b/components/embedder_support/user_agent_utils.cc
+@@ -492,17 +492,40 @@ static std::optional<blink::UserAgentMetadata> ProteusUserAgentMetadata(
+     return std::nullopt;
+   }
+   blink::UserAgentMetadata metadata;
+-  for (const base::proteus::UaBrand& brand : data->brands) {
+-    metadata.brand_version_list.emplace_back(brand.brand, brand.version);
++  const bool generate_brands =
++      !data->brand.empty() && !data->full_version.empty();
++  int brand_seed = 0;
++  if (generate_brands) {
++    // The generator takes the version text to print as-is, so the major
++    // list needs just the major number ("158"), not the full version.
++    const std::string major_version =
++        data->full_version.substr(0, data->full_version.find('.'));
++    base::StringToInt(major_version, &brand_seed);
++    if (brand_seed < 0) {
++      brand_seed = 0;
++    }
++    metadata.brand_version_list = GenerateBrandVersionList(
++        brand_seed, data->brand, major_version,
++        blink::UserAgentBrandVersionType::kMajorVersion);
++  } else {
++    for (const base::proteus::UaBrand& brand : data->brands) {
++      metadata.brand_version_list.emplace_back(brand.brand, brand.version);
++    }
+   }
+   metadata.mobile = data->mobile;
+   metadata.platform = data->platform;
+   if (only_low_entropy_ch) {
+     return metadata;
+   }
+-  for (const base::proteus::UaBrand& brand : data->full_version_list) {
+-    metadata.brand_full_version_list.emplace_back(brand.brand,
+-                                                  brand.version);
++  if (generate_brands) {
++    metadata.brand_full_version_list = GenerateBrandVersionList(
++        brand_seed, data->brand, data->full_version,
++        blink::UserAgentBrandVersionType::kFullVersion);
++  } else {
++    for (const base::proteus::UaBrand& brand : data->full_version_list) {
++      metadata.brand_full_version_list.emplace_back(brand.brand,
++                                                    brand.version);
++    }
+   }
+   metadata.full_version = data->full_version;
+   metadata.platform_version = data->platform_version;
+-- 
+2.43.0
+

@@ -1,0 +1,194 @@
+From d574638c39935f2f7b5d95de6a09ca517bad33a6 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Sun, 15 Nov 2026 13:20:54 +0000
+Subject: [PATCH 04/11] proteus: seed-derived offline audio render noise
+
+---
+ base/proteus/proteus_config.cc                |  1 +
+ base/proteus/proteus_config.h                 |  3 +
+ .../blink/renderer/modules/webaudio/BUILD.gn  |  2 +
+ .../modules/webaudio/offline_audio_context.cc |  2 +
+ .../modules/webaudio/proteus_audio_noise.cc   | 77 +++++++++++++++++++
+ .../modules/webaudio/proteus_audio_noise.h    | 27 +++++++
+ 6 files changed, 112 insertions(+)
+ create mode 100644 third_party/blink/renderer/modules/webaudio/proteus_audio_noise.cc
+ create mode 100644 third_party/blink/renderer/modules/webaudio/proteus_audio_noise.h
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index 367b193bb4..9641d5f7b0 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -101,6 +101,7 @@ Config LoadConfig() {
+     config.device_memory = *value;
+   }
+   config.canvas_noise = dict->FindBool("canvasNoise").value_or(false);
++  config.audio_noise = dict->FindBool("audioNoise").value_or(false);
+   if (const std::string* value = dict->FindString("webglVendor")) {
+     config.webgl_vendor = *value;
+   }
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index 2cb67b39e3..3c4d8d4a78 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -45,6 +45,9 @@ struct BASE_EXPORT Config {
+   // Whether canvas readbacks (2D and WebGL) carry seed-derived noise.
+   bool canvas_noise = false;
+ 
++  // Whether offline audio renders carry seed-derived noise.
++  bool audio_noise = false;
++
+   // WEBGL_debug_renderer_info strings. Empty means "report the real GPU".
+   std::string webgl_vendor;
+   std::string webgl_renderer;
+diff --git a/third_party/blink/renderer/modules/webaudio/BUILD.gn b/third_party/blink/renderer/modules/webaudio/BUILD.gn
+index 170ae8040c..9b93ab7905 100644
+--- a/third_party/blink/renderer/modules/webaudio/BUILD.gn
++++ b/third_party/blink/renderer/modules/webaudio/BUILD.gn
+@@ -12,6 +12,8 @@ blink_modules_sources("webaudio") {
+     "analyser_node.h",
+     "audio_buffer.cc",
+     "audio_buffer.h",
++    "proteus_audio_noise.cc",
++    "proteus_audio_noise.h",
+     "audio_buffer_source_handler.cc",
+     "audio_buffer_source_handler.h",
+     "audio_buffer_source_node.cc",
+diff --git a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+index baf8b320c6..052ed37c26 100644
+--- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
++++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+@@ -43,6 +43,7 @@
+ #include "third_party/blink/renderer/modules/webaudio/offline_audio_completion_event.h"
+ #include "third_party/blink/renderer/modules/webaudio/offline_audio_destination_handler.h"
+ #include "third_party/blink/renderer/modules/webaudio/offline_audio_destination_node.h"
++#include "third_party/blink/renderer/modules/webaudio/proteus_audio_noise.h"
+ #include "third_party/blink/renderer/platform/audio/audio_utilities.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+@@ -578,6 +579,7 @@ void OfflineAudioContext::OnChunkRendered() {
+   Member<AudioBuffer> rendered_buffer = pending_render_targets_.front();
+ 
+   CHECK(rendered_buffer);
++  ProteusApplyAudioNoise(rendered_buffer.Get());
+   // Keep the target queued across `Resolve()` so synchronous thenable getters
+   // can enqueue more chunks without starting a duplicate render.
+   resolver->Resolve(rendered_buffer.Get());
+diff --git a/third_party/blink/renderer/modules/webaudio/proteus_audio_noise.cc b/third_party/blink/renderer/modules/webaudio/proteus_audio_noise.cc
+new file mode 100644
+index 0000000000..ace5a591ef
+--- /dev/null
++++ b/third_party/blink/renderer/modules/webaudio/proteus_audio_noise.cc
+@@ -0,0 +1,77 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "third_party/blink/renderer/modules/webaudio/proteus_audio_noise.h"
++
++#include <stdint.h>
++
++#include <cmath>
++#include <limits>
++
++#include "base/bit_cast.h"
++#include "base/containers/span.h"
++#include "base/proteus/proteus_config.h"
++#include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
++#include "third_party/blink/renderer/modules/webaudio/audio_buffer.h"
++
++namespace blink {
++
++namespace {
++
++// One changing sample in this many is perturbed.
++constexpr uint64_t kSampleSelectionRate = 4;
++
++uint64_t Mix(uint64_t seed, uint64_t channel, uint64_t index, uint32_t bits) {
++  uint64_t h = seed;
++  h ^= (channel + 1) * 0x9E3779B97F4A7C15ull;
++  h ^= index * 0xC2B2AE3D27D4EB4Full;
++  h ^= static_cast<uint64_t>(bits) * 0x165667B19E3779F9ull;
++  h ^= h >> 30;
++  h *= 0xBF58476D1CE4E5B9ull;
++  h ^= h >> 27;
++  h *= 0x94D049BB133111EBull;
++  h ^= h >> 31;
++  return h;
++}
++
++void ApplyNoise(base::span<float> samples, uint64_t channel, uint64_t seed) {
++  if (samples.empty()) {
++    return;
++  }
++  float previous = samples[0];  // Original value of the preceding sample.
++  for (size_t i = 1; i < samples.size(); ++i) {
++    const float current = samples[i];
++    if (current != previous && current != 0.0f && std::isfinite(current)) {
++      const uint64_t h = Mix(seed, channel, i, base::bit_cast<uint32_t>(current));
++      if (h % kSampleSelectionRate == 0) {
++        const float toward = (h >> 8) & 1
++                                 ? std::numeric_limits<float>::infinity()
++                                 : -std::numeric_limits<float>::infinity();
++        const float nudged = std::nextafter(current, toward);
++        if (std::isfinite(nudged) && nudged != 0.0f) {
++          samples[i] = nudged;
++        }
++      }
++    }
++    previous = current;
++  }
++}
++
++}  // namespace
++
++void ProteusApplyAudioNoise(AudioBuffer* buffer) {
++  const base::proteus::Config& config = base::proteus::GetConfig();
++  if (!buffer || !config.audio_noise) {
++    return;
++  }
++  for (unsigned channel = 0; channel < buffer->numberOfChannels(); ++channel) {
++    NotShared<DOMFloat32Array> data = buffer->getChannelData(channel);
++    if (!data.Get()) {
++      continue;
++    }
++    ApplyNoise(data->AsSpan(), channel, config.seed);
++  }
++}
++
++}  // namespace blink
+diff --git a/third_party/blink/renderer/modules/webaudio/proteus_audio_noise.h b/third_party/blink/renderer/modules/webaudio/proteus_audio_noise.h
+new file mode 100644
+index 0000000000..e3aebb189f
+--- /dev/null
++++ b/third_party/blink/renderer/modules/webaudio/proteus_audio_noise.h
+@@ -0,0 +1,27 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_PROTEUS_AUDIO_NOISE_H_
++#define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_PROTEUS_AUDIO_NOISE_H_
++
++namespace blink {
++
++class AudioBuffer;
++
++// Offline audio render noise.
++//
++// When the active Proteus profile enables audio noise, the result of an
++// OfflineAudioContext render is perturbed once, before script can see it, so
++// that the audio fingerprint is unique to the profile. Because the buffer
++// itself is changed, getChannelData(), copyFromChannel() and playing the buffer
++// back all agree. The perturbation is a pure function of (profile seed,
++// channel, sample index, sample value, previous sample):
++//   * the same graph rendered twice yields identical samples;
++//   * silence and constant signals are never touched - only a sample that
++//     differs from its predecessor can change, to an adjacent float value.
++void ProteusApplyAudioNoise(AudioBuffer* buffer);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_PROTEUS_AUDIO_NOISE_H_
+-- 
+2.43.0
+

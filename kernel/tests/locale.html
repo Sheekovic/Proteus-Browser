@@ -1,0 +1,47 @@
+<!doctype html>
+<body>
+<script>
+// Emits one line of key=value pairs describing the screen, languages and time zone a
+// page can see: in the window, in a worker, and in the request headers.
+const enc = v => encodeURIComponent(String(v));
+
+function offsets() {
+  // Minutes west of UTC in January and July, which also reveals daylight saving.
+  return new Date(2026, 0, 15, 12).getTimezoneOffset() + '/' +
+         new Date(2026, 6, 15, 12).getTimezoneOffset();
+}
+
+function workerValues() {
+  return new Promise(resolve => {
+    const w = new Worker(URL.createObjectURL(new Blob([
+      'postMessage({languages: navigator.languages.join(","),' +
+      ' zone: Intl.DateTimeFormat().resolvedOptions().timeZone,' +
+      ' offsets: new Date(2026, 0, 15, 12).getTimezoneOffset() + "/" +' +
+      '          new Date(2026, 6, 15, 12).getTimezoneOffset()})'])));
+    w.onmessage = e => resolve(e.data);
+  });
+}
+
+(async () => {
+  const headers = await (await fetch('/headers')).json();
+  const worker = await workerValues();
+  const s = screen;
+  document.body.innerText = 'RESULT ' + [
+    'screen=' + s.width + 'x' + s.height,
+    'avail=' + s.availWidth + 'x' + s.availHeight + '@' + s.availLeft + ',' + s.availTop,
+    'depth=' + s.colorDepth + '/' + s.pixelDepth,
+    'mqDevice=' + matchMedia('(device-width: ' + s.width + 'px) and (device-height: ' +
+                             s.height + 'px)').matches,
+    'mq1366=' + matchMedia('(device-width: 1366px) and (device-height: 768px)').matches,
+    'language=' + enc(navigator.language),
+    'languages=' + enc(navigator.languages.join(',')),
+    'zone=' + enc(Intl.DateTimeFormat().resolvedOptions().timeZone),
+    'offsets=' + offsets(),
+    'workerLanguages=' + enc(worker.languages),
+    'workerZone=' + enc(worker.zone),
+    'workerOffsets=' + worker.offsets,
+    'hdrLanguage=' + enc(headers['accept-language']),
+  ].join(' ');
+})();
+</script>
+</body>

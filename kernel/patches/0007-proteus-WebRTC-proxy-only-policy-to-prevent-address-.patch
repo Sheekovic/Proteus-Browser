@@ -1,0 +1,66 @@
+From d9f26d843c85a6a69deb61112e6a5b6900aae02d Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Sun, 15 Nov 2026 15:39:43 +0000
+Subject: [PATCH 07/11] proteus: WebRTC proxy-only policy to prevent address
+ leaks
+
+---
+ base/proteus/proteus_config.cc              | 1 +
+ base/proteus/proteus_config.h               | 5 +++++
+ chrome/browser/renderer_preferences_util.cc | 5 +++++
+ 3 files changed, 11 insertions(+)
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index 8cb3f8960a..adfc04d49c 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -170,6 +170,7 @@ Config LoadConfig() {
+     }
+   }
+   config.timezone = StringOrEmpty(*dict, "timezone");
++  config.webrtc_proxy_only = StringOrEmpty(*dict, "webRtcPolicy") == "proxyOnly";
+   config.canvas_noise = dict->FindBool("canvasNoise").value_or(false);
+   config.audio_noise = dict->FindBool("audioNoise").value_or(false);
+   if (const std::string* value = dict->FindString("webglVendor")) {
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index 307b743abd..a28f14810f 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -99,6 +99,11 @@ struct BASE_EXPORT Config {
+   // IANA time zone id ("America/New_York"). Empty means real.
+   std::string timezone;
+ 
++  // When true, WebRTC may only send traffic through the configured proxy: no
++  // direct UDP leaves the machine, so neither a STUN server nor the page can
++  // learn the real public or local address.
++  bool webrtc_proxy_only = false;
++
+   // Whether canvas readbacks (2D and WebGL) carry seed-derived noise.
+   bool canvas_noise = false;
+ 
+diff --git a/chrome/browser/renderer_preferences_util.cc b/chrome/browser/renderer_preferences_util.cc
+index 1186e59080..e1e634da4c 100644
+--- a/chrome/browser/renderer_preferences_util.cc
++++ b/chrome/browser/renderer_preferences_util.cc
+@@ -10,6 +10,7 @@
+ #include <vector>
+ 
+ #include "base/logging.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/strings/string_number_conversions.h"
+ #include "base/strings/string_util.h"
+ #include "base/strings/utf_string_conversions.h"
+@@ -171,6 +172,10 @@ void UpdateFromSystemSettings(blink::RendererPreferences* prefs,
+ 
+   prefs->webrtc_ip_handling_policy = blink::ToWebRTCIPHandlingPolicy(
+       pref_service->GetString(prefs::kWebRTCIPHandlingPolicy));
++  if (base::proteus::GetConfig().webrtc_proxy_only) {
++    prefs->webrtc_ip_handling_policy = blink::ToWebRTCIPHandlingPolicy(
++        blink::kWebRTCIPHandlingDisableNonProxiedUdp);
++  }
+ 
+   for (const base::Value& entry :
+        pref_service->GetList(prefs::kWebRTCIPHandlingUrl)) {
+-- 
+2.43.0
+

@@ -1,0 +1,54 @@
+<!doctype html>
+<body>
+<script>
+// Emits one line of key=value pairs listing which fonts a page can detect, using the
+// two techniques fingerprinting scripts use: text measurement and local() sources.
+// usage: fonts.html?candidates=Font A|Font B|...
+const candidates = (new URLSearchParams(location.search).get('candidates') || '').split('|').filter(Boolean);
+const BASES = ['monospace', 'serif', 'sans-serif'];
+const SAMPLE = 'mmmmmmmmmmlliWW@#0O 1Il';
+
+const span = document.createElement('span');
+span.style.cssText = 'position:absolute;left:-9999px;font-size:72px;white-space:nowrap';
+span.textContent = SAMPLE;
+document.body.append(span);
+
+function size(family) {
+  span.style.fontFamily = family;
+  return span.offsetWidth + 'x' + span.offsetHeight;
+}
+
+const baseSize = Object.fromEntries(BASES.map(b => [b, size(b)]));
+
+// A font is detected when asking for it changes the text size against any fallback.
+function detectedByMeasurement(font) {
+  return BASES.some(base => size(`'${font}', ${base}`) !== baseSize[base]);
+}
+
+// local() resolves only for an installed font.
+async function detectedByLocal(font) {
+  try {
+    await new FontFace('proteus-probe', `local("${font}")`).load();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+(async () => {
+  const measured = candidates.filter(detectedByMeasurement);
+  const local = [];
+  for (const font of candidates) {
+    if (await detectedByLocal(font)) local.push(font);
+  }
+  document.body.innerText = 'RESULT ' + [
+    'measured=' + encodeURIComponent(measured.join('|') || 'none'),
+    'local=' + encodeURIComponent(local.join('|') || 'none'),
+    'bases=' + BASES.map(b => baseSize[b]).join(','),
+    // Size of the sample in each candidate (over a monospace fallback), which shows
+    // which actual font a name resolved to.
+    'sizes=' + encodeURIComponent(candidates.map(f => f + ':' + size(`'${f}', monospace`)).join('|')),
+  ].join(' ');
+})();
+</script>
+</body>

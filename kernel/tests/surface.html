@@ -1,0 +1,72 @@
+<!doctype html>
+<body>
+<script>
+// Emits one line of key=value pairs covering the device surfaces not exercised by the
+// other pages: media devices, speech voices, network, battery, WebGPU, plugins,
+// window geometry and automation markers.
+const enc = v => encodeURIComponent(String(v));
+const safe = async (fn, fallback = 'error') => { try { return await fn(); } catch (e) { return fallback + ':' + e.name; } };
+
+function voices() {
+  return new Promise(resolve => {
+    const read = () => speechSynthesis.getVoices();
+    if (read().length) return resolve(read());
+    speechSynthesis.onvoiceschanged = () => resolve(read());
+    setTimeout(() => resolve(read()), 2500);
+  });
+}
+
+(async () => {
+  const devices = await safe(async () => {
+    const list = await navigator.mediaDevices.enumerateDevices();
+    const count = kind => list.filter(d => d.kind === kind).length;
+    const labelled = list.filter(d => d.label).length;
+    return `in${count('audioinput')}/out${count('audiooutput')}/cam${count('videoinput')}/labels${labelled}`;
+  });
+  const voiceList = 'speechSynthesis' in window ? await voices() : [];
+  const connection = navigator.connection;
+  const battery = await safe(async () => {
+    const b = await navigator.getBattery();
+    return `${b.charging}/${b.level}/${b.chargingTime}/${b.dischargingTime}`;
+  }, 'none');
+  const gpu = await safe(async () => {
+    if (!navigator.gpu) return 'unsupported';
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return 'no-adapter';
+    const i = adapter.info || {};
+    return `${i.vendor}|${i.architecture}|${i.device}|${i.description}`;
+  });
+  const gl = document.createElement('canvas').getContext('webgl');
+  const glInfo = gl ? [
+    gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),
+    gl.getParameter(gl.MAX_VERTEX_ATTRIBS), (gl.getSupportedExtensions() || []).length,
+    gl.getParameter(gl.VERSION), gl.getParameter(gl.SHADING_LANGUAGE_VERSION),
+  ].join('|') : 'none';
+  const storage = await safe(async () => Math.round((await navigator.storage.estimate()).quota / 2 ** 30) + 'GiB');
+
+  document.body.innerText = 'RESULT ' + [
+    'mediaDevices=' + enc(devices),
+    'voices=' + voiceList.length,
+    'voiceNames=' + enc(voiceList.slice(0, 6).map(v => v.name + (v.localService ? '' : '*')).join('|')),
+    'connection=' + enc(connection ? `${connection.effectiveType}/${connection.downlink}/${connection.rtt}/${connection.saveData}` : 'none'),
+    'battery=' + enc(battery),
+    'webgpu=' + enc(gpu),
+    'webglLimits=' + enc(glInfo),
+    'cores=' + navigator.hardwareConcurrency,
+    'memory=' + navigator.deviceMemory,
+    'dpr=' + devicePixelRatio,
+    'outer=' + outerWidth + 'x' + outerHeight,
+    'inner=' + innerWidth + 'x' + innerHeight,
+    'screenXY=' + screenX + ',' + screenY,
+    'touch=' + navigator.maxTouchPoints,
+    'plugins=' + navigator.plugins.length,
+    'pdf=' + navigator.pdfViewerEnabled,
+    'webdriver=' + navigator.webdriver,
+    'storage=' + enc(storage),
+    'vendor=' + enc(navigator.vendor),
+    'oscpu=' + enc(navigator.oscpu),
+    'chrome=' + (typeof chrome) + '/' + (window.chrome ? Object.keys(window.chrome).join(',') : ''),
+  ].join(' ');
+})();
+</script>
+</body>

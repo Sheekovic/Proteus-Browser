@@ -1,0 +1,293 @@
+From 7992dcaa175b5d5e12116ea9213dde18264da1ca Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Sun, 15 Nov 2026 14:07:16 +0000
+Subject: [PATCH 06/11] proteus: screen, languages and time zone overrides
+
+---
+ base/proteus/proteus_config.cc                | 23 +++++++++++++++++++
+ base/proteus/proteus_config.h                 | 21 +++++++++++++++++
+ .../net/profile_network_context_service.cc    |  6 +++++
+ .../blink/renderer/core/css/media_values.cc   |  7 ++++++
+ .../renderer/core/frame/navigator_language.cc | 14 ++++++++++-
+ .../blink/renderer/core/frame/screen.cc       | 22 ++++++++++++++++++
+ .../core/timezone/timezone_controller.cc      | 16 +++++++++++++
+ 7 files changed, 108 insertions(+), 1 deletion(-)
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index b6e82fd40d..8cb3f8960a 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -147,6 +147,29 @@ Config LoadConfig() {
+   if (const DictValue* ua_data = dict->FindDict("uaData")) {
+     config.ua_data = ParseUaData(*ua_data);
+   }
++  if (const DictValue* screen = dict->FindDict("screen")) {
++    ScreenData data;
++    data.width = screen->FindInt("width").value_or(0);
++    data.height = screen->FindInt("height").value_or(0);
++    data.avail_width = screen->FindInt("availWidth").value_or(data.width);
++    data.avail_height = screen->FindInt("availHeight").value_or(data.height);
++    data.color_depth = screen->FindInt("colorDepth").value_or(24);
++    if (data.width > 0 && data.height > 0) {
++      config.screen = data;
++    }
++  }
++  if (const ListValue* languages = dict->FindList("languages")) {
++    for (const Value& language : *languages) {
++      if (!language.is_string() || language.GetString().empty()) {
++        continue;
++      }
++      if (!config.accept_languages.empty()) {
++        config.accept_languages += ",";
++      }
++      config.accept_languages += language.GetString();
++    }
++  }
++  config.timezone = StringOrEmpty(*dict, "timezone");
+   config.canvas_noise = dict->FindBool("canvasNoise").value_or(false);
+   config.audio_noise = dict->FindBool("audioNoise").value_or(false);
+   if (const std::string* value = dict->FindString("webglVendor")) {
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index 453ea9c221..307b743abd 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -48,6 +48,16 @@ struct BASE_EXPORT UaData {
+   bool wow64 = false;
+ };
+ 
++// window.screen and the device-width / device-height media features, in CSS
++// pixels.
++struct BASE_EXPORT ScreenData {
++  int width = 0;
++  int height = 0;
++  int avail_width = 0;
++  int avail_height = 0;
++  int color_depth = 24;
++};
++
+ // Per-profile identity settings. Every field is optional; an absent field means
+ // "report the real value of this machine".
+ struct BASE_EXPORT Config {
+@@ -78,6 +88,17 @@ struct BASE_EXPORT Config {
+   // User-Agent Client Hints. Absent means real.
+   std::optional<UaData> ua_data;
+ 
++  // Screen geometry. Absent means real.
++  std::optional<ScreenData> screen;
++
++  // Preferred languages, most preferred first, comma separated ("de-DE,de,en").
++  // Drives navigator.languages and the Accept-Language header. Empty means
++  // real.
++  std::string accept_languages;
++
++  // IANA time zone id ("America/New_York"). Empty means real.
++  std::string timezone;
++
+   // Whether canvas readbacks (2D and WebGL) carry seed-derived noise.
+   bool canvas_noise = false;
+ 
+diff --git a/chrome/browser/net/profile_network_context_service.cc b/chrome/browser/net/profile_network_context_service.cc
+index ec1e9b7c18..337ae40c13 100644
+--- a/chrome/browser/net/profile_network_context_service.cc
++++ b/chrome/browser/net/profile_network_context_service.cc
+@@ -23,6 +23,7 @@
+ #include "base/metrics/field_trial.h"
+ #include "base/metrics/field_trial_params.h"
+ #include "base/notreached.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/strings/strcat.h"
+ #include "base/strings/string_split.h"
+ #include "base/strings/string_util.h"
+@@ -711,6 +712,11 @@ void ProfileNetworkContextService::OnThirdPartyCookieBlockingChanged(
+ }
+ 
+ std::string ProfileNetworkContextService::ComputeAcceptLanguage() const {
++  if (const std::string& forced =
++          base::proteus::GetConfig().accept_languages;
++      !forced.empty()) {
++    return ComputeAcceptLanguageFromPref(forced);
++  }
+   return ComputeAcceptLanguageFromPref(
+       content::ReduceAcceptLanguageUtils::GetLanguagesWithMaxCount(
+           profile_->IsOffTheRecord() ? language::GetIncognitoLanguageList(
+diff --git a/third_party/blink/renderer/core/css/media_values.cc b/third_party/blink/renderer/core/css/media_values.cc
+index 8d4c98859d..c7c4e9a2cb 100644
+--- a/third_party/blink/renderer/core/css/media_values.cc
++++ b/third_party/blink/renderer/core/css/media_values.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "third_party/blink/renderer/core/css/media_values.h"
+ 
++#include "base/proteus/proteus_config.h"
+ #include "third_party/blink/public/common/css/scripting.h"
+ #include "third_party/blink/renderer/core/css/css_resolution_units.h"
+ #include "third_party/blink/renderer/core/css/css_to_length_conversion_data.h"
+@@ -167,6 +168,9 @@ int MediaValues::CalculateDeviceWidth(LocalFrame* frame) {
+   const display::ScreenInfo& screen_info =
+       frame->GetPage()->GetChromeClient().GetScreenInfo(*frame);
+   int device_width = screen_info.rect.width();
++  if (const auto& forced = base::proteus::GetConfig().screen) {
++    device_width = forced->width;
++  }
+   if (frame->GetSettings()->GetReportScreenSizeInPhysicalPixelsQuirk()) {
+     device_width = static_cast<int>(
+         lroundf(device_width * screen_info.device_scale_factor));
+@@ -179,6 +183,9 @@ int MediaValues::CalculateDeviceHeight(LocalFrame* frame) {
+   const display::ScreenInfo& screen_info =
+       frame->GetPage()->GetChromeClient().GetScreenInfo(*frame);
+   int device_height = screen_info.rect.height();
++  if (const auto& forced = base::proteus::GetConfig().screen) {
++    device_height = forced->height;
++  }
+   if (frame->GetSettings()->GetReportScreenSizeInPhysicalPixelsQuirk()) {
+     device_height = static_cast<int>(
+         lroundf(device_height * screen_info.device_scale_factor));
+diff --git a/third_party/blink/renderer/core/frame/navigator_language.cc b/third_party/blink/renderer/core/frame/navigator_language.cc
+index 4bb64aa4d0..0cf1ef6f7c 100644
+--- a/third_party/blink/renderer/core/frame/navigator_language.cc
++++ b/third_party/blink/renderer/core/frame/navigator_language.cc
+@@ -4,6 +4,11 @@
+ 
+ #include "third_party/blink/renderer/core/frame/navigator_language.h"
+ 
++#include <string>
++
++#include "base/containers/span.h"
++#include "base/proteus/proteus_config.h"
++
+ #include "services/network/public/cpp/features.h"
+ #include "third_party/blink/renderer/core/probe/core_probes.h"
+ #include "third_party/blink/renderer/platform/language.h"
+@@ -81,7 +86,14 @@ void NavigatorLanguage::EnsureUpdatedLanguage() {
+   }
+ 
+   if (languages_dirty_) {
+-    languages_ = ParseAndSanitize(GetAcceptLanguages());
++    if (const std::string& forced =
++            base::proteus::GetConfig().accept_languages;
++        !forced.empty()) {
++      languages_ =
++          ParseAndSanitize(String::FromUtf8(base::as_byte_span(forced)));
++    } else {
++      languages_ = ParseAndSanitize(GetAcceptLanguages());
++    }
+     // Reduce the Accept-Language if the feature flag ReduceAcceptLanguage is
+     // enabled.
+     if (base::FeatureList::IsEnabled(
+diff --git a/third_party/blink/renderer/core/frame/screen.cc b/third_party/blink/renderer/core/frame/screen.cc
+index ed5028943e..80a8ee8550 100644
+--- a/third_party/blink/renderer/core/frame/screen.cc
++++ b/third_party/blink/renderer/core/frame/screen.cc
+@@ -29,6 +29,7 @@
+ #include "third_party/blink/renderer/core/frame/screen.h"
+ 
+ #include "base/numerics/safe_conversions.h"
++#include "base/proteus/proteus_config.h"
+ #include "services/network/public/mojom/permissions_policy/permissions_policy_feature.mojom-blink.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+ #include "third_party/blink/renderer/core/event_target_names.h"
+@@ -90,12 +91,18 @@ bool Screen::AreWebExposedScreenPropertiesEqual(
+ int Screen::height() const {
+   if (!DomWindow())
+     return 0;
++  if (const auto& forced = base::proteus::GetConfig().screen) {
++    return forced->height;
++  }
+   return GetRect(/*available=*/false).height();
+ }
+ 
+ int Screen::width() const {
+   if (!DomWindow())
+     return 0;
++  if (const auto& forced = base::proteus::GetConfig().screen) {
++    return forced->width;
++  }
+   return GetRect(/*available=*/false).width();
+ }
+ 
+@@ -109,6 +116,9 @@ unsigned Screen::colorDepth() const {
+   if (!DomWindow()) {
+     return unknown_color_depth;
+   }
++  if (const auto& forced = base::proteus::GetConfig().screen) {
++    return base::saturated_cast<unsigned>(forced->color_depth);
++  }
+   return GetScreenInfo().depth == 0
+              ? unknown_color_depth
+              : base::saturated_cast<unsigned>(GetScreenInfo().depth);
+@@ -121,24 +131,36 @@ unsigned Screen::pixelDepth() const {
+ int Screen::availLeft() const {
+   if (!DomWindow())
+     return 0;
++  if (base::proteus::GetConfig().screen) {
++    return 0;
++  }
+   return GetRect(/*available=*/true).x();
+ }
+ 
+ int Screen::availTop() const {
+   if (!DomWindow())
+     return 0;
++  if (base::proteus::GetConfig().screen) {
++    return 0;
++  }
+   return GetRect(/*available=*/true).y();
+ }
+ 
+ int Screen::availHeight() const {
+   if (!DomWindow())
+     return 0;
++  if (const auto& forced = base::proteus::GetConfig().screen) {
++    return forced->avail_height;
++  }
+   return GetRect(/*available=*/true).height();
+ }
+ 
+ int Screen::availWidth() const {
+   if (!DomWindow())
+     return 0;
++  if (const auto& forced = base::proteus::GetConfig().screen) {
++    return forced->avail_width;
++  }
+   return GetRect(/*available=*/true).width();
+ }
+ 
+diff --git a/third_party/blink/renderer/core/timezone/timezone_controller.cc b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+index 270c78bfd0..2db3d30acb 100644
+--- a/third_party/blink/renderer/core/timezone/timezone_controller.cc
++++ b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+@@ -4,8 +4,13 @@
+ 
+ #include "third_party/blink/renderer/core/timezone/timezone_controller.h"
+ 
++#include <memory>
++#include <string>
++
+ #include "base/command_line.h"
++#include "base/containers/span.h"
+ #include "base/feature_list.h"
++#include "base/proteus/proteus_config.h"
+ #include "mojo/public/cpp/bindings/pending_remote.h"
+ #include "mojo/public/cpp/bindings/remote.h"
+ #include "third_party/blink/public/common/features.h"
+@@ -105,6 +110,17 @@ TimeZoneController::~TimeZoneController() = default;
+ 
+ // static
+ void TimeZoneController::Init() {
++  if (const std::string& forced = base::proteus::GetConfig().timezone;
++      !forced.empty()) {
++    std::unique_ptr<icu::TimeZone> zone(icu::TimeZone::createTimeZone(
++        icu::UnicodeString::fromUTF8(forced)));
++    if (zone && *zone != icu::TimeZone::getUnknown()) {
++      base::AutoLock locker(instance().lock_);
++      icu::TimeZone::adoptDefault(zone.release());
++      instance().override_timezone_id_ =
++          String::FromUtf8(base::as_byte_span(forced));
++    }
++  }
+   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+           blink::switches::kTopChromeWebUI) &&
+       base::FeatureList::IsEnabled(features::kWebUIBypassMojoConnections)) {
+-- 
+2.43.0
+

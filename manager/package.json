@@ -1,0 +1,14 @@
+{
+  "name": "proteus-manager",
+  "version": "0.1.0",
+  "description": "Proteus profile manager: stores browser profiles, launches the Proteus kernel for them and exposes a local API.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test \"test/*.test.ts\""
+  }
+}

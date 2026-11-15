@@ -1,0 +1,255 @@
+From 7baf94cf4a7dbfd8c76e995c91e41bea8a5327ea Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Sun, 15 Nov 2026 13:41:08 +0000
+Subject: [PATCH 05/11] proteus: user agent, client hints and
+ navigator.platform overrides
+
+---
+ base/proteus/proteus_config.cc                | 52 +++++++++++++++++++
+ base/proteus/proteus_config.h                 | 36 +++++++++++++
+ .../embedder_support/user_agent_utils.cc      | 40 ++++++++++++++
+ .../core/execution_context/navigator_base.cc  |  9 ++++
+ 4 files changed, 137 insertions(+)
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index 9641d5f7b0..b6e82fd40d 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -5,6 +5,7 @@
+ #include "base/proteus/proteus_config.h"
+ 
+ #include <string_view>
++#include <utility>
+ #include <vector>
+ 
+ #include "base/base64.h"
+@@ -73,6 +74,47 @@ uint64_t ParseSeed(const DictValue& dict) {
+   return 0;
+ }
+ 
++std::string StringOrEmpty(const DictValue& dict, std::string_view key) {
++  const std::string* value = dict.FindString(key);
++  return value ? *value : std::string();
++}
++
++std::vector<UaBrand> ParseBrands(const DictValue& dict, std::string_view key) {
++  std::vector<UaBrand> brands;
++  const ListValue* list = dict.FindList(key);
++  if (!list) {
++    return brands;
++  }
++  for (const Value& item : *list) {
++    const DictValue* entry = item.GetIfDict();
++    if (!entry) {
++      continue;
++    }
++    UaBrand brand;
++    brand.brand = StringOrEmpty(*entry, "brand");
++    brand.version = StringOrEmpty(*entry, "version");
++    if (!brand.brand.empty()) {
++      brands.push_back(std::move(brand));
++    }
++  }
++  return brands;
++}
++
++UaData ParseUaData(const DictValue& dict) {
++  UaData data;
++  data.brands = ParseBrands(dict, "brands");
++  data.full_version_list = ParseBrands(dict, "fullVersionList");
++  data.full_version = StringOrEmpty(dict, "fullVersion");
++  data.platform = StringOrEmpty(dict, "platform");
++  data.platform_version = StringOrEmpty(dict, "platformVersion");
++  data.architecture = StringOrEmpty(dict, "architecture");
++  data.bitness = StringOrEmpty(dict, "bitness");
++  data.model = StringOrEmpty(dict, "model");
++  data.mobile = dict.FindBool("mobile").value_or(false);
++  data.wow64 = dict.FindBool("wow64").value_or(false);
++  return data;
++}
++
+ Config LoadConfig() {
+   Config config;
+   const std::string json = ReadConfigJson();
+@@ -100,6 +142,11 @@ Config LoadConfig() {
+       value && *value > 0) {
+     config.device_memory = *value;
+   }
++  config.user_agent = StringOrEmpty(*dict, "userAgent");
++  config.navigator_platform = StringOrEmpty(*dict, "platform");
++  if (const DictValue* ua_data = dict->FindDict("uaData")) {
++    config.ua_data = ParseUaData(*ua_data);
++  }
+   config.canvas_noise = dict->FindBool("canvasNoise").value_or(false);
+   config.audio_noise = dict->FindBool("audioNoise").value_or(false);
+   if (const std::string* value = dict->FindString("webglVendor")) {
+@@ -113,6 +160,11 @@ Config LoadConfig() {
+ 
+ }  // namespace
+ 
++UaData::UaData() = default;
++UaData::UaData(const UaData&) = default;
++UaData& UaData::operator=(const UaData&) = default;
++UaData::~UaData() = default;
++
+ Config::Config() = default;
+ Config::Config(const Config&) = default;
+ Config& Config::operator=(const Config&) = default;
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index 3c4d8d4a78..453ea9c221 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -9,6 +9,7 @@
+ 
+ #include <optional>
+ #include <string>
++#include <vector>
+ 
+ #include "base/base_export.h"
+ 
+@@ -22,6 +23,31 @@ BASE_EXPORT extern const char kConfigFileSwitch[];
+ // browser process to every child process it launches.
+ BASE_EXPORT extern const char kConfigDataSwitch[];
+ 
++// One entry of a User-Agent Client Hints brand list, e.g. {"Chromium", "158"}.
++struct BASE_EXPORT UaBrand {
++  std::string brand;
++  std::string version;
++};
++
++// User-Agent Client Hints: navigator.userAgentData and the Sec-CH-UA-* headers.
++struct BASE_EXPORT UaData {
++  UaData();
++  UaData(const UaData&);
++  UaData& operator=(const UaData&);
++  ~UaData();
++
++  std::vector<UaBrand> brands;             // Sec-CH-UA
++  std::vector<UaBrand> full_version_list;  // Sec-CH-UA-Full-Version-List
++  std::string full_version;
++  std::string platform;          // "Windows", "macOS", "Linux", ...
++  std::string platform_version;  // "15.0.0"
++  std::string architecture;      // "x86", "arm"
++  std::string bitness;           // "64"
++  std::string model;
++  bool mobile = false;
++  bool wow64 = false;
++};
++
+ // Per-profile identity settings. Every field is optional; an absent field means
+ // "report the real value of this machine".
+ struct BASE_EXPORT Config {
+@@ -42,6 +68,16 @@ struct BASE_EXPORT Config {
+   // navigator.deviceMemory, in GiB.
+   std::optional<double> device_memory;
+ 
++  // navigator.userAgent and the User-Agent request header. Empty means real.
++  std::string user_agent;
++
++  // navigator.platform, e.g. "Win32", "MacIntel", "Linux x86_64". Empty means
++  // real.
++  std::string navigator_platform;
++
++  // User-Agent Client Hints. Absent means real.
++  std::optional<UaData> ua_data;
++
+   // Whether canvas readbacks (2D and WebGL) carry seed-derived noise.
+   bool canvas_noise = false;
+ 
+diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
+index 833293873f..437d74622c 100644
+--- a/components/embedder_support/user_agent_utils.cc
++++ b/components/embedder_support/user_agent_utils.cc
+@@ -18,6 +18,7 @@
+ #include "base/feature_list.h"
+ #include "base/logging.h"
+ #include "base/no_destructor.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/strings/strcat.h"
+ #include "base/strings/string_number_conversions.h"
+ #include "base/strings/string_util.h"
+@@ -482,7 +483,42 @@ std::optional<std::string> GetUserAgentFromCommandLine() {
+   return std::nullopt;
+ }
+ 
++// Proteus: builds client hints from the active profile, if it defines them.
++static std::optional<blink::UserAgentMetadata> ProteusUserAgentMetadata(
++    bool only_low_entropy_ch) {
++  const std::optional<base::proteus::UaData>& data =
++      base::proteus::GetConfig().ua_data;
++  if (!data) {
++    return std::nullopt;
++  }
++  blink::UserAgentMetadata metadata;
++  for (const base::proteus::UaBrand& brand : data->brands) {
++    metadata.brand_version_list.emplace_back(brand.brand, brand.version);
++  }
++  metadata.mobile = data->mobile;
++  metadata.platform = data->platform;
++  if (only_low_entropy_ch) {
++    return metadata;
++  }
++  for (const base::proteus::UaBrand& brand : data->full_version_list) {
++    metadata.brand_full_version_list.emplace_back(brand.brand,
++                                                  brand.version);
++  }
++  metadata.full_version = data->full_version;
++  metadata.platform_version = data->platform_version;
++  metadata.architecture = data->architecture;
++  metadata.bitness = data->bitness;
++  metadata.model = data->model;
++  metadata.wow64 = data->wow64;
++  metadata.form_factors = {data->mobile ? "Mobile" : "Desktop"};
++  return metadata;
++}
++
+ std::string GetUserAgent() {
++  if (const std::string& forced = base::proteus::GetConfig().user_agent;
++      !forced.empty()) {
++    return forced;
++  }
+   std::optional<std::string> custom_ua = GetUserAgentFromCommandLine();
+   if (custom_ua.has_value()) {
+     return custom_ua.value();
+@@ -633,6 +669,10 @@ std::string GetPlatformForUAMetadata() {
+ }
+ 
+ blink::UserAgentMetadata GetUserAgentMetadata(bool only_low_entropy_ch) {
++  if (std::optional<blink::UserAgentMetadata> forced =
++          ProteusUserAgentMetadata(only_low_entropy_ch)) {
++    return *forced;
++  }
+   blink::UserAgentMetadata metadata;
+ 
+   // Low entropy client hints.
+diff --git a/third_party/blink/renderer/core/execution_context/navigator_base.cc b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+index 83f427c5ec..faa87791ac 100644
+--- a/third_party/blink/renderer/core/execution_context/navigator_base.cc
++++ b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+@@ -4,7 +4,11 @@
+ 
+ #include "third_party/blink/renderer/core/execution_context/navigator_base.h"
+ 
++#include <string>
++
++#include "base/containers/span.h"
+ #include "base/feature_list.h"
++#include "base/proteus/proteus_config.h"
+ #include "build/build_config.h"
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+@@ -67,6 +71,11 @@ String NavigatorBase::userAgent() const {
+ }
+ 
+ String NavigatorBase::platform() const {
++  if (const std::string& forced =
++          base::proteus::GetConfig().navigator_platform;
++      !forced.empty()) {
++    return String::FromUtf8(base::as_byte_span(forced));
++  }
+ #if BUILDFLAG(IS_ANDROID)
+   // We need to check the ReduceUserAgentMinorVersion feature flag for
+   // Android WebView, which does not currently ship a reduced User-Agent.
+-- 
+2.43.0
+

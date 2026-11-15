@@ -1,0 +1,49 @@
+<!doctype html>
+<body>
+<!-- Keeps the page's load event pending for a few real seconds so that ICE gathering,
+     which needs real network time, has finished when the page is dumped. -->
+<img src="/slow?ms=5000" alt="">
+<script>
+// Emits one line of key=value pairs describing which addresses WebRTC reveals.
+// usage: webrtc.html?stun=<ip>:<port>
+const stun = new URLSearchParams(location.search).get('stun');
+const candidates = [];
+const pc = new RTCPeerConnection({ iceServers: stun ? [{ urls: 'stun:' + stun }] : [] });
+
+function finish() {
+  const ipv4 = /\b(\d{1,3}\.){3}\d{1,3}\b/;
+  const types = {};
+  let literal = 0, mdns = 0;
+  for (const c of candidates) {
+    const type = (/ typ (\w+)/.exec(c) || [])[1] || 'unknown';
+    types[type] = (types[type] || 0) + 1;
+    if (ipv4.test(c)) literal++;
+    if (/\.local\b/.test(c)) mdns++;
+  }
+  const sdp = pc.localDescription ? pc.localDescription.sdp : '';
+  const sdpLiteral = (sdp.match(/^a=candidate:.*$/gm) || []).filter(l => ipv4.test(l)).length;
+  // With ?expect=<ip>, report whether the public (srflx) candidate carries exactly
+  // that address, without printing any address.
+  const expect = new URLSearchParams(location.search).get('expect');
+  const srflx = candidates.filter(c => / typ srflx/.test(c));
+  const srflxMatches = expect
+      ? (srflx.length > 0 && srflx.every(c => c.split(' ')[4] === expect))
+      : 'n/a';
+  document.body.innerText = 'RESULT ' + [
+    'api=' + (typeof RTCPeerConnection),
+    'srflxIsExpected=' + srflxMatches,
+    'candidates=' + candidates.length,
+    'types=' + (Object.keys(types).sort().map(t => t + ':' + types[t]).join(',') || 'none'),
+    'ipLiterals=' + literal,
+    'mdns=' + mdns,
+    'sdpIpLiterals=' + sdpLiteral,
+    'gathering=' + pc.iceGatheringState,
+  ].join(' ');
+}
+
+pc.onicecandidate = e => { if (e.candidate) candidates.push(e.candidate.candidate); };
+pc.createDataChannel('probe');
+pc.createOffer().then(offer => pc.setLocalDescription(offer));
+setTimeout(finish, 4000);
+</script>
+</body>

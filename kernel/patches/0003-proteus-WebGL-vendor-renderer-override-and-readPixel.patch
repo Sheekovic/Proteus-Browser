@@ -1,0 +1,288 @@
+From f5b1b6326c817a55b4a8018366c4e530be09b224 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Sun, 15 Nov 2026 13:06:15 +0000
+Subject: [PATCH 03/11] proteus: WebGL vendor/renderer override and readPixels
+ noise
+
+---
+ base/proteus/proteus_config.cc                |  6 ++
+ base/proteus/proteus_config.h                 |  6 +-
+ .../webgl/webgl_rendering_context_base.cc     | 47 ++++++++++++-
+ .../platform/graphics/proteus_canvas_noise.cc | 66 +++++++++++++++----
+ .../platform/graphics/proteus_canvas_noise.h  | 20 ++++++
+ 5 files changed, 131 insertions(+), 14 deletions(-)
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index 92b2471f63..367b193bb4 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -101,6 +101,12 @@ Config LoadConfig() {
+     config.device_memory = *value;
+   }
+   config.canvas_noise = dict->FindBool("canvasNoise").value_or(false);
++  if (const std::string* value = dict->FindString("webglVendor")) {
++    config.webgl_vendor = *value;
++  }
++  if (const std::string* value = dict->FindString("webglRenderer")) {
++    config.webgl_renderer = *value;
++  }
+   return config;
+ }
+ 
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index af8a36767e..2cb67b39e3 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -42,9 +42,13 @@ struct BASE_EXPORT Config {
+   // navigator.deviceMemory, in GiB.
+   std::optional<double> device_memory;
+ 
+-  // Whether canvas readbacks carry seed-derived noise.
++  // Whether canvas readbacks (2D and WebGL) carry seed-derived noise.
+   bool canvas_noise = false;
+ 
++  // WEBGL_debug_renderer_info strings. Empty means "report the real GPU".
++  std::string webgl_vendor;
++  std::string webgl_renderer;
++
+   // Base64 form of the source JSON, forwarded to child processes.
+   std::string serialized;
+ };
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index 1a00418d11..e1694ce2c1 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -30,6 +30,9 @@
+ #include <memory>
+ #include <utility>
+ 
++#include <limits>
++#include <string>
++
+ #include "base/bit_cast.h"
+ #include "base/byte_size.h"
+ #include "base/compiler_specific.h"
+@@ -39,6 +42,7 @@
+ #include "base/metrics/histogram_macros.h"
+ #include "base/notimplemented.h"
+ #include "base/numerics/checked_math.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/strings/stringprintf.h"
+ #include "base/synchronization/lock.h"
+ #include "base/task/single_thread_task_runner.h"
+@@ -146,6 +150,7 @@
+ #include "third_party/blink/renderer/platform/graphics/gpu/canvas_utils.h"
+ #include "third_party/blink/renderer/platform/graphics/gpu/image_extractor.h"
+ #include "third_party/blink/renderer/platform/graphics/gpu/shared_gpu_context.h"
++#include "third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h"
+ #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
+ #include "third_party/blink/renderer/platform/graphics/paint/paint_canvas.h"
+ #include "third_party/blink/renderer/platform/graphics/paint/paint_record_builder.h"
+@@ -4295,6 +4300,12 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+       return ScriptValue::CreateNull(script_state->GetIsolate());
+     case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:
+       if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
++        if (const std::string& forced =
++                base::proteus::GetConfig().webgl_renderer;
++            !forced.empty()) {
++          return WebGLAny(script_state,
++                          String::FromUtf8(base::as_byte_span(forced)));
++        }
+         return WebGLAny(script_state,
+                         String(ContextGL()->GetString(GL_RENDERER)));
+       }
+@@ -4304,6 +4315,12 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+       return ScriptValue::CreateNull(script_state->GetIsolate());
+     case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:
+       if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
++        if (const std::string& forced =
++                base::proteus::GetConfig().webgl_vendor;
++            !forced.empty()) {
++          return WebGLAny(script_state,
++                          String::FromUtf8(base::as_byte_span(forced)));
++        }
+         return WebGLAny(script_state,
+                         String(ContextGL()->GetString(GL_VENDOR)));
+       }
+@@ -5451,7 +5468,35 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+     if (!binder.Succeeded()) {
+       return;
+     }
+-    ContextGL()->ReadPixels(x, y, width, height, format, type, data);
++    // Proteus: read one extra column on the left as neighbour context, then
++    // hand the caller noised pixels. Canvas rows run top-down and WebGL rows
++    // bottom-up, hence the flipped origin and the -1 step.
++    bool proteus_noised = false;
++    if (ProteusCanvasNoiseEnabled() && format == GL_RGBA &&
++        type == GL_UNSIGNED_BYTE && data && width > 0 && height > 0 &&
++        width < std::numeric_limits<GLsizei>::max() &&
++        x > std::numeric_limits<GLint>::min()) {
++      const WebGLImageConversion::PixelStoreParams pack =
++          GetPackPixelStoreParams();
++      base::CheckedNumeric<wtf_size_t> scratch_size = width;
++      scratch_size += 1;
++      scratch_size *= height;
++      scratch_size *= 4;
++      if (pack.alignment <= 4 && pack.row_length == 0 &&
++          pack.skip_pixels == 0 && pack.skip_rows == 0 &&
++          scratch_size.IsValid()) {
++        Vector<uint8_t> scratch(scratch_size.ValueOrDie());
++        ContextGL()->ReadPixels(x - 1, y, width + 1, height, format, type,
++                                scratch.data());
++        ProteusNoiseAndCopyRgba(
++            scratch, width + 1, height, int64_t{x} - 1,
++            int64_t{drawingBufferHeight()} - 1 - int64_t{y}, -1, data);
++        proteus_noised = true;
++      }
++    }
++    if (!proteus_noised) {
++      ContextGL()->ReadPixels(x, y, width, height, format, type, data);
++    }
+   }
+ }
+ 
+diff --git a/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc b/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc
+index 5ac0a0e341..47f60a594b 100644
+--- a/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc
++++ b/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc
+@@ -14,6 +14,7 @@
+ 
+ #include <limits>
+ 
++#include "base/check_op.h"
+ #include "base/proteus/proteus_config.h"
+ #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
+ #include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
+@@ -47,21 +48,25 @@ uint64_t Mix(uint64_t seed, int64_t x, int64_t y, uint32_t rgb) {
+   return h;
+ }
+ 
+-// Perturbs |pixmap| in place. (origin_x, origin_y) is the canvas position of
+-// the pixmap's top-left pixel. Column 0 only ever serves as left-neighbour
+-// context and is never modified.
+-void ApplyNoise(const SkPixmap& pixmap,
+-                int64_t origin_x,
+-                int64_t origin_y,
+-                uint64_t seed) {
++// Perturbs |height| rows of |width| 4-byte pixels in place, the rows being
++// |row_bytes| apart starting at |first_row|. Row r, column c is canvas position
++// (origin_x + c, origin_y + r * y_step). Column 0 only ever serves as
++// left-neighbour context and is never modified.
++void ApplyNoiseRows(uint8_t* first_row,
++                    size_t row_bytes,
++                    int width,
++                    int height,
++                    bool is_bgra,
++                    int64_t origin_x,
++                    int64_t origin_y,
++                    int y_step,
++                    uint64_t seed) {
+   // Byte offsets of the colour channels in canonical R, G, B order.
+-  const bool is_bgra = pixmap.colorType() == kBGRA_8888_SkColorType;
+   const int channel_offset[3] = {is_bgra ? 2 : 0, 1, is_bgra ? 0 : 2};
+-  const int width = pixmap.width();
+-  const int height = pixmap.height();
+ 
+   for (int y = 0; y < height; ++y) {
+-    uint8_t* row = static_cast<uint8_t*>(pixmap.writable_addr(0, y));
++    uint8_t* row = first_row + row_bytes * static_cast<size_t>(y);
++    const int64_t canvas_y = origin_y + static_cast<int64_t>(y) * y_step;
+     uint8_t left[4];
+     memcpy(left, row, 4);  // Original value of the pixel to the left.
+ 
+@@ -78,7 +83,7 @@ void ApplyNoise(const SkPixmap& pixmap,
+         const uint32_t rgb = (current[channel_offset[0]] << 16) |
+                              (current[channel_offset[1]] << 8) |
+                              current[channel_offset[2]];
+-        const uint64_t h = Mix(seed, origin_x + x, origin_y + y, rgb);
++        const uint64_t h = Mix(seed, origin_x + x, canvas_y, rgb);
+         if (h % kEdgeSelectionRate == 0) {
+           uint8_t& channel = pixel[channel_offset[(h >> 8) % 3]];
+           const bool up = (h >> 16) & 1;
+@@ -96,8 +101,45 @@ void ApplyNoise(const SkPixmap& pixmap,
+   }
+ }
+ 
++void ApplyNoise(const SkPixmap& pixmap,
++                int64_t origin_x,
++                int64_t origin_y,
++                uint64_t seed) {
++  ApplyNoiseRows(static_cast<uint8_t*>(pixmap.writable_addr()),
++                 pixmap.rowBytes(), pixmap.width(), pixmap.height(),
++                 pixmap.colorType() == kBGRA_8888_SkColorType, origin_x,
++                 origin_y, 1, seed);
++}
++
+ }  // namespace
+ 
++bool ProteusCanvasNoiseEnabled() {
++  return base::proteus::GetConfig().canvas_noise;
++}
++
++void ProteusNoiseAndCopyRgba(base::span<uint8_t> scratch,
++                             int width_with_context,
++                             int height,
++                             int64_t origin_x,
++                             int64_t origin_y,
++                             int y_step,
++                             uint8_t* dst) {
++  if (width_with_context < 2 || height < 1) {
++    return;
++  }
++  const size_t scratch_row = static_cast<size_t>(width_with_context) * 4;
++  const size_t dst_row = scratch_row - 4;
++  CHECK_GE(scratch.size(), scratch_row * static_cast<size_t>(height));
++
++  ApplyNoiseRows(scratch.data(), scratch_row, width_with_context, height,
++                 /*is_bgra=*/false, origin_x, origin_y, y_step,
++                 base::proteus::GetConfig().seed);
++  for (int y = 0; y < height; ++y) {
++    memcpy(dst + dst_row * static_cast<size_t>(y),
++           scratch.data() + scratch_row * static_cast<size_t>(y) + 4, dst_row);
++  }
++}
++
+ scoped_refptr<StaticBitmapImage> ProteusNoisedCanvasImage(
+     scoped_refptr<StaticBitmapImage> image) {
+   const base::proteus::Config& config = base::proteus::GetConfig();
+diff --git a/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h b/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h
+index 7006381aef..07d1ce1600 100644
+--- a/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h
++++ b/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h
+@@ -5,6 +5,9 @@
+ #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PROTEUS_CANVAS_NOISE_H_
+ #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PROTEUS_CANVAS_NOISE_H_
+ 
++#include <stdint.h>
++
++#include "base/containers/span.h"
+ #include "base/memory/scoped_refptr.h"
+ #include "cc/paint/paint_image.h"
+ #include "third_party/blink/renderer/platform/platform_export.h"
+@@ -41,6 +44,23 @@ PLATFORM_EXPORT bool ProteusReadNoisedCanvasPixels(const cc::PaintImage& image,
+                                                    int sx,
+                                                    int sy);
+ 
++// True when the active profile asks for canvas readback noise.
++PLATFORM_EXPORT bool ProteusCanvasNoiseEnabled();
++
++// Finishes a WebGL readPixels() call. |scratch| holds |height| tightly packed
++// rows of |width_with_context| 8-bit RGBA pixels, the first column being the
++// pixel to the left of the area the caller asked for. Row r, column c is canvas
++// position (origin_x + c, origin_y + r * y_step); WebGL rows run bottom-up, so
++// callers pass y_step = -1. Noise is applied and every column but the first is
++// copied to |dst|, which must hold (width_with_context - 1) * height pixels.
++PLATFORM_EXPORT void ProteusNoiseAndCopyRgba(base::span<uint8_t> scratch,
++                                             int width_with_context,
++                                             int height,
++                                             int64_t origin_x,
++                                             int64_t origin_y,
++                                             int y_step,
++                                             uint8_t* dst);
++
+ }  // namespace blink
+ 
+ #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PROTEUS_CANVAS_NOISE_H_
+-- 
+2.43.0
+

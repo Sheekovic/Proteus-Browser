@@ -1,0 +1,342 @@
+From b033d5b7d563a2dfeb2b1d2d2aa74b09036414ba Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Sun, 15 Nov 2026 11:50:25 +0000
+Subject: [PATCH 02/11] proteus: seed-derived canvas readback noise
+
+---
+ base/proteus/proteus_config.cc                |   1 +
+ base/proteus/proteus_config.h                 |   3 +
+ .../html/canvas/canvas_async_blob_creator.cc  |   3 +-
+ .../core/html/canvas/html_canvas_element.cc   |   3 +-
+ .../canvas2d/base_rendering_context_2d.cc     |   3 +
+ third_party/blink/renderer/platform/BUILD.gn  |   2 +
+ .../platform/graphics/proteus_canvas_noise.cc | 161 ++++++++++++++++++
+ .../platform/graphics/proteus_canvas_noise.h  |  46 +++++
+ 8 files changed, 220 insertions(+), 2 deletions(-)
+ create mode 100644 third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc
+ create mode 100644 third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index 70bd43a395..92b2471f63 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -100,6 +100,7 @@ Config LoadConfig() {
+       value && *value > 0) {
+     config.device_memory = *value;
+   }
++  config.canvas_noise = dict->FindBool("canvasNoise").value_or(false);
+   return config;
+ }
+ 
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index ddcfe54110..af8a36767e 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -42,6 +42,9 @@ struct BASE_EXPORT Config {
+   // navigator.deviceMemory, in GiB.
+   std::optional<double> device_memory;
+ 
++  // Whether canvas readbacks carry seed-derived noise.
++  bool canvas_noise = false;
++
+   // Base64 form of the source JSON, forwarded to child processes.
+   std::string serialized;
+ };
+diff --git a/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc b/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc
+index e2a22f203b..cc4bbeeed2 100644
+--- a/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc
++++ b/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc
+@@ -17,6 +17,7 @@
+ #include "third_party/blink/renderer/core/fileapi/blob.h"
+ #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h"
+ #include "third_party/blink/renderer/platform/graphics/image_data_buffer.h"
++#include "third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h"
+ #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
+ #include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
+ #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+@@ -175,7 +176,7 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
+   // We use pixmap to access the image pixels. Make the image unaccelerated if
+   // necessary. May return nullptr if GPU context lost or readback buffer
+   // allocation failed.
+-  image_ = image->MakeUnaccelerated();
++  image_ = ProteusNoisedCanvasImage(image->MakeUnaccelerated());
+ 
+   if (image_) {
+     skia_image_ = image_->PaintImageForCurrentFrame().GetSwSkImage();
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index 5d9d963d79..38d6023ee7 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -121,6 +121,7 @@
+ #include "third_party/blink/renderer/platform/graphics/gpu/shared_gpu_context.h"
+ #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
+ #include "third_party/blink/renderer/platform/graphics/image_data_buffer.h"
++#include "third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h"
+ #include "third_party/blink/renderer/platform/graphics/memory_managed_paint_recorder.h"
+ #include "third_party/blink/renderer/platform/graphics/paint/float_clip_rect.h"
+ #include "third_party/blink/renderer/platform/graphics/paint/paint_canvas.h"
+@@ -1439,7 +1440,7 @@ String HTMLCanvasElement::ToDataURLInternal(
+   scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(source_buffer);
+   if (image_bitmap) {
+     std::unique_ptr<ImageDataBuffer> data_buffer =
+-        ImageDataBuffer::Create(image_bitmap);
++        ImageDataBuffer::Create(ProteusNoisedCanvasImage(image_bitmap));
+     if (!data_buffer)
+       return String("data:,");
+ 
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+index eaa71b910d..f1e7d69990 100644
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -101,6 +101,7 @@
+ #include "third_party/blink/renderer/platform/graphics/gpu/webgpu_mailbox_texture.h"
+ #include "third_party/blink/renderer/platform/graphics/image.h"
+ #include "third_party/blink/renderer/platform/graphics/image_data_buffer.h"
++#include "third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h"
+ #include "third_party/blink/renderer/platform/graphics/paint/float_clip_rect.h"
+ #include "third_party/blink/renderer/platform/graphics/paint/paint_image.h"
+ #include "third_party/blink/renderer/platform/graphics/scoped_raster_timer.h"
+@@ -927,6 +928,8 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
+ 
+     SkPixmap image_data_pixmap = image_data->GetSkPixmap();
+     const bool read_pixels_successful =
++        ProteusReadNoisedCanvasPixels(snapshot->PaintImageForCurrentFrame(),
++                                      image_data_pixmap, sx, sy) ||
+         snapshot->PaintImageForCurrentFrame().readPixels(
+             image_data_pixmap.info(), image_data_pixmap.writable_addr(),
+             image_data_pixmap.rowBytes(), sx, sy);
+diff --git a/third_party/blink/renderer/platform/BUILD.gn b/third_party/blink/renderer/platform/BUILD.gn
+index ec13ed0736..91580daad1 100644
+--- a/third_party/blink/renderer/platform/BUILD.gn
++++ b/third_party/blink/renderer/platform/BUILD.gn
+@@ -1155,6 +1155,8 @@ component("platform") {
+     "graphics/image.h",
+     "graphics/image_data_buffer.cc",
+     "graphics/image_data_buffer.h",
++    "graphics/proteus_canvas_noise.cc",
++    "graphics/proteus_canvas_noise.h",
+     "graphics/image_decoder_wrapper.cc",
+     "graphics/image_decoder_wrapper.h",
+     "graphics/image_decoding_store.cc",
+diff --git a/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc b/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc
+new file mode 100644
+index 0000000000..5ac0a0e341
+--- /dev/null
++++ b/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc
+@@ -0,0 +1,161 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifdef UNSAFE_BUFFERS_BUILD
++// Pixel rows are walked with raw pointers obtained from Skia.
++#pragma allow_unsafe_buffers
++#endif
++
++#include "third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h"
++
++#include <stdint.h>
++#include <string.h>
++
++#include <limits>
++
++#include "base/proteus/proteus_config.h"
++#include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
++#include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
++#include "third_party/skia/include/core/SkBitmap.h"
++#include "third_party/skia/include/core/SkColor.h"
++#include "third_party/skia/include/core/SkImage.h"
++#include "third_party/skia/include/core/SkImageInfo.h"
++
++namespace blink {
++
++namespace {
++
++// One edge pixel in this many is perturbed.
++constexpr uint64_t kEdgeSelectionRate = 8;
++
++bool IsSupported(SkColorType color_type) {
++  return color_type == kRGBA_8888_SkColorType ||
++         color_type == kBGRA_8888_SkColorType;
++}
++
++uint64_t Mix(uint64_t seed, int64_t x, int64_t y, uint32_t rgb) {
++  uint64_t h = seed;
++  h ^= static_cast<uint64_t>(x) * 0x9E3779B97F4A7C15ull;
++  h ^= static_cast<uint64_t>(y) * 0xC2B2AE3D27D4EB4Full;
++  h ^= static_cast<uint64_t>(rgb) * 0x165667B19E3779F9ull;
++  h ^= h >> 30;
++  h *= 0xBF58476D1CE4E5B9ull;
++  h ^= h >> 27;
++  h *= 0x94D049BB133111EBull;
++  h ^= h >> 31;
++  return h;
++}
++
++// Perturbs |pixmap| in place. (origin_x, origin_y) is the canvas position of
++// the pixmap's top-left pixel. Column 0 only ever serves as left-neighbour
++// context and is never modified.
++void ApplyNoise(const SkPixmap& pixmap,
++                int64_t origin_x,
++                int64_t origin_y,
++                uint64_t seed) {
++  // Byte offsets of the colour channels in canonical R, G, B order.
++  const bool is_bgra = pixmap.colorType() == kBGRA_8888_SkColorType;
++  const int channel_offset[3] = {is_bgra ? 2 : 0, 1, is_bgra ? 0 : 2};
++  const int width = pixmap.width();
++  const int height = pixmap.height();
++
++  for (int y = 0; y < height; ++y) {
++    uint8_t* row = static_cast<uint8_t*>(pixmap.writable_addr(0, y));
++    uint8_t left[4];
++    memcpy(left, row, 4);  // Original value of the pixel to the left.
++
++    for (int x = 1; x < width; ++x) {
++      uint8_t* pixel = row + 4 * x;
++      uint8_t current[4];
++      memcpy(current, pixel, 4);
++
++      const bool is_edge =
++          current[3] == 0xFF && left[3] == 0xFF &&
++          (current[0] != left[0] || current[1] != left[1] ||
++           current[2] != left[2]);
++      if (is_edge) {
++        const uint32_t rgb = (current[channel_offset[0]] << 16) |
++                             (current[channel_offset[1]] << 8) |
++                             current[channel_offset[2]];
++        const uint64_t h = Mix(seed, origin_x + x, origin_y + y, rgb);
++        if (h % kEdgeSelectionRate == 0) {
++          uint8_t& channel = pixel[channel_offset[(h >> 8) % 3]];
++          const bool up = (h >> 16) & 1;
++          if (channel == 0xFF) {
++            --channel;
++          } else if (channel == 0x00) {
++            ++channel;
++          } else {
++            channel = up ? channel + 1 : channel - 1;
++          }
++        }
++      }
++      memcpy(left, current, 4);
++    }
++  }
++}
++
++}  // namespace
++
++scoped_refptr<StaticBitmapImage> ProteusNoisedCanvasImage(
++    scoped_refptr<StaticBitmapImage> image) {
++  const base::proteus::Config& config = base::proteus::GetConfig();
++  if (!image || !config.canvas_noise) {
++    return image;
++  }
++
++  scoped_refptr<StaticBitmapImage> software = image->MakeUnaccelerated();
++  if (!software) {
++    return image;
++  }
++  sk_sp<SkImage> source = software->PaintImageForCurrentFrame().GetSwSkImage();
++  if (!source || !IsSupported(source->colorType())) {
++    return image;
++  }
++
++  SkBitmap copy;
++  if (!copy.tryAllocPixels(source->imageInfo()) ||
++      !source->readPixels(copy.pixmap(), 0, 0)) {
++    return image;
++  }
++  ApplyNoise(copy.pixmap(), 0, 0, config.seed);
++  copy.setImmutable();
++  return UnacceleratedStaticBitmapImage::Create(copy.asImage());
++}
++
++bool ProteusReadNoisedCanvasPixels(const cc::PaintImage& image,
++                                   const SkPixmap& dst,
++                                   int sx,
++                                   int sy) {
++  const base::proteus::Config& config = base::proteus::GetConfig();
++  if (!config.canvas_noise || !IsSupported(dst.colorType()) ||
++      dst.width() <= 0 || dst.height() <= 0 ||
++      dst.width() == std::numeric_limits<int>::max() ||
++      sx == std::numeric_limits<int>::min()) {
++    return false;
++  }
++
++  // Read one extra column on the left so that the first requested column has
++  // the same neighbour it would have in a full-canvas read.
++  SkBitmap scratch;
++  const SkImageInfo info = dst.info().makeWH(dst.width() + 1, dst.height());
++  if (!scratch.tryAllocPixels(info)) {
++    return false;
++  }
++  scratch.eraseColor(SK_ColorTRANSPARENT);
++  if (!image.readPixels(info, scratch.getPixels(), scratch.rowBytes(), sx - 1,
++                        sy)) {
++    return false;
++  }
++
++  ApplyNoise(scratch.pixmap(), static_cast<int64_t>(sx) - 1, sy, config.seed);
++
++  const size_t row_bytes = static_cast<size_t>(dst.width()) * 4;
++  for (int y = 0; y < dst.height(); ++y) {
++    memcpy(dst.writable_addr(0, y), scratch.pixmap().addr(1, y), row_bytes);
++  }
++  return true;
++}
++
++}  // namespace blink
+diff --git a/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h b/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h
+new file mode 100644
+index 0000000000..7006381aef
+--- /dev/null
++++ b/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.h
+@@ -0,0 +1,46 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PROTEUS_CANVAS_NOISE_H_
++#define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PROTEUS_CANVAS_NOISE_H_
++
++#include "base/memory/scoped_refptr.h"
++#include "cc/paint/paint_image.h"
++#include "third_party/blink/renderer/platform/platform_export.h"
++#include "third_party/skia/include/core/SkPixmap.h"
++
++namespace blink {
++
++class StaticBitmapImage;
++
++// Canvas readback noise.
++//
++// When the active Proteus profile enables canvas noise, pixels handed back to
++// script are perturbed so that the canvas fingerprint is unique to the profile.
++// The perturbation is a pure function of (profile seed, pixel position, pixel
++// colour, left neighbour), which gives it these properties:
++//   * reading the same canvas twice yields identical data;
++//   * a full read and any sub-rectangle read agree on every shared pixel;
++//   * flat areas are never touched - only pixels that differ from their left
++//     neighbour (shape and glyph edges) can change, by one step in one channel;
++//   * only fully opaque pixels change, so premultiplied and unpremultiplied
++//     reads agree.
++
++// Returns |image| with noise applied to a private copy of its pixels, or
++// |image| itself when noise is disabled or the pixel format is unsupported.
++PLATFORM_EXPORT scoped_refptr<StaticBitmapImage> ProteusNoisedCanvasImage(
++    scoped_refptr<StaticBitmapImage> image);
++
++// Reads the rectangle of |image| whose top-left corner is (sx, sy) and whose
++// size is that of |dst| into |dst|, with noise applied. Returns false, leaving
++// |dst| untouched, when noise is disabled or cannot be applied; the caller then
++// performs its ordinary read.
++PLATFORM_EXPORT bool ProteusReadNoisedCanvasPixels(const cc::PaintImage& image,
++                                                   const SkPixmap& dst,
++                                                   int sx,
++                                                   int sy);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PROTEUS_CANVAS_NOISE_H_
+-- 
+2.43.0
+

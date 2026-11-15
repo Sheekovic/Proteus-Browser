@@ -1,0 +1,7 @@
+# Third-party trees fetched by kernel/scripts/fetch.ps1 (never committed)
+/depot_tools/
+/chromium/
+
+# Build and local output
+/out/
+*.log

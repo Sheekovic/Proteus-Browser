@@ -1,0 +1,324 @@
+From 6fbcb07020960bb081f2e378f9e3ecb058df53d8 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Sun, 15 Nov 2026 16:30:28 +0000
+Subject: [PATCH 09/11] proteus: substitutes for claimed fonts that are not
+ installed
+
+---
+ base/proteus/proteus_config.cc                | 23 +++++++
+ base/proteus/proteus_config.h                 | 17 +++++
+ .../renderer/platform/fonts/font_cache.cc     | 60 ++++++++++++++---
+ .../platform/fonts/proteus_font_filter.cc     | 64 +++++++++++++++++++
+ .../platform/fonts/proteus_font_filter.h      | 19 ++++++
+ 5 files changed, 174 insertions(+), 9 deletions(-)
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index e895cd68f3..5893679f6d 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -176,6 +176,24 @@ Config LoadConfig() {
+       }
+     }
+   }
++  if (const DictValue* aliases = dict->FindDict("fontAliases")) {
++    for (const auto [family, value] : *aliases) {
++      const ListValue* list = value.GetIfList();
++      if (family.empty() || !list) {
++        continue;
++      }
++      FontAlias alias;
++      alias.family = family;
++      for (const Value& substitute : *list) {
++        if (substitute.is_string() && !substitute.GetString().empty()) {
++          alias.substitutes.push_back(substitute.GetString());
++        }
++      }
++      if (!alias.substitutes.empty()) {
++        config.font_aliases.push_back(std::move(alias));
++      }
++    }
++  }
+   config.timezone = StringOrEmpty(*dict, "timezone");
+   config.webrtc_proxy_only = StringOrEmpty(*dict, "webRtcPolicy") == "proxyOnly";
+   config.canvas_noise = dict->FindBool("canvasNoise").value_or(false);
+@@ -191,6 +209,11 @@ Config LoadConfig() {
+ 
+ }  // namespace
+ 
++FontAlias::FontAlias() = default;
++FontAlias::FontAlias(const FontAlias&) = default;
++FontAlias& FontAlias::operator=(const FontAlias&) = default;
++FontAlias::~FontAlias() = default;
++
+ UaData::UaData() = default;
+ UaData::UaData(const UaData&) = default;
+ UaData& UaData::operator=(const UaData&) = default;
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index a7cfee8276..7ba3509004 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -48,6 +48,17 @@ struct BASE_EXPORT UaData {
+   bool wow64 = false;
+ };
+ 
++// A font family and the families that may stand in for it, in order of preference.
++struct BASE_EXPORT FontAlias {
++  FontAlias();
++  FontAlias(const FontAlias&);
++  FontAlias& operator=(const FontAlias&);
++  ~FontAlias();
++
++  std::string family;
++  std::vector<std::string> substitutes;
++};
++
+ // window.screen and the device-width / device-height media features, in CSS
+ // pixels.
+ struct BASE_EXPORT ScreenData {
+@@ -104,6 +115,12 @@ struct BASE_EXPORT Config {
+   // fonts on this machine".
+   std::vector<std::string> fonts;
+ 
++  // Stand-ins for fonts the profile claims but the machine may lack. When a
++  // family named here is not installed, the first installed substitute is used
++  // in its place, so the family is still found. An installed family always
++  // wins over its substitutes.
++  std::vector<FontAlias> font_aliases;
++
+   // When true, WebRTC may only send traffic through the configured proxy: no
+   // direct UDP leaves the machine, so neither a STUN server nor the page can
+   // learn the real public or local address.
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+index 9ad316bf01..eb440d2b71 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -179,8 +179,14 @@ const SimpleFontData* FontCache::GetFontData(
+     const FontDescription& font_description,
+     const AtomicString& family,
+     AlternateFontName altername_font_name) {
+-  if (altername_font_name != AlternateFontName::kLastResort &&
+-      ProteusIsFontFamilyHidden(family)) {
++  const bool proteus_by_unique_name =
++      altername_font_name == AlternateFontName::kLocalUniqueFace;
++  if (proteus_by_unique_name) {
++    if (ProteusIsUniqueFontNameHidden(family)) {
++      return nullptr;
++    }
++  } else if (altername_font_name != AlternateFontName::kLastResort &&
++             ProteusIsFontFamilyHidden(family)) {
+     return nullptr;
+   }
+   if (const FontPlatformData* platform_data = GetFontPlatformData(
+@@ -192,6 +198,20 @@ const SimpleFontData* FontCache::GetFontData(
+         platform_data, font_description.SubpixelAscentDescent());
+   }
+ 
++  if (altername_font_name != AlternateFontName::kLastResort) {
++    for (const AtomicString& substitute :
++         proteus_by_unique_name
++             ? ProteusUniqueFontNameSubstitutes(family)
++             : ProteusFontFamilySubstitutes(family)) {
++      if (const FontPlatformData* platform_data = GetFontPlatformData(
++              font_description, FontFaceCreationParams(substitute),
++              altername_font_name)) {
++        return FontDataFromFontPlatformData(
++            platform_data, font_description.SubpixelAscentDescent());
++      }
++    }
++  }
++
+   return nullptr;
+ }
+ 
+@@ -207,10 +227,21 @@ bool FontCache::IsPlatformFamilyMatchAvailable(
+   if (ProteusIsFontFamilyHidden(family)) {
+     return false;
+   }
+-  return GetFontPlatformData(
+-      font_description,
+-      FontFaceCreationParams(AdjustFamilyNameToAvoidUnsupportedFonts(family)),
+-      AlternateFontName::kNoAlternate);
++  if (GetFontPlatformData(
++          font_description,
++          FontFaceCreationParams(
++              AdjustFamilyNameToAvoidUnsupportedFonts(family)),
++          AlternateFontName::kNoAlternate)) {
++    return true;
++  }
++  for (const AtomicString& substitute : ProteusFontFamilySubstitutes(family)) {
++    if (GetFontPlatformData(font_description,
++                            FontFaceCreationParams(substitute),
++                            AlternateFontName::kNoAlternate)) {
++      return true;
++    }
++  }
++  return false;
+ }
+ 
+ bool FontCache::IsPlatformFontUniqueNameMatchAvailable(
+@@ -224,9 +255,20 @@ bool FontCache::IsPlatformFontUniqueNameMatchAvailable(
+     return false;
+   }
+ 
+-  return GetFontPlatformData(font_description,
+-                             FontFaceCreationParams(unique_font_name),
+-                             AlternateFontName::kLocalUniqueFace);
++  if (GetFontPlatformData(font_description,
++                          FontFaceCreationParams(unique_font_name),
++                          AlternateFontName::kLocalUniqueFace)) {
++    return true;
++  }
++  for (const AtomicString& substitute :
++       ProteusUniqueFontNameSubstitutes(unique_font_name)) {
++    if (GetFontPlatformData(font_description,
++                            FontFaceCreationParams(substitute),
++                            AlternateFontName::kLocalUniqueFace)) {
++      return true;
++    }
++  }
++  return false;
+ }
+ 
+ String FontCache::FirstAvailableOrFirst(const String& families) {
+diff --git a/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc b/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc
+index 3cddd1229b..a45b4006ed 100644
+--- a/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc
++++ b/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc
+@@ -9,10 +9,13 @@
+ #include <utility>
+ #include <vector>
+ 
++#include "base/containers/flat_map.h"
+ #include "base/containers/flat_set.h"
++#include "base/containers/span.h"
+ #include "base/no_destructor.h"
+ #include "base/proteus/proteus_config.h"
+ #include "base/strings/string_util.h"
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ 
+ namespace blink {
+ 
+@@ -41,17 +44,40 @@ const std::vector<std::string>& AllowedFamilies() {
+   return *families;
+ }
+ 
++// Lower-cased family -> its substitutes, as configured by the profile.
++using AliasMap = base::flat_map<std::string, std::vector<std::string>>;
++
++const AliasMap& Aliases() {
++  static const base::NoDestructor<AliasMap> aliases([] {
++    std::vector<AliasMap::value_type> entries;
++    for (const base::proteus::FontAlias& alias :
++         base::proteus::GetConfig().font_aliases) {
++      entries.emplace_back(base::ToLowerASCII(alias.family), alias.substitutes);
++    }
++    return AliasMap(std::move(entries));
++  }());
++  return *aliases;
++}
++
+ const base::flat_set<std::string>& AllowedFamilySet() {
+   static const base::NoDestructor<base::flat_set<std::string>> set([] {
+     std::vector<std::string> names = AllowedFamilies();
+     for (std::string_view name : kAlwaysAllowed) {
+       names.emplace_back(name);
+     }
++    // A family with substitutes is one the profile claims, so it is allowed.
++    for (const auto& [family, substitutes] : Aliases()) {
++      names.push_back(family);
++    }
+     return base::flat_set<std::string>(std::move(names));
+   }());
+   return *set;
+ }
+ 
++AtomicString ToAtomic(const std::string& utf8) {
++  return AtomicString(String::FromUtf8(base::as_byte_span(utf8)));
++}
++
+ // Words that name a style of a family rather than a different family. Longer
+ // words come before their prefixes so the greedy match below takes them whole.
+ constexpr std::string_view kStyleWords[] = {
+@@ -120,4 +146,42 @@ bool ProteusIsUniqueFontNameHidden(const AtomicString& name) {
+   return true;
+ }
+ 
++Vector<AtomicString> ProteusFontFamilySubstitutes(const AtomicString& family) {
++  Vector<AtomicString> result;
++  if (Aliases().empty() || family.empty()) {
++    return result;
++  }
++  const auto it = Aliases().find(base::ToLowerASCII(family.Utf8()));
++  if (it != Aliases().end()) {
++    for (const std::string& substitute : it->second) {
++      result.push_back(ToAtomic(substitute));
++    }
++  }
++  return result;
++}
++
++Vector<AtomicString> ProteusUniqueFontNameSubstitutes(const AtomicString& name) {
++  Vector<AtomicString> result;
++  if (Aliases().empty() || name.empty()) {
++    return result;
++  }
++  const std::string original = name.Utf8();
++  const std::string full = base::ToLowerASCII(original);
++  for (const auto& [family, substitutes] : Aliases()) {
++    if (!full.starts_with(family)) {
++      continue;
++    }
++    // Keep the style part ("" or " Bold Italic") and put it on the substitute.
++    const std::string_view style =
++        std::string_view(original).substr(family.size());
++    if (!IsStyleSuffix(std::string_view(full).substr(family.size()))) {
++      continue;
++    }
++    for (const std::string& substitute : substitutes) {
++      result.push_back(ToAtomic(substitute + std::string(style)));
++    }
++  }
++  return result;
++}
++
+ }  // namespace blink
+diff --git a/third_party/blink/renderer/platform/fonts/proteus_font_filter.h b/third_party/blink/renderer/platform/fonts/proteus_font_filter.h
+index a66b801d2d..e55c1b88ab 100644
+--- a/third_party/blink/renderer/platform/fonts/proteus_font_filter.h
++++ b/third_party/blink/renderer/platform/fonts/proteus_font_filter.h
+@@ -7,6 +7,7 @@
+ 
+ #include "third_party/blink/renderer/platform/platform_export.h"
+ #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
++#include "third_party/blink/renderer/platform/wtf/vector.h"
+ 
+ namespace blink {
+ 
+@@ -30,6 +31,24 @@ PLATFORM_EXPORT bool ProteusIsFontFamilyHidden(const AtomicString& family);
+ // source, e.g. "Arial Bold") must fail.
+ PLATFORM_EXPORT bool ProteusIsUniqueFontNameHidden(const AtomicString& name);
+ 
++// Font substitution.
++//
++// A profile can claim fonts the machine does not have (a macOS profile on a
++// Windows machine claims Helvetica Neue). For such a family the profile names
++// substitutes; when the real family is missing, callers look up each substitute
++// in turn so the claimed family is found and renders with the stand-in. A family
++// that is really installed is never substituted.
++
++// Families that may stand in for |family|, in order of preference. Empty when
++// the profile defines none.
++PLATFORM_EXPORT Vector<AtomicString> ProteusFontFamilySubstitutes(
++    const AtomicString& family);
++
++// The same for a full or PostScript font name: "Helvetica Neue Bold" yields
++// "<substitute> Bold" for each substitute of Helvetica Neue.
++PLATFORM_EXPORT Vector<AtomicString> ProteusUniqueFontNameSubstitutes(
++    const AtomicString& name);
++
+ }  // namespace blink
+ 
+ #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_PROTEUS_FONT_FILTER_H_
+-- 
+2.43.0
+
