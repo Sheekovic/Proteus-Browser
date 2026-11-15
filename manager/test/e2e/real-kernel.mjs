@@ -24,6 +24,13 @@ const managerDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const dataDir = mkdtempSync(join(tmpdir(), 'proteus-e2e-'));
 const PORT = 5311;
 const base = `http://127.0.0.1:${PORT}`;
+// Documentation-only addresses (RFC 5737): the public address the profile claims, and
+// a STUN server that does not exist. The kernel must never contact the latter.
+const PUBLIC_IP = '203.0.113.7';
+const STUN = '192.0.2.1:3478';
+// Software WebGPU adapter, for machines without a GPU.
+const WEBGPU_ARGS = ['--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader', '--use-angle=swiftshader',
+                     '--enable-unsafe-swiftshader', '--enable-features=Vulkan'];
 
 let failures = 0;
 function check(name, actual, expected) {
@@ -111,6 +118,7 @@ try {
 
   const profile = await api('POST', '/api/profiles', {
     name: 'End-to-end', os: 'windows', languages: ['de-DE', 'de', 'en'], timezone: 'Europe/Berlin',
+    webrtcPublicIp: PUBLIC_IP,
   });
   console.log(`profile: ${profile.userAgent}`);
   console.log(`         ${profile.screen.width}x${profile.screen.height}, ${profile.hardwareConcurrency} cores, ` +
@@ -151,6 +159,21 @@ try {
   const audio = await readPage(status.debuggerUrl, `${pagesUrl}/audio.html`);
   check('audio renders are stable', audio.stable, 'true');
 
+  const voices = await readPage(status.debuggerUrl, `${pagesUrl}/voices.html`);
+  differ('the generated profile has voices', profile.voices.length, 0);
+  check('speech voice count', voices.voices, String(profile.voices.length));
+  check('speech voice names', voices.voiceNames,
+        profile.voices.slice(0, 6).map((v) => v.name + (v.local ? '' : '*')).join('|'));
+  check('speech voice details', voices.voiceDetail, profile.voices.slice(0, 4).map(
+      (v) => [v.name, v.lang, v.local, v.default === true, v.name].join('~')).join('|'));
+
+  const rtc = await readPage(status.debuggerUrl,
+                             `${pagesUrl}/webrtc.html?stun=${STUN}&expect=${PUBLIC_IP}`);
+  check('WebRTC shows one host and one public candidate', rtc.types, 'host:1,srflx:1');
+  check('WebRTC host candidate is an mDNS name', rtc.mdns, '1');
+  check('WebRTC public candidate is the profile address', rtc.srflxIsExpected, 'true');
+  check('WebRTC shows no other address', rtc.ipLiterals, '1');
+
   // A second profile must look like a different device.
   const other = await api('POST', '/api/profiles', { name: 'Second', os: 'windows' });
   const otherStatus = await api('POST', `/api/profiles/${other.id}/start`);
@@ -166,6 +189,25 @@ try {
   const again = await api('POST', `/api/profiles/${profile.id}/start`);
   const canvasAgain = await readPage(again.debuggerUrl, `${pagesUrl}/canvas.html`);
   check('canvas fingerprint survives a restart', canvasAgain.data, canvas.data);
+
+  // WebGPU needs an adapter, so relaunch with a software one. If even the plain
+  // kernel cannot provide it on this machine, say so instead of passing.
+  await api('POST', `/api/profiles/${profile.id}/stop`);
+  await api('PUT', '/api/settings', {
+    kernelPath, extraArgs: [...extraArgs.filter((a) => a !== '--disable-gpu'), ...WEBGPU_ARGS],
+  });
+  const gpuRun = await api('POST', `/api/profiles/${profile.id}/start`);
+  // The first adapter request in a fresh GPU process can outlast the page's own wait.
+  let gpu = await readPage(gpuRun.debuggerUrl, `${pagesUrl}/voices.html`);
+  for (let i = 0; i < 3 && gpu.webgpu === 'timeout'; i++) {
+    gpu = await readPage(gpuRun.debuggerUrl, `${pagesUrl}/voices.html`);
+  }
+  if (gpu.webgpu.includes('|')) {
+    check('WebGPU vendor and architecture', gpu.webgpu.split('|').slice(0, 2).join('|'),
+          `${profile.webgpu.vendor}|${profile.webgpu.architecture}`);
+  } else {
+    console.log(`SKIP WebGPU adapter info: no adapter on this machine (${gpu.webgpu})`);
+  }
 
   for (const id of [profile.id, other.id]) {
     const stopped = await api('POST', `/api/profiles/${id}/stop`);
