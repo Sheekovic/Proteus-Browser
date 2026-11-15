@@ -1,0 +1,4 @@
+# Keep LF line endings in the working copy on every system. The shell scripts run on
+# the Linux build server and the .patch files are applied to a Linux checkout; both
+# break if Git converts them to CRLF on Windows.
+* text=auto eol=lf
