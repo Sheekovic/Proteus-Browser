@@ -45,6 +45,31 @@ test('a generated identity is internally consistent for each OS', () => {
   }
 });
 
+test('WebGPU info and voices agree with the rest of the identity', () => {
+  const gpuVendor = { Intel: 'intel', NVIDIA: 'nvidia', AMD: 'amd', Apple: 'apple' } as const;
+  for (const os of ['windows', 'linux', 'macos'] as const) {
+    for (let i = 0; i < 40; i++) {
+      const id = generateIdentity(os, '158.0.8127.37');
+      // The WebGPU vendor names the same manufacturer as the WebGL renderer string.
+      const maker = Object.keys(gpuVendor).find((m) => id.webgl.renderer.includes(`(${m}`)) as
+        keyof typeof gpuVendor;
+      assert.ok(maker, id.webgl.renderer);
+      assert.equal(id.webgpu.vendor, gpuVendor[maker], id.webgl.renderer);
+      assert.notEqual(id.webgpu.architecture, '');
+    }
+  }
+  const names = (os: 'windows' | 'linux' | 'macos') =>
+    generateIdentity(os, '158.0.8127.37').voices.map((v) => v.name);
+  assert.ok(names('windows').includes('Microsoft David - English (United States)'));
+  assert.ok(names('macos').includes('Samantha') && !names('macos').some((n) => n.startsWith('Microsoft')));
+  assert.ok(names('linux').every((n) => n.startsWith('Google ')), 'Linux has only Chrome\'s network voices');
+  for (const os of ['windows', 'linux', 'macos'] as const) {
+    const voices = generateIdentity(os, '158.0.8127.37').voices;
+    assert.ok(voices.filter((v) => v.default).length <= 1, 'at most one default voice');
+    assert.ok(voices.some((v) => v.name === 'Google US English' && !v.local));
+  }
+});
+
 test('two generated identities get different seeds', () => {
   const a = generateIdentity('windows', '158.0.8127.37');
   const b = generateIdentity('windows', '158.0.8127.37');
@@ -117,7 +142,8 @@ test('the kernel config carries every setting the kernel patches read', async ()
   assert.deepEqual(Object.keys(config).sort(), [
     'audioNoise', 'canvasNoise', 'deviceMemory', 'fontAliases', 'fonts', 'hardwareConcurrency', 'languages',
     'platform',
-    'screen', 'seed', 'timezone', 'uaData', 'userAgent', 'webRtcPolicy', 'webglRenderer', 'webglVendor',
+    'screen', 'seed', 'timezone', 'uaData', 'userAgent', 'voices', 'webRtcPolicy', 'webglRenderer',
+    'webglVendor', 'webgpu',
   ]);
   assert.equal(config.webRtcPolicy, 'proxyOnly', 'new profiles hide the real IP from WebRTC by default');
   assert.equal(config.seed, profile.seed);

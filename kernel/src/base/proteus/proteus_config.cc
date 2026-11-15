@@ -200,6 +200,26 @@ Config LoadConfig() {
   config.webrtc_public_ip = StringOrEmpty(*dict, "webRtcPublicIp");
   config.canvas_noise = dict->FindBool("canvasNoise").value_or(false);
   config.audio_noise = dict->FindBool("audioNoise").value_or(false);
+  if (const DictValue* webgpu = dict->FindDict("webgpu")) {
+    config.webgpu_vendor = StringOrEmpty(*webgpu, "vendor");
+    config.webgpu_architecture = StringOrEmpty(*webgpu, "architecture");
+  }
+  if (const ListValue* voices = dict->FindList("voices")) {
+    for (const Value& item : *voices) {
+      const DictValue* entry = item.GetIfDict();
+      if (!entry) {
+        continue;
+      }
+      Voice voice;
+      voice.name = StringOrEmpty(*entry, "name");
+      voice.lang = StringOrEmpty(*entry, "lang");
+      voice.local = entry->FindBool("local").value_or(true);
+      voice.is_default = entry->FindBool("default").value_or(false);
+      if (!voice.name.empty()) {
+        config.voices.push_back(std::move(voice));
+      }
+    }
+  }
   if (const std::string* value = dict->FindString("webglVendor")) {
     config.webgl_vendor = *value;
   }
@@ -210,6 +230,11 @@ Config LoadConfig() {
 }
 
 }  // namespace
+
+Voice::Voice() = default;
+Voice::Voice(const Voice&) = default;
+Voice& Voice::operator=(const Voice&) = default;
+Voice::~Voice() = default;
 
 FontAlias::FontAlias() = default;
 FontAlias::FontAlias(const FontAlias&) = default;

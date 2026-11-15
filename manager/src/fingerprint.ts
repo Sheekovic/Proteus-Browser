@@ -7,6 +7,7 @@
 
 import { randomBytes } from 'node:crypto';
 import type { OsFamily, Profile, ScreenInfo, UaData } from './profile.ts';
+import { voicesFor } from './voices.ts';
 
 /** Returns a uniformly distributed integer in [0, bound). */
 export type Rng = (bound: number) => number;
@@ -18,8 +19,11 @@ function pick<T>(rng: Rng, items: readonly T[]): T {
 }
 
 interface Gpu {
+  /** WEBGL_debug_renderer_info strings. */
   vendor: string;
   renderer: string;
+  /** GPUAdapterInfo.vendor and .architecture of the same hardware. */
+  webgpu: { vendor: string; architecture: string };
 }
 
 // [width, height, taskbar/dock height]
@@ -29,46 +33,44 @@ const SCREENS: Record<OsFamily, readonly (readonly [number, number, number])[]> 
   macos: [[1440, 900, 25], [1512, 982, 38], [1728, 1117, 38], [1680, 1050, 25], [2560, 1440, 25]],
 };
 
-const d3d11 = (vendor: string, device: string): Gpu => ({
+// The third argument is the WebGPU "architecture": the GPU generation name the
+// browser reports for that hardware (Intel gen-9, NVIDIA Turing, AMD GCN 4, ...).
+const d3d11 = (vendor: string, device: string, architecture: string): Gpu => ({
   vendor: `Google Inc. (${vendor})`,
   renderer: `ANGLE (${vendor}, ${device} Direct3D11 vs_5_0 ps_5_0, D3D11)`,
+  webgpu: { vendor: vendor.toLowerCase(), architecture },
+});
+const openGl = (vendor: string, device: string, webgpuVendor: string, architecture: string): Gpu => ({
+  vendor: `Google Inc. (${vendor})`,
+  renderer: `ANGLE (${vendor}, ${device})`,
+  webgpu: { vendor: webgpuVendor, architecture },
+});
+const metal = (chip: string): Gpu => ({
+  vendor: 'Google Inc. (Apple)',
+  renderer: `ANGLE (Apple, ANGLE Metal Renderer: ${chip}, Unspecified Version)`,
+  webgpu: { vendor: 'apple', architecture: 'metal-3' },
 });
 
 const GPUS: Record<OsFamily, readonly Gpu[]> = {
   windows: [
-    d3d11('Intel', 'Intel(R) UHD Graphics 630 (0x00003E9B)'),
-    d3d11('Intel', 'Intel(R) UHD Graphics 620 (0x00005917)'),
-    d3d11('Intel', 'Intel(R) Iris(R) Xe Graphics (0x00009A49)'),
-    d3d11('NVIDIA', 'NVIDIA GeForce GTX 1650 (0x00001F82)'),
-    d3d11('NVIDIA', 'NVIDIA GeForce GTX 1660 SUPER (0x000021C4)'),
-    d3d11('NVIDIA', 'NVIDIA GeForce RTX 3060 (0x00002503)'),
-    d3d11('NVIDIA', 'NVIDIA GeForce RTX 4060 (0x00002882)'),
-    d3d11('AMD', 'AMD Radeon RX 580 Series (0x000067DF)'),
-    d3d11('AMD', 'AMD Radeon(TM) Graphics (0x00001636)'),
+    d3d11('Intel', 'Intel(R) UHD Graphics 630 (0x00003E9B)', 'gen-9'),
+    d3d11('Intel', 'Intel(R) UHD Graphics 620 (0x00005917)', 'gen-9'),
+    d3d11('Intel', 'Intel(R) Iris(R) Xe Graphics (0x00009A49)', 'gen-12lp'),
+    d3d11('NVIDIA', 'NVIDIA GeForce GTX 1650 (0x00001F82)', 'turing'),
+    d3d11('NVIDIA', 'NVIDIA GeForce GTX 1660 SUPER (0x000021C4)', 'turing'),
+    d3d11('NVIDIA', 'NVIDIA GeForce RTX 3060 (0x00002503)', 'ampere'),
+    d3d11('NVIDIA', 'NVIDIA GeForce RTX 4060 (0x00002882)', 'lovelace'),
+    d3d11('AMD', 'AMD Radeon RX 580 Series (0x000067DF)', 'gcn-4'),
+    d3d11('AMD', 'AMD Radeon(TM) Graphics (0x00001636)', 'gcn-5'),
   ],
   linux: [
-    {
-      vendor: 'Google Inc. (Intel)',
-      renderer: 'ANGLE (Intel, Mesa Intel(R) UHD Graphics 630 (CFL GT2), OpenGL 4.6)',
-    },
-    {
-      vendor: 'Google Inc. (Intel)',
-      renderer: 'ANGLE (Intel, Mesa Intel(R) Xe Graphics (TGL GT2), OpenGL 4.6)',
-    },
-    {
-      vendor: 'Google Inc. (AMD)',
-      renderer: 'ANGLE (AMD, AMD Radeon RX 580 Series (radeonsi, polaris10, LLVM 17.0.6, DRM 3.57), OpenGL 4.6)',
-    },
-    {
-      vendor: 'Google Inc. (NVIDIA Corporation)',
-      renderer: 'ANGLE (NVIDIA Corporation, NVIDIA GeForce GTX 1650/PCIe/SSE2, OpenGL 4.5.0)',
-    },
+    openGl('Intel', 'Mesa Intel(R) UHD Graphics 630 (CFL GT2), OpenGL 4.6', 'intel', 'gen-9'),
+    openGl('Intel', 'Mesa Intel(R) Xe Graphics (TGL GT2), OpenGL 4.6', 'intel', 'gen-12lp'),
+    openGl('AMD', 'AMD Radeon RX 580 Series (radeonsi, polaris10, LLVM 17.0.6, DRM 3.57), OpenGL 4.6',
+      'amd', 'gcn-4'),
+    openGl('NVIDIA Corporation', 'NVIDIA GeForce GTX 1650/PCIe/SSE2, OpenGL 4.5.0', 'nvidia', 'turing'),
   ],
-  macos: [
-    { vendor: 'Google Inc. (Apple)', renderer: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)' },
-    { vendor: 'Google Inc. (Apple)', renderer: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)' },
-    { vendor: 'Google Inc. (Apple)', renderer: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)' },
-  ],
+  macos: [metal('Apple M1'), metal('Apple M2'), metal('Apple M3 Pro')],
 };
 
 const CORES: Record<OsFamily, readonly number[]> = {
@@ -191,7 +193,7 @@ export function hostOs(): OsFamily {
 
 export type GeneratedIdentity = Pick<Profile,
   'seed' | 'os' | 'userAgent' | 'platform' | 'uaData' | 'hardwareConcurrency' |
-  'deviceMemory' | 'screen' | 'webgl' | 'noise' | 'fonts'>;
+  'deviceMemory' | 'screen' | 'webgl' | 'webgpu' | 'noise' | 'fonts' | 'voices'>;
 
 /**
  * Builds a fresh identity for `os`, matching kernel version `kernelVersion`
@@ -212,7 +214,9 @@ export function generateIdentity(os: OsFamily, kernelVersion: string, rng: Rng =
     deviceMemory: pick(rng, MEMORY[os]),
     screen: buildScreen(os, rng),
     webgl: { vendor: gpu.vendor, renderer: gpu.renderer },
+    webgpu: { ...gpu.webgpu },
     noise: { canvas: true, audio: true },
     fonts: [...FONTS[os]],
+    voices: voicesFor(os),
   };
 }

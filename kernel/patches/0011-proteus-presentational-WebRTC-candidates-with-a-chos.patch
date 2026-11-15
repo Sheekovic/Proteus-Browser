@@ -1,7 +1,7 @@
 From 8da4fd6d7d3ba1da024f882a9a3966bff0f84192 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 17:03:11 +0000
-Subject: [PATCH 11/11] proteus: presentational WebRTC candidates with a chosen
+Subject: [PATCH 11/12] proteus: presentational WebRTC candidates with a chosen
  public address
 
 ---

@@ -1,0 +1,48 @@
+<!doctype html>
+<body>
+<!-- Holds the load event for a few real seconds: the voice list and the GPU adapter
+     arrive asynchronously from other processes. -->
+<img src="/slow?ms=4500" alt="">
+<script>
+// Emits one line of key=value pairs with the speech synthesis voices and the WebGPU
+// adapter identity a page can see.
+const enc = v => encodeURIComponent(String(v));
+const within = (promise, ms, fallback) =>
+    Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(fallback), ms))]);
+
+function voices() {
+  return new Promise(resolve => {
+    if (!('speechSynthesis' in window)) return resolve([]);
+    const read = () => speechSynthesis.getVoices();
+    if (read().length) return resolve(read());
+    speechSynthesis.onvoiceschanged = () => resolve(read());
+    setTimeout(() => resolve(read()), 2000);
+  });
+}
+
+async function gpu() {
+  try {
+    if (!navigator.gpu) return 'unsupported';
+    const adapter = await within(navigator.gpu.requestAdapter(), 2500, 'timeout');
+    if (adapter === 'timeout') return 'timeout';
+    if (!adapter) return 'no-adapter';
+    const i = adapter.info || {};
+    return `${i.vendor}|${i.architecture}|${i.device}|${i.description}`;
+  } catch (e) {
+    return 'error:' + e.name;
+  }
+}
+
+(async () => {
+  const [list, adapter] = await Promise.all([voices(), gpu()]);
+  document.body.innerText = 'RESULT ' + [
+    'voices=' + list.length,
+    'voiceNames=' + enc(list.slice(0, 6).map(v => v.name + (v.localService ? '' : '*')).join('|') || 'none'),
+    // name~lang~local~default~voiceURI for the first few voices.
+    'voiceDetail=' + enc(list.slice(0, 4).map(
+        v => [v.name, v.lang, v.localService, v.default, v.voiceURI].join('~')).join('|') || 'none'),
+    'webgpu=' + enc(adapter),
+  ].join(' ');
+})();
+</script>
+</body>

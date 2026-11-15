@@ -28,6 +28,15 @@ export interface UaData {
   wow64: boolean;
 }
 
+/** One entry of speechSynthesis.getVoices(). */
+export interface Voice {
+  name: string;
+  lang: string;
+  /** localService: true for the system's own voices, false for network voices. */
+  local: boolean;
+  default: boolean;
+}
+
 export interface ScreenInfo {
   width: number;
   height: number;
@@ -69,7 +78,15 @@ export interface Profile {
   timezone: string;
 
   webgl: { vendor: string; renderer: string };
+  /**
+   * GPUAdapterInfo.vendor / .architecture for the same GPU as `webgl`
+   * ("intel" / "gen-12lp"). Empty strings mean "report the real GPU".
+   */
+  webgpu: { vendor: string; architecture: string };
   noise: { canvas: boolean; audio: boolean };
+
+  /** Speech synthesis voices to report. Empty means "this machine's voices". */
+  voices: Voice[];
 
   /**
    * Font families sites may find installed. Fonts on the machine that are not listed
@@ -196,6 +213,19 @@ export function validateProfile(profile: Profile): void {
   if (!isPlainObject(profile.noise) || typeof profile.noise.canvas !== 'boolean' ||
       typeof profile.noise.audio !== 'boolean') {
     fail('noise.canvas and noise.audio must be booleans');
+  }
+
+  if (!isPlainObject(profile.webgpu)) fail('webgpu must be an object');
+  checkString(profile.webgpu.vendor, 'webgpu.vendor', 100);
+  checkString(profile.webgpu.architecture, 'webgpu.architecture', 100);
+
+  if (!Array.isArray(profile.voices) || profile.voices.length > 1000) fail('voices must be a list');
+  for (const voice of profile.voices) {
+    if (!isPlainObject(voice) || typeof voice.name !== 'string' || voice.name.trim() === '' ||
+        voice.name.length > 200 || typeof voice.lang !== 'string' || voice.lang.length > 35 ||
+        typeof voice.local !== 'boolean' || typeof voice.default !== 'boolean') {
+      fail('voices entries must be {name, lang, local, default}');
+    }
   }
 
   if (!Array.isArray(profile.fonts) || profile.fonts.length > 1000) fail('fonts must be a list');

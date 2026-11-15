@@ -66,6 +66,19 @@ struct BASE_EXPORT FontAlias {
   std::vector<std::string> substitutes;
 };
 
+// One entry of speechSynthesis.getVoices().
+struct BASE_EXPORT Voice {
+  Voice();
+  Voice(const Voice&);
+  Voice& operator=(const Voice&);
+  ~Voice();
+
+  std::string name;
+  std::string lang;       // BCP 47 tag, e.g. "en-US"
+  bool local = true;      // localService
+  bool is_default = false;
+};
+
 // window.screen and the device-width / device-height media features, in CSS
 // pixels.
 struct BASE_EXPORT ScreenData {
@@ -150,6 +163,15 @@ struct BASE_EXPORT Config {
   // WEBGL_debug_renderer_info strings. Empty means "report the real GPU".
   std::string webgl_vendor;
   std::string webgl_renderer;
+
+  // GPUAdapterInfo.vendor / .architecture ("intel" / "gen-12lp"), which must
+  // agree with the WebGL strings. Empty means "report the real GPU".
+  std::string webgpu_vendor;
+  std::string webgpu_architecture;
+
+  // The speech synthesis voices to report; they differ by operating system.
+  // Empty means "report this machine's voices".
+  std::vector<Voice> voices;
 
   // Base64 form of the source JSON, forwarded to child processes.
   std::string serialized;

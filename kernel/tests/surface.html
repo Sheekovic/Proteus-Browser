@@ -48,6 +48,9 @@ function voices() {
     'mediaDevices=' + enc(devices),
     'voices=' + voiceList.length,
     'voiceNames=' + enc(voiceList.slice(0, 6).map(v => v.name + (v.localService ? '' : '*')).join('|')),
+    // name~lang~local~default~voiceURI for the first few voices.
+    'voiceDetail=' + enc(voiceList.slice(0, 4).map(
+        v => [v.name, v.lang, v.localService, v.default, v.voiceURI].join('~')).join('|')),
     'connection=' + enc(connection ? `${connection.effectiveType}/${connection.downlink}/${connection.rtt}/${connection.saveData}` : 'none'),
     'battery=' + enc(battery),
     'webgpu=' + enc(gpu),
