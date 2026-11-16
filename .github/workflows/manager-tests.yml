@@ -2,7 +2,8 @@
 # replaced by a stand-in (manager/test/stub-kernel.mjs).
 #
 # The kernel itself is not built here. A Chromium build needs far more disk and time
-# than a hosted runner offers.
+# than a hosted runner offers. Its tests run on a machine that has a built kernel
+# (see the README).
 name: Manager tests
 
 on:

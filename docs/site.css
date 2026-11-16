@@ -73,10 +73,6 @@ code { font: 0.9em var(--mono); background: var(--code); padding: 0.1em 0.4em; b
 .hero .button.primary { background: #fff; color: var(--deep); box-shadow: 0 10px 26px -12px rgba(3, 12, 36, 0.8); }
 .status { display: inline-block; margin-top: 28px; padding: 6px 16px; border-radius: 999px; font-size: 14px;
           background: rgba(255, 255, 255, 0.14); color: rgba(255, 255, 255, 0.92); }
-.waves { position: absolute; left: 0; right: 0; bottom: -1px; width: 100%; height: 110px; display: block; }
-.waves .back { fill: var(--bg); opacity: 0.25; }
-.waves .mid { fill: var(--bg); opacity: 0.5; }
-.waves .front { fill: var(--bg); }
 
 section.block { padding: 52px 0; }
 section.block + section.block { border-top: 1px solid var(--line); }

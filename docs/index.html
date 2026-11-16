@@ -11,7 +11,8 @@
 <meta property="og:title" content="Proteus — a browser for keeping identities separate">
 <meta property="og:image" content="https://sheekovic.github.io/Proteus-Browser/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="stylesheet" href="site.css?v=2">
+<link rel="stylesheet" href="site.css?v=3">
+<link rel="stylesheet" href="motion.css?v=3">
 </head>
 <body>
 
@@ -25,6 +26,8 @@
     </a>
     <nav>
       <a class="optional" href="#capabilities">Capabilities</a>
+      <a class="optional" href="#how">How it works</a>
+      <a class="optional" href="#limits">Limits</a>
       <a href="test.html">Test your browser</a>
       <a href="https://github.com/Sheekovic/Proteus-Browser">GitHub</a>
     </nav>
@@ -35,7 +38,7 @@
   <div class="hero">
   <div class="wrap">
     <div class="mark"><svg viewBox="96 68 320 376" aria-hidden="true"><defs><linearGradient id="m" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#0b2559"/><stop offset="0.55" stop-color="#1857c9"/><stop offset="1" stop-color="#22c1c9"/></linearGradient></defs><path d="M148 404 V196 C148 132 198 104 252 104 C324 104 368 152 368 212 C368 276 320 318 262 318 C218 318 192 290 192 256 C192 228 214 208 240 208 C262 208 276 224 276 242" fill="none" stroke="url(#m)" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-    <h1>Every profile is its own device.</h1>
+    <h1>Every profile is its own <span class="shift" data-words="device.|Windows PC.|MacBook.|Android phone.|iPhone.|Linux desktop.">device.</span></h1>
     <p>Proteus is an open-source browser built on Chromium. Each profile has its own cookies and
        its own device identity — screen, graphics card, fonts, time zone, fingerprints — and
        looks like the same device every time it starts.</p>
@@ -45,11 +48,11 @@
     </div>
     <div class="status">Early release · build from source · Windows and Linux</div>
   </div>
-  <svg class="waves" viewBox="0 0 1440 110" preserveAspectRatio="none" aria-hidden="true">
-    <path class="back" d="M0 46 C180 6 360 86 540 46 S900 6 1080 46 S1350 80 1440 52 V110 H0 Z"/>
-    <path class="mid" d="M0 66 C200 30 380 100 580 62 S940 30 1120 66 S1360 96 1440 72 V110 H0 Z"/>
-    <path class="front" d="M0 86 C220 56 400 110 620 82 S980 56 1160 86 S1370 106 1440 90 V110 H0 Z"/>
-  </svg>
+  <div class="waves" aria-hidden="true">
+    <svg class="back" viewBox="0 0 2880 110" preserveAspectRatio="none"><path d="M0 50 q90 -38 180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 V110 H0 Z"/></svg>
+    <svg class="mid" viewBox="0 0 2880 110" preserveAspectRatio="none"><path d="M0 66 q90 -30 180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 V110 H0 Z"/></svg>
+    <svg class="front" viewBox="0 0 2880 110" preserveAspectRatio="none"><path d="M0 84 q90 -22 180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 V110 H0 Z"/></svg>
+  </div>
   </div>
 
   <section class="block" id="capabilities">
@@ -126,7 +129,7 @@
     </div>
   </section>
 
-  <section class="block">
+  <section class="block" id="how">
     <div class="wrap">
       <h2>How it works</h2>
       <p class="lead">Two parts: a patched Chromium that takes its identity from a file, and a small
@@ -157,7 +160,7 @@ node src/main.ts</pre>
     </div>
   </section>
 
-  <section class="block">
+  <section class="block" id="limits">
     <div class="wrap">
       <h2>What it does not do</h2>
       <p class="lead">Better said here than discovered later.</p>
@@ -182,5 +185,6 @@ node src/main.ts</pre>
   </div>
 </footer>
 
+<script src="site.js?v=3"></script>
 </body>
 </html>

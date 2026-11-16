@@ -353,6 +353,7 @@ function renderChecks() {
     if (groupName !== group) { group = groupName; list.append(element('div', 'group', groupName)); }
     const state = checks[id];
     const row = element('div', 'check' + (state === 1 ? ' pass' : state === 0 ? ' fail' : ''));
+    row.style.setProperty('--delay', `${Math.min(list.children.length, 40) * 22}ms`);
     row.append(element('div', 'dot', state === 1 ? '✓' : state === 0 ? '!' : '–'));
     const body = element('div');
     body.append(element('h3', '', title));
@@ -398,6 +399,9 @@ function renderScore() {
       : 'The checks marked “Detectable” below gave an answer a real device does not.';
   for (const [name, id] of [['canvas', 'hash-canvas'], ['webgl', 'hash-webgl'], ['audio', 'hash-audio']]) {
     $(id).textContent = hashes[name] || '—';
+    $(id).parentElement.classList.remove('fresh');
+    void $(id).offsetWidth;  // Restarts the animation.
+    $(id).parentElement.classList.add('fresh');
   }
   return { passed, total: applicable.length };
 }
