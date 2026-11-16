@@ -6,8 +6,14 @@
 // widely seen desktop configurations; nothing here is copied from another product.
 
 import { randomBytes } from 'node:crypto';
+import { release } from 'node:os';
 import type { OsFamily, Profile, ScreenInfo, UaData } from './profile.ts';
+import { generateAndroidIdentity } from './android.ts';
+import { generateIosIdentity } from './ios.ts';
 import { voicesFor } from './voices.ts';
+
+/** The systems with a desktop identity generator; phones have their own (android.ts, ios.ts). */
+type DesktopOs = Exclude<OsFamily, 'android' | 'ios'>;
 
 /** Returns a uniformly distributed integer in [0, bound). */
 export type Rng = (bound: number) => number;
@@ -27,7 +33,7 @@ interface Gpu {
 }
 
 // [width, height, taskbar/dock height]
-const SCREENS: Record<OsFamily, readonly (readonly [number, number, number])[]> = {
+const SCREENS: Record<DesktopOs, readonly (readonly [number, number, number])[]> = {
   windows: [[1920, 1080, 48], [1920, 1080, 40], [1366, 768, 40], [1536, 864, 48], [2560, 1440, 48], [1600, 900, 40]],
   linux: [[1920, 1080, 27], [1920, 1080, 0], [2560, 1440, 27], [1366, 768, 27], [1680, 1050, 27]],
   macos: [[1440, 900, 25], [1512, 982, 38], [1728, 1117, 38], [1680, 1050, 25], [2560, 1440, 25]],
@@ -51,7 +57,7 @@ const metal = (chip: string): Gpu => ({
   webgpu: { vendor: 'apple', architecture: 'metal-3' },
 });
 
-const GPUS: Record<OsFamily, readonly Gpu[]> = {
+const GPUS: Record<DesktopOs, readonly Gpu[]> = {
   windows: [
     d3d11('Intel', 'Intel(R) UHD Graphics 630 (0x00003E9B)', 'gen-9'),
     d3d11('Intel', 'Intel(R) UHD Graphics 620 (0x00005917)', 'gen-9'),
@@ -73,12 +79,12 @@ const GPUS: Record<OsFamily, readonly Gpu[]> = {
   macos: [metal('Apple M1'), metal('Apple M2'), metal('Apple M3 Pro')],
 };
 
-const CORES: Record<OsFamily, readonly number[]> = {
+const CORES: Record<DesktopOs, readonly number[]> = {
   windows: [4, 6, 8, 8, 12, 16],
   linux: [4, 8, 8, 12, 16],
   macos: [8, 8, 10, 12],
 };
-const MEMORY: Record<OsFamily, readonly number[]> = {
+const MEMORY: Record<DesktopOs, readonly number[]> = {
   windows: [8, 8, 16, 16, 32],
   linux: [8, 16, 16, 32],
   macos: [8, 16, 16, 32],
@@ -87,19 +93,25 @@ const MEMORY: Record<OsFamily, readonly number[]> = {
 // Font families that ship with a default installation of each system. A profile
 // exposes these and hides anything else found on the machine (fonts added by office
 // suites, design tools and so on are a strong, stable identifier).
-const FONTS: Record<OsFamily, readonly string[]> = {
+// The Windows names were checked against an unmodified browser on Windows 11: each is
+// a name it resolves as a font family there. "MS Sans Serif" and the like are not
+// font files but names Windows itself maps to other fonts, on every installation.
+const FONTS: Record<DesktopOs, readonly string[]> = {
   windows: [
     'Arial', 'Arial Black', 'Bahnschrift', 'Calibri', 'Cambria', 'Cambria Math', 'Candara',
     'Comic Sans MS', 'Consolas', 'Constantia', 'Corbel', 'Courier New', 'Ebrima',
-    'Franklin Gothic Medium', 'Gabriola', 'Gadugi', 'Georgia', 'Impact', 'Ink Free',
-    'Javanese Text', 'Leelawadee UI', 'Lucida Console', 'Lucida Sans Unicode', 'Malgun Gothic',
-    'Marlett', 'Microsoft Himalaya', 'Microsoft JhengHei', 'Microsoft New Tai Lue',
-    'Microsoft PhagsPa', 'Microsoft Sans Serif', 'Microsoft Tai Le', 'Microsoft YaHei',
-    'Microsoft Yi Baiti', 'MingLiU-ExtB', 'Mongolian Baiti', 'MS Gothic', 'MV Boli',
-    'Myanmar Text', 'Nirmala UI', 'Palatino Linotype', 'Segoe MDL2 Assets', 'Segoe Print',
-    'Segoe Script', 'Segoe UI', 'Segoe UI Emoji', 'Segoe UI Historic', 'Segoe UI Symbol',
-    'SimSun', 'Sitka', 'Sylfaen', 'Symbol', 'Tahoma', 'Times New Roman', 'Trebuchet MS',
-    'Verdana', 'Webdings', 'Wingdings', 'Yu Gothic',
+    'Franklin Gothic Medium', 'Gabriola', 'Gadugi', 'Georgia', 'Impact',
+    'Ink Free', 'Javanese Text', 'Leelawadee UI', 'Lucida Console', 'Lucida Sans Unicode',
+    'Malgun Gothic', 'Marlett', 'Microsoft Himalaya', 'Microsoft JhengHei',
+    'Microsoft JhengHei UI', 'Microsoft New Tai Lue', 'Microsoft PhagsPa',
+    'Microsoft Sans Serif', 'Microsoft Tai Le', 'Microsoft YaHei', 'Microsoft YaHei UI',
+    'Microsoft Yi Baiti', 'MingLiU-ExtB', 'MingLiU_HKSCS-ExtB', 'Mongolian Baiti', 'MS Gothic',
+    'MS PGothic', 'MS Sans Serif', 'MS Serif', 'MS Shell Dlg', 'MS Shell Dlg 2', 'MS UI Gothic', 'MV Boli', 'Myanmar Text', 'Nirmala UI', 'NSimSun',
+    'Palatino Linotype', 'PMingLiU-ExtB', 'Segoe MDL2 Assets', 'Segoe Print', 'Segoe Script',
+    'Segoe UI', 'Segoe UI Emoji', 'Segoe UI Historic', 'Segoe UI Symbol', 'SimSun',
+    'SimSun-ExtB', 'Sitka Banner', 'Sitka Display', 'Sitka Heading', 'Sitka Small', 'Sitka Subheading',
+    'Sitka Text', 'Sylfaen', 'Symbol', 'Tahoma', 'Times New Roman', 'Trebuchet MS',
+    'Verdana', 'Webdings', 'Wingdings', 'Yu Gothic', 'Yu Gothic UI',
   ],
   macos: [
     'American Typewriter', 'Andale Mono', 'Arial', 'Arial Black', 'Arial Narrow',
@@ -121,6 +133,27 @@ const FONTS: Record<OsFamily, readonly string[]> = {
   ],
 };
 
+/** Fonts Windows 11 added to the set every Windows 10 installation has. */
+const WINDOWS_11_FONTS: readonly string[] = [
+  'Cascadia Code', 'Cascadia Mono', 'Sans Serif Collection', 'Segoe Fluent Icons',
+  'Segoe UI Variable Display', 'Segoe UI Variable Small', 'Segoe UI Variable Text',
+];
+/** Fonts only Windows 10 has. */
+const WINDOWS_10_FONTS: readonly string[] = ['HoloLens MDL2 Assets'];
+
+/**
+ * The fonts a fresh installation of the claimed system has. Detection scripts tell
+ * Windows versions apart by them, so the list must agree with the version the client
+ * hints report (13 and above means Windows 11).
+ */
+function fontsFor(os: DesktopOs, platformVersion: string): string[] {
+  const fonts = [...FONTS[os]];
+  if (os === 'windows') {
+    fonts.push(...(Number(platformVersion.split('.')[0]) >= 13 ? WINDOWS_11_FONTS : WINDOWS_10_FONTS));
+  }
+  return fonts.sort((a, b) => a.localeCompare(b));
+}
+
 interface OsIdentity {
   uaPlatformToken: string;
   navigatorPlatform: string;
@@ -129,7 +162,7 @@ interface OsIdentity {
   architecture: string;
 }
 
-const OS_IDENTITY: Record<OsFamily, OsIdentity> = {
+const OS_IDENTITY: Record<DesktopOs, OsIdentity> = {
   windows: {
     uaPlatformToken: 'Windows NT 10.0; Win64; x64',
     navigatorPlatform: 'Win32',
@@ -154,7 +187,26 @@ const OS_IDENTITY: Record<OsFamily, OsIdentity> = {
   },
 };
 
-function buildUaData(os: OsFamily, kernelVersion: string, rng: Rng): UaData {
+/** Whether this machine runs Windows 11 (build 22000 or later); undefined when it is not Windows. */
+function hostIsWindows11(): boolean | undefined {
+  if (process.platform !== 'win32') return undefined;
+  return Number(release().split('.')[2]) >= 22000;
+}
+
+/**
+ * The client-hint platform versions a new profile may claim. A Windows profile on a
+ * Windows machine keeps to the machine's own generation: Windows 10 and 11 ship
+ * different fonts, and claiming the other one means hiding fonts that are present and
+ * standing in for ones that are not, which detection sites notice.
+ */
+function platformVersionsFor(os: DesktopOs, all: readonly string[]): readonly string[] {
+  const eleven = os === 'windows' ? hostIsWindows11() : undefined;
+  if (eleven === undefined) return all;
+  const matching = all.filter((version) => (Number(version.split('.')[0]) >= 13) === eleven);
+  return matching.length > 0 ? matching : all;
+}
+
+function buildUaData(os: DesktopOs, kernelVersion: string, rng: Rng): UaData {
   const identity = OS_IDENTITY[os];
   return {
     // The kernel builds the brand lists from this name and the version. They contain
@@ -165,7 +217,7 @@ function buildUaData(os: OsFamily, kernelVersion: string, rng: Rng): UaData {
     fullVersionList: [],
     fullVersion: kernelVersion,
     platform: identity.chPlatform,
-    platformVersion: pick(rng, identity.chPlatformVersions),
+    platformVersion: pick(rng, platformVersionsFor(os, identity.chPlatformVersions)),
     architecture: identity.architecture,
     bitness: '64',
     model: '',
@@ -174,7 +226,7 @@ function buildUaData(os: OsFamily, kernelVersion: string, rng: Rng): UaData {
   };
 }
 
-function buildScreen(os: OsFamily, rng: Rng): ScreenInfo {
+function buildScreen(os: DesktopOs, rng: Rng): ScreenInfo {
   const [width, height, bar] = pick(rng, SCREENS[os]);
   return { width, height, availWidth: width, availHeight: height - bar, colorDepth: 24 };
 }
@@ -193,30 +245,34 @@ export function hostOs(): OsFamily {
 
 export type GeneratedIdentity = Pick<Profile,
   'seed' | 'os' | 'userAgent' | 'platform' | 'uaData' | 'hardwareConcurrency' |
-  'deviceMemory' | 'screen' | 'webgl' | 'webgpu' | 'noise' | 'fonts' | 'voices'>;
+  'deviceMemory' | 'screen' | 'mobile' | 'webgl' | 'webgpu' | 'noise' | 'fonts' | 'voices'>;
 
 /**
  * Builds a fresh identity for `os`, matching kernel version `kernelVersion`
  * (e.g. "158.0.8127.37") so the user agent agrees with the browser actually running.
  */
 export function generateIdentity(os: OsFamily, kernelVersion: string, rng: Rng = cryptoRng): GeneratedIdentity {
+  if (os === 'android') return generateAndroidIdentity(kernelVersion, rng);
+  if (os === 'ios') return generateIosIdentity(rng);
   const major = kernelVersion.split('.')[0];
   const identity = OS_IDENTITY[os];
   const gpu = pick(rng, GPUS[os]);
+  const uaData = buildUaData(os, kernelVersion, rng);
   return {
     seed: randomSeed(),
     os,
     userAgent: `Mozilla/5.0 (${identity.uaPlatformToken}) AppleWebKit/537.36 (KHTML, like Gecko) ` +
                `Chrome/${major}.0.0.0 Safari/537.36`,
     platform: identity.navigatorPlatform,
-    uaData: buildUaData(os, kernelVersion, rng),
+    uaData,
     hardwareConcurrency: pick(rng, CORES[os]),
     deviceMemory: pick(rng, MEMORY[os]),
     screen: buildScreen(os, rng),
+    mobile: null,
     webgl: { vendor: gpu.vendor, renderer: gpu.renderer },
     webgpu: { ...gpu.webgpu },
     noise: { canvas: true, audio: true },
-    fonts: [...FONTS[os]],
+    fonts: fontsFor(os, uaData.platformVersion),
     voices: voicesFor(os),
   };
 }

@@ -9,6 +9,8 @@
 //          --headless=new --no-sandbox --disable-gpu
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
+import { connect as netConnect, createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -88,11 +90,8 @@ async function readPage(debuggerUrl, url) {
     socket.send(JSON.stringify({ id, method, params }));
   });
   try {
-    // A tab opened in the first moments after the kernel starts can lose its
-    // navigation and stay blank (seen on Windows, with or without a profile).
-    await delay(1000);
-    const where = await send(100, 'Runtime.evaluate', { expression: 'location.href', returnByValue: true });
-    if (where.result?.result?.value === 'about:blank') await send(101, 'Page.navigate', { url });
+    // No waiting here on purpose: the manager must hand out an endpoint that is
+    // ready for a tab the moment start() returns.
     for (let attempt = 0; attempt < 10; attempt++) {
       const reply = await new Promise((resolve) => {
         socket.addEventListener('message', (event) => resolve(JSON.parse(event.data)), { once: true });
@@ -120,6 +119,60 @@ async function readPage(debuggerUrl, url) {
   }
 }
 
+/**
+ * Sends one command to the browser itself (not a tab) over DevTools and returns the
+ * connection, still open: what a command grants lasts only as long as its connection.
+ */
+async function browserCommand(debuggerUrl, method, params) {
+  const version = await (await fetch(`${debuggerUrl}/json/version`)).json();
+  const socket = new WebSocket(version.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener('open', resolve, { once: true });
+    socket.addEventListener('error', () => reject(new Error('could not connect to the browser')), { once: true });
+  });
+  const reply = await new Promise((resolve) => {
+    socket.addEventListener('message', (event) => resolve(JSON.parse(event.data)), { once: true });
+    socket.send(JSON.stringify({ id: 1, method, params }));
+  });
+  if (reply.error) {
+    socket.close();
+    throw new Error(`${method}: ${reply.error.message}`);
+  }
+  return socket;
+}
+
+/**
+ * Whether the tab the kernel opened by itself at start shows a test page's RESULT
+ * line within 20 seconds. (Every other check opens its own tab, later; a kernel
+ * whose first page never loads would pass them all.)
+ */
+async function firstTabLoaded(debuggerUrl) {
+  const targets = await (await fetch(`${debuggerUrl}/json/list`)).json();
+  const page = targets.find((target) => target.type === 'page');
+  if (!page) return false;
+  const socket = new WebSocket(page.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener('open', resolve, { once: true });
+    socket.addEventListener('error', () => reject(new Error('could not connect to the first tab')), { once: true });
+  });
+  try {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const reply = await new Promise((resolve) => {
+        socket.addEventListener('message', (event) => resolve(JSON.parse(event.data)), { once: true });
+        socket.send(JSON.stringify({
+          id: attempt + 1, method: 'Runtime.evaluate',
+          params: { expression: `!!document.body && document.body.innerText.startsWith('RESULT')`, returnByValue: true },
+        }));
+      });
+      if (reply.result?.result?.value === true) return true;
+      await delay(500);
+    }
+    return false;
+  } finally {
+    socket.close();
+  }
+}
+
 function isAlive(pid) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
@@ -133,11 +186,12 @@ try {
   for (let i = 0; i < 50; i++) {
     try { await api('GET', '/api/health'); break; } catch { await delay(100); }
   }
-  await api('PUT', '/api/settings', { kernelPath, extraArgs });
+  // No lookup service until the proxy part below brings its own: the run stays offline.
+  await api('PUT', '/api/settings', { kernelPath, extraArgs, exitLookupUrl: '' });
 
   const profile = await api('POST', '/api/profiles', {
     name: 'End-to-end', os: 'windows', languages: ['de-DE', 'de', 'en'], timezone: 'Europe/Berlin',
-    webrtcPublicIp: PUBLIC_IP,
+    webrtcPublicIp: PUBLIC_IP, startUrl: `${pagesUrl}/audio.html`,
   });
   console.log(`profile: ${profile.userAgent}`);
   console.log(`         ${profile.screen.width}x${profile.screen.height}, ${profile.hardwareConcurrency} cores, ` +
@@ -149,6 +203,8 @@ try {
 
   const version = await (await fetch(`${status.debuggerUrl}/json/version`)).json();
   check('DevTools endpoint answers with the profile user agent', version['User-Agent'], profile.userAgent);
+
+  check('the start page loads in the first tab', await firstTabLoaded(status.debuggerUrl), true);
 
   const identity = await readPage(status.debuggerUrl, `${pagesUrl}/identity.html`);
   check('navigator.userAgent', identity.ua, profile.userAgent);
@@ -209,6 +265,26 @@ try {
   const canvasAgain = await readPage(again.debuggerUrl, `${pagesUrl}/canvas.html`);
   check('canvas fingerprint survives a restart', canvasAgain.data, canvas.data);
 
+  // An iPhone profile is Safari on a phone, in script and in its requests.
+  const iphone = await api('POST', '/api/profiles', { name: 'iPhone', os: 'ios', startUrl: `${pagesUrl}/canvas.html` });
+  const iphoneStatus = await api('POST', `/api/profiles/${iphone.id}/start`);
+  check('iPhone: the start page loads in the first tab', await firstTabLoaded(iphoneStatus.debuggerUrl), true);
+  const foreign = await readPage(iphoneStatus.debuggerUrl, `${pagesUrl}/foreign.html`);
+  check('iPhone: navigator.vendor', foreign.vendor, 'Apple Computer, Inc.');
+  check('iPhone: user agent in requests', foreign.ua, iphone.userAgent);
+  check('iPhone: none of the members Safari lacks', foreign.members, 'none');
+  check('iPhone: nor in a worker', foreign.workerMembers, 'none');
+  check('iPhone: no window.chrome', foreign.chrome, 'undefined');
+  check('iPhone: no client hint request headers', foreign.hintHeaders, 'none');
+  const phone = await readPage(iphoneStatus.debuggerUrl, `${pagesUrl}/mobile.html`);
+  check('iPhone: screen', phone.screen, `${iphone.screen.width}x${iphone.screen.height}`);
+  check('iPhone: page area', phone.inner, `${iphone.mobile.viewWidth}x${iphone.mobile.viewHeight}`);
+  check('iPhone: pixel ratio', phone.dpr, '3');
+  check('iPhone: touch', `${phone.touchPoints}/${phone.touchEvents}/${phone.coarse}`, '5/true/true');
+  check('iPhone: platform', phone.platform, 'iPhone');
+  await api('POST', `/api/profiles/${iphone.id}/stop`);
+  await api('DELETE', `/api/profiles/${iphone.id}`);
+
   // WebGPU needs an adapter, so relaunch with a software one. If even the plain
   // kernel cannot provide it on this machine, say so instead of passing.
   await api('POST', `/api/profiles/${profile.id}/stop`);
@@ -226,6 +302,65 @@ try {
           `${profile.webgpu.vendor}|${profile.webgpu.architecture}`);
   } else {
     console.log(`SKIP WebGPU adapter info: no adapter on this machine (${gpu.webgpu})`);
+  }
+
+  // A proxy that needs a login: the browser must get through it without being given
+  // the login, and must take its time zone and WebRTC address from the proxy's exit.
+  const tunnels = [];
+  const proxy = createNetServer((socket) => {
+    socket.on('error', () => {});
+    socket.once('data', (data) => {
+      const head = data.toString('latin1');
+      const target = /^CONNECT (\S+)/.exec(head)?.[1] ?? '';
+      const given = Buffer.from(/Proxy-Authorization: Basic (\S+)/i.exec(head)?.[1] ?? '', 'base64').toString();
+      if (given !== 'e2e-user:e2e pass') return socket.end('HTTP/1.1 407 Proxy Authentication Required\r\n\r\n');
+      tunnels.push(target);
+      const [host, port] = [target.slice(0, target.lastIndexOf(':')), Number(target.slice(target.lastIndexOf(':') + 1))];
+      const remote = netConnect(port, host, () => {
+        socket.write('HTTP/1.1 200 Connection established\r\n\r\n');
+        socket.pipe(remote); remote.pipe(socket);
+      });
+      remote.on('error', () => socket.destroy());
+    });
+  });
+  await new Promise((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+  const lookup = createHttpServer((_request, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify({ ip: PUBLIC_IP, timezone: { id: 'Asia/Tokyo' } }));
+  });
+  await new Promise((resolve) => lookup.listen(0, '127.0.0.1', resolve));
+  try {
+    await api('PUT', '/api/settings', {
+      kernelPath, exitLookupUrl: `http://127.0.0.1:${lookup.address().port}/`,
+      // Loopback normally bypasses a proxy; the test pages live there.
+      extraArgs: [...extraArgs, '--proxy-bypass-list=<-loopback>'],
+    });
+    const proxied = await api('POST', '/api/profiles', {
+      name: 'Proxied', os: 'windows', geolocation: { latitude: 35.6895, longitude: 139.6917, accuracy: 40 },
+      proxy: { type: 'http', host: '127.0.0.1', port: proxy.address().port, username: 'e2e-user', password: 'e2e pass' },
+    });
+    const proxiedRun = await api('POST', `/api/profiles/${proxied.id}/start`);
+    check('proxy exit is reported for the run', proxiedRun.proxyExit?.ip, PUBLIC_IP);
+    tunnels.length = 0;
+    const proxiedLocale = await readPage(proxiedRun.debuggerUrl, `${pagesUrl}/locale.html`);
+    check('pages load through the proxy that needs a login',
+          tunnels.includes(new URL(pagesUrl).host), true);
+    check('time zone follows the proxy exit', proxiedLocale.zone, 'Asia/Tokyo');
+    const proxiedRtc = await readPage(proxiedRun.debuggerUrl,
+                                      `${pagesUrl}/webrtc.html?stun=${STUN}&expect=${PUBLIC_IP}`);
+    check('WebRTC address follows the proxy exit', proxiedRtc.srflxIsExpected, 'true');
+    // A site the user allowed gets the profile's position, not the machine's.
+    const grant = await browserCommand(proxiedRun.debuggerUrl, 'Browser.grantPermissions',
+                                       { origin: new URL(pagesUrl).origin, permissions: ['geolocation'] });
+    const geo = await readPage(proxiedRun.debuggerUrl, `${pagesUrl}/geo.html?expect=35.6895,139.6917`);
+    grant.close();
+    check('geolocation is the profile position', `${geo.state}/${geo.matches}/${geo.accuracy}`, 'ok/true/40');
+    const stoppedProxied = await api('POST', `/api/profiles/${proxied.id}/stop`);
+    check('proxied profile stops', stoppedProxied.state, 'stopped');
+    await api('DELETE', `/api/profiles/${proxied.id}`);
+  } finally {
+    proxy.close();
+    lookup.close();
   }
 
   for (const id of [profile.id, other.id]) {

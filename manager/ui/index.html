@@ -80,6 +80,8 @@
             <option value="windows">Windows</option>
             <option value="macos">macOS</option>
             <option value="linux">Linux</option>
+            <option value="android">Android phone</option>
+            <option value="ios">iPhone (Safari)</option>
           </select>
         </label>
         <label>Languages (comma separated, optional) <input name="languages" placeholder="en-US, en"></label>
@@ -101,6 +103,9 @@
         </label>
         <label>Proxy host <input name="proxyHost" placeholder="127.0.0.1"></label>
         <label>Proxy port <input name="proxyPort" type="number" min="1" max="65535" placeholder="8080"></label>
+        <label>Proxy user name (optional) <input name="proxyUser" autocomplete="off"></label>
+        <label>Proxy password (optional) <input name="proxyPass" type="password" autocomplete="new-password"></label>
+        <label><input name="matchProxy" type="checkbox" checked> Match time zone and WebRTC address to the proxy's exit</label>
         <label>Start page (optional) <input name="startUrl" placeholder="https://example.com"></label>
       </div>
       <div class="row"><button class="primary" type="submit">Create profile</button>
@@ -242,7 +247,12 @@ $('create').addEventListener('submit', async (event) => {
   if (f.timezone.value.trim()) input.timezone = f.timezone.value.trim();
   if (f.startUrl.value.trim()) input.startUrl = f.startUrl.value.trim();
   if (f.proxyType.value) {
+    input.matchProxy = f.matchProxy.checked;
     input.proxy = { type: f.proxyType.value, host: f.proxyHost.value.trim(), port: Number(f.proxyPort.value) };
+    if (f.proxyUser.value) {
+      input.proxy.username = f.proxyUser.value;
+      input.proxy.password = f.proxyPass.value;
+    }
   }
   try {
     const profile = await api('POST', '/api/profiles', input);

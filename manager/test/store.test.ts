@@ -167,17 +167,18 @@ test('every claimed font gets substitutes of its own kind', () => {
   assert.equal(kindOf('Helvetica Neue'), 'sans');
 
   const fonts = ['Helvetica Neue', 'Menlo', 'Georgia', 'Avenir', 'Geneva'];
-  const subs = buildFontSubstitutes(fonts);
+  const subs = buildFontSubstitutes(fonts, 'windows');
   assert.deepEqual(Object.keys(subs), fonts);
   for (const font of fonts) {
-    assert.ok(subs[font].length >= 8, `${font} has a long fallback chain`);
+    assert.equal(subs[font].length, 3, `${font} has three stand-ins`);
     assert.ok(!subs[font].includes(font), `${font} is not its own substitute`);
     assert.ok(subs[font].every((s) => kindOf(s) === kindOf(font)), `${font} substitutes share its kind`);
     assert.equal(new Set(subs[font]).size, subs[font].length, 'no duplicates');
   }
-  assert.ok(subs.Menlo.includes('Consolas') && subs.Menlo.includes('DejaVu Sans Mono'),
-    'a list covers fonts from more than one host system');
-  assert.deepEqual(buildFontSubstitutes(fonts), subs, 'the choice is stable between launches');
+  assert.ok(subs.Menlo.includes('Consolas'), 'stand-ins are fonts of the machine running the kernel');
+  assert.ok(buildFontSubstitutes(fonts, 'linux').Menlo.every((s) => /DejaVu|Liberation|Nimbus|Noto|Ubuntu/.test(s)),
+    'whichever system that is');
+  assert.deepEqual(buildFontSubstitutes(fonts, 'windows'), subs, 'the choice is stable between launches');
   assert.notDeepEqual(subs.Avenir, subs.Geneva, 'different fonts start from different stand-ins');
 });
 
@@ -226,4 +227,73 @@ test('kernel arguments reflect the profile', async () => {
   assert.ok(args.includes(`--window-size=${profile.screen.availWidth},${profile.screen.availHeight}`));
   assert.ok(args.includes('--extra-flag'));
   assert.equal(args.at(-1), 'https://example.com/', 'the start URL comes last');
+});
+
+test('the kernel configuration of a generated profile stays small', async () => {
+  // The kernel passes it to each child process on the command line, which Windows
+  // limits to 32,767 characters; a profile that outgrows it cannot start at all.
+  for (const os of ['windows', 'macos', 'linux'] as const) {
+    for (let i = 0; i < 5; i++) {
+      const profile = await store.createProfile({
+        os, languages: ['en-US', 'en'], timezone: 'Europe/Berlin', webrtcPublicIp: '203.0.113.7',
+        geolocation: { latitude: 52.52, longitude: 13.405, accuracy: 40 },
+      });
+      const bytes = Buffer.byteLength(JSON.stringify(buildKernelConfig(profile)));
+      assert.ok(bytes < 12_000, `${os}: ${bytes} bytes`);
+    }
+  }
+});
+
+test('an iPhone profile is Safari, not Chrome', async () => {
+  for (let i = 0; i < 8; i++) {
+    const profile = await store.createProfile({ os: 'ios' });
+    assert.match(profile.userAgent,
+        /^Mozilla\/5\.0 \(iPhone; CPU iPhone OS 18_\d like Mac OS X\) AppleWebKit\/605\.1\.15 \(KHTML, like Gecko\) Version\/18\.\d Mobile\/15E148 Safari\/604\.1$/);
+    assert.ok(!profile.userAgent.includes('Chrome'));
+    assert.equal(profile.platform, 'iPhone');
+    assert.deepEqual(profile.webgl, { vendor: 'Apple Inc.', renderer: 'Apple GPU' });
+    assert.ok(profile.mobile);
+    assert.equal(profile.mobile.deviceScaleFactor, 3);
+    assert.ok(profile.voices.some((voice) => voice.name === 'Samantha' && voice.default));
+    const config = buildKernelConfig(profile) as Record<string, any>;
+    assert.equal(config.vendor, 'Apple Computer, Inc.');
+    assert.equal(config.clientHints, false);
+    assert.equal(config.chromeObject, false);
+    assert.ok(!('uaData' in config) && !('deviceMemory' in config));
+    for (const name of ['userAgentData', 'connection', 'getBattery', 'deviceMemory']) {
+      assert.ok(config.hide.Navigator.includes(name) && config.hide.WorkerNavigator.includes(name), name);
+    }
+    assert.equal(config.mobile.pdfViewer, true);
+    assert.ok(Buffer.byteLength(JSON.stringify(config)) < 12_000);
+  }
+  // None of this reaches a Chrome profile.
+  const config = buildKernelConfig(await store.createProfile({ os: 'android' }));
+  for (const key of ['vendor', 'clientHints', 'chromeObject', 'hide']) assert.ok(!(key in config), key);
+});
+
+test('an Android profile is one real phone model, consistently', async () => {
+  for (let i = 0; i < 12; i++) {
+    const profile = await store.createProfile({ os: 'android' });
+    assert.match(profile.userAgent, /^Mozilla\/5\.0 \(Linux; Android 10; K\) .* Mobile Safari\/537\.36$/);
+    assert.equal(profile.platform, 'Linux armv81');
+    assert.equal(profile.uaData.platform, 'Android');
+    assert.equal(profile.uaData.mobile, true);
+    assert.equal(profile.uaData.architecture, '', 'phones report no architecture hint');
+    assert.ok(profile.uaData.model.length > 0);
+    assert.ok(profile.mobile, 'a phone profile has phone settings');
+    assert.equal(profile.mobile.viewWidth, profile.screen.width, 'the page spans the screen width');
+    assert.ok(profile.mobile.viewHeight < profile.screen.height, 'the bars take some of the height');
+    assert.ok(profile.screen.height > profile.screen.width, 'portrait');
+    assert.match(profile.webgl.renderer, /^ANGLE \(ARM, Mali-G\d+.*, OpenGL ES 3\.2\)$/);
+    assert.equal(profile.webgpu.vendor, 'arm');
+    assert.ok(profile.voices.every((voice) => voice.local && !voice.name.startsWith('Google')));
+    const config = buildKernelConfig(profile);
+    assert.deepEqual(config.mobile, profile.mobile);
+    assert.ok(Buffer.byteLength(JSON.stringify(config)) < 12_000);
+  }
+  // Desktop profiles are untouched, and bad phone settings are refused.
+  const desktop = await store.createProfile({ os: 'windows' });
+  assert.equal(desktop.mobile, null);
+  assert.ok(!('mobile' in buildKernelConfig(desktop)));
+  await assert.rejects(store.createProfile({ os: 'android', mobile: { viewWidth: 5000, viewHeight: 700, deviceScaleFactor: 2, maxTouchPoints: 5 } }), ValidationError);
 });

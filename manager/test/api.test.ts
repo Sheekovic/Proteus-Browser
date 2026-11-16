@@ -30,7 +30,8 @@ before(async () => {
   launcher = new Launcher(store, (_kernelPath, args) =>
     spawn(process.execPath, [stubKernel, ...args], { stdio: 'ignore' }));
   await writeFile(join(dir, 'kernel-placeholder'), '');
-  await store.updateSettings({ kernelPath: join(dir, 'kernel-placeholder') });
+  // No lookup service: these tests must not talk to the network.
+  await store.updateSettings({ kernelPath: join(dir, 'kernel-placeholder'), exitLookupUrl: '' });
 
   server = createApiServer({ store, launcher, uiDir: join(here, '..', 'ui') });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

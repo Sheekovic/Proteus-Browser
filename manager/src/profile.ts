@@ -2,7 +2,19 @@
 
 import { isIP } from 'node:net';
 
-export type OsFamily = 'windows' | 'linux' | 'macos';
+/** 'android' is Chrome on an Android phone; 'ios' is Safari on an iPhone. */
+export type OsFamily = 'windows' | 'linux' | 'macos' | 'android' | 'ios';
+export const OS_FAMILIES: readonly OsFamily[] = ['windows', 'linux', 'macos', 'android', 'ios'];
+
+/** What makes a profile a phone: the page's view and how it is touched. */
+export interface MobileSettings {
+  /** Page area in CSS pixels (the screen less the system and browser bars). */
+  viewWidth: number;
+  viewHeight: number;
+  /** Device pixels per CSS pixel (window.devicePixelRatio). */
+  deviceScaleFactor: number;
+  maxTouchPoints: number;
+}
 
 export interface UaBrand {
   brand: string;
@@ -49,6 +61,12 @@ export interface ProxySettings {
   type: 'http' | 'socks5';
   host: string;
   port: number;
+  /**
+   * Login for the proxy. When set, the kernel is pointed at a local relay that logs
+   * in for it (see proxyRelay.ts). Stored as given, in the profile file.
+   */
+  username?: string;
+  password?: string;
 }
 
 export interface Profile {
@@ -71,6 +89,8 @@ export interface Profile {
   /** navigator.deviceMemory, in GiB. */
   deviceMemory: number;
   screen: ScreenInfo;
+  /** Set on a phone profile; null on a desktop one. */
+  mobile: MobileSettings | null;
 
   /** Most preferred first. Empty means "use the machine's languages". */
   languages: string[];
@@ -106,7 +126,22 @@ export interface Profile {
    */
   webrtcPublicIp: string;
 
+  /**
+   * Position reported by navigator.geolocation to sites allowed to ask, in degrees
+   * and metres. null means the machine's own location services (stock behaviour).
+   */
+  geolocation: { latitude: number; longitude: number; accuracy: number } | null;
+
   proxy: ProxySettings | null;
+  /**
+   * Before each start, ask the lookup service (see Settings.exitLookupUrl) which
+   * address sites will see. Without a proxy that is this machine's own address, and
+   * only an empty `webrtcPublicIp` is filled in, for that run. With a proxy it is the
+   * proxy's exit: look it up through the proxy and fill in an empty
+   * `timezone`, `webrtcPublicIp` and `geolocation` from it, so the browser agrees with the address
+   * sites see. A start fails if the exit cannot be determined.
+   */
+  matchProxy: boolean;
   /** Page opened when the profile starts. Empty means the kernel's default. */
   startUrl: string;
 }
@@ -166,7 +201,7 @@ export function validateProfile(profile: Profile): void {
   if (!/^\d{1,20}$/.test(profile.seed) || BigInt(profile.seed) > 0xffff_ffff_ffff_ffffn) {
     fail('seed must be an unsigned 64-bit integer written as a decimal string');
   }
-  if (!['windows', 'linux', 'macos'].includes(profile.os)) fail('os must be windows, linux or macos');
+  if (!OS_FAMILIES.includes(profile.os)) fail(`os must be one of ${OS_FAMILIES.join(', ')}`);
 
   checkString(profile.userAgent, 'userAgent', 1000);
   checkString(profile.platform, 'platform', 100);
@@ -190,13 +225,21 @@ export function validateProfile(profile: Profile): void {
 
   const s = profile.screen;
   if (!isPlainObject(s)) fail('screen must be an object');
-  if (!isIntInRange(s.width, 320, 16384) || !isIntInRange(s.height, 240, 16384)) {
+  if (!isIntInRange(s.width, 240, 16384) || !isIntInRange(s.height, 240, 16384)) {
     fail('screen.width and screen.height are out of range');
   }
   if (!isIntInRange(s.availWidth, 1, s.width) || !isIntInRange(s.availHeight, 1, s.height)) {
     fail('screen.availWidth / availHeight must fit inside the screen');
   }
   if (![24, 30, 32, 48].includes(s.colorDepth)) fail('screen.colorDepth must be 24, 30, 32 or 48');
+  if (profile.mobile !== null) {
+    const m = profile.mobile;
+    if (!isPlainObject(m) || !isIntInRange(m.viewWidth, 200, s.width) || !isIntInRange(m.viewHeight, 200, s.height) ||
+        typeof m.deviceScaleFactor !== 'number' || !(m.deviceScaleFactor >= 1 && m.deviceScaleFactor <= 5) ||
+        !isIntInRange(m.maxTouchPoints, 1, 10)) {
+      fail('mobile must be {viewWidth, viewHeight, deviceScaleFactor, maxTouchPoints} fitting the screen, or null');
+    }
+  }
 
   if (!Array.isArray(profile.languages) || profile.languages.length > 20) fail('languages must be a list');
   for (const language of profile.languages) {
@@ -245,7 +288,27 @@ export function validateProfile(profile: Profile): void {
     if (!isPlainObject(p) || (p.type !== 'http' && p.type !== 'socks5')) fail('proxy.type must be http or socks5');
     if (typeof p.host !== 'string' || !/^[A-Za-z0-9.\-:[\]]{1,255}$/.test(p.host)) fail('proxy.host is not valid');
     if (!isIntInRange(p.port, 1, 65535)) fail('proxy.port must be 1-65535');
+    for (const key of ['username', 'password'] as const) {
+      // SOCKS5 limits both to 255 bytes; control characters would break HTTP headers.
+      if (p[key] !== undefined && (typeof p[key] !== 'string' || Buffer.byteLength(p[key]) > 255 ||
+                                   /[\x00-\x1f\x7f]/.test(p[key]))) {
+        fail(`proxy.${key} must be text of at most 255 bytes`);
+      }
+    }
+    if (typeof p.username === 'string' && p.username.includes(':')) fail('proxy.username must not contain ":"');
+    if ((p.password ?? '') !== '' && (p.username ?? '') === '') fail('proxy.password needs a proxy.username');
   }
+
+  if (profile.geolocation !== null) {
+    const g = profile.geolocation;
+    const inRange = (value: unknown, limit: number): boolean =>
+        typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= limit;
+    if (!isPlainObject(g) || !inRange(g.latitude, 90) || !inRange(g.longitude, 180) ||
+        typeof g.accuracy !== 'number' || !(g.accuracy > 0 && g.accuracy <= 100000)) {
+      fail('geolocation must be {latitude, longitude, accuracy} within range, or null');
+    }
+  }
+  if (typeof profile.matchProxy !== 'boolean') fail('matchProxy must be true or false');
 
   checkString(profile.startUrl, 'startUrl', 2000);
   if (profile.startUrl !== '' && !/^https?:\/\//i.test(profile.startUrl)) {

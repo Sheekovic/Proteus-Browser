@@ -10,7 +10,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { generateIdentity, hostOs } from './fingerprint.ts';
-import { type Profile, type ProfileInput, ValidationError, validateProfile } from './profile.ts';
+import { OS_FAMILIES, type Profile, type ProfileInput, ValidationError, validateProfile } from './profile.ts';
 
 export interface Settings {
   /** Path to the Proteus kernel executable (chrome / chrome.exe). */
@@ -19,9 +19,17 @@ export interface Settings {
   kernelVersion: string;
   /** Extra command-line arguments passed to every launch. */
   extraArgs: string[];
+  /**
+   * Service asked, through a profile's proxy, for the proxy's exit address and time
+   * zone. Must answer with JSON holding `ip` and `timezone` (or `timezone.id`).
+   * Empty turns the lookup off.
+   */
+  exitLookupUrl: string;
 }
 
-const DEFAULT_SETTINGS: Settings = { kernelPath: '', kernelVersion: '158.0.8127.37', extraArgs: [] };
+const DEFAULT_SETTINGS: Settings = {
+  kernelPath: '', kernelVersion: '158.0.8127.37', extraArgs: [], exitLookupUrl: 'https://ipwho.is/',
+};
 
 export class NotFoundError extends Error {}
 
@@ -50,12 +58,16 @@ async function writeJson(file: string, value: unknown): Promise<void> {
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** Values for fields added after a profile was saved, so older profiles keep loading. */
-const FIELD_DEFAULTS: Pick<Profile, 'webrtc' | 'webrtcPublicIp' | 'fonts' | 'voices' | 'webgpu'> = {
+const FIELD_DEFAULTS: Pick<Profile, 'webrtc' | 'webrtcPublicIp' | 'fonts' | 'voices' | 'webgpu' | 'matchProxy' | 'geolocation' | 'mobile'> = {
   webrtc: 'proxyOnly',
   webrtcPublicIp: '',
   fonts: [],
   voices: [],
   webgpu: { vendor: '', architecture: '' },
+  // Profiles saved before this existed keep starting exactly as they did.
+  matchProxy: false,
+  geolocation: null,
+  mobile: null,
 };
 
 function withDefaults(stored: Profile): Profile {
@@ -102,6 +114,13 @@ export class Store {
       }
       next.extraArgs = patch.extraArgs;
     }
+    if (patch.exitLookupUrl !== undefined) {
+      if (typeof patch.exitLookupUrl !== 'string' ||
+          (patch.exitLookupUrl !== '' && !/^https?:\/\/[^\s]+$/i.test(patch.exitLookupUrl))) {
+        throw new ValidationError('exitLookupUrl must be an http(s) URL, or empty');
+      }
+      next.exitLookupUrl = patch.exitLookupUrl;
+    }
     await mkdir(this.dataDir, { recursive: true });
     await writeJson(join(this.dataDir, 'settings.json'), next);
     return next;
@@ -134,7 +153,9 @@ export class Store {
   async createProfile(input: ProfileInput = {}): Promise<Profile> {
     const settings = await this.getSettings();
     const os = input.os ?? hostOs();
-    if (!['windows', 'linux', 'macos'].includes(os)) throw new ValidationError('os must be windows, linux or macos');
+    if (!OS_FAMILIES.includes(os)) {
+      throw new ValidationError(`os must be one of ${OS_FAMILIES.join(', ')}`);
+    }
     const now = new Date().toISOString();
     const profile: Profile = {
       name: 'New profile',
@@ -143,7 +164,9 @@ export class Store {
       timezone: '',
       webrtc: FIELD_DEFAULTS.webrtc,
       webrtcPublicIp: FIELD_DEFAULTS.webrtcPublicIp,
+      geolocation: null,
       proxy: null,
+      matchProxy: true,
       startUrl: '',
       ...generateIdentity(os, settings.kernelVersion),
       ...input,

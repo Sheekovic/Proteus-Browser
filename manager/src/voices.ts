@@ -59,9 +59,36 @@ const SYSTEM: Record<OsFamily, readonly Voice[]> = {
   ],
   // Chrome on Linux has no system voices unless speech-dispatcher is set up.
   linux: [],
+  // Android's text-to-speech engine names its voices by language and region.
+  android: [
+    local('English United States', 'en_US', true), local('English United Kingdom', 'en_GB'),
+    local('English Australia', 'en_AU'), local('English India', 'en_IN'),
+    local('Spanish Spain', 'es_ES'), local('Spanish United States', 'es_US'),
+    local('French France', 'fr_FR'), local('German Germany', 'de_DE'), local('Italian Italy', 'it_IT'),
+    local('Portuguese Brazil', 'pt_BR'), local('Russian Russia', 'ru_RU'), local('Japanese Japan', 'ja_JP'),
+    local('Korean South Korea', 'ko_KR'), local('Chinese China', 'zh_CN'), local('Chinese Taiwan', 'zh_TW'),
+    local('Hindi India', 'hi_IN'), local('Indonesian Indonesia', 'id_ID'), local('Turkish Turkey', 'tr_TR'),
+    local('Polish Poland', 'pl_PL'), local('Dutch Netherlands', 'nl_NL'),
+  ],
+  // iOS ships one compact voice per language and region.
+  ios: [
+    local('Majed', 'ar-001'), local('Daria', 'bg-BG'), local('Montse', 'ca-ES'), local('Zuzana', 'cs-CZ'),
+    local('Sara', 'da-DK'), local('Anna', 'de-DE'), local('Melina', 'el-GR'), local('Karen', 'en-AU'),
+    local('Daniel', 'en-GB'), local('Moira', 'en-IE'), local('Rishi', 'en-IN'), local('Samantha', 'en-US', true),
+    local('Tessa', 'en-ZA'), local('Mónica', 'es-ES'), local('Paulina', 'es-MX'), local('Satu', 'fi-FI'),
+    local('Amélie', 'fr-CA'), local('Thomas', 'fr-FR'), local('Carmit', 'he-IL'), local('Lekha', 'hi-IN'),
+    local('Lana', 'hr-HR'), local('Tünde', 'hu-HU'), local('Damayanti', 'id-ID'), local('Alice', 'it-IT'),
+    local('Kyoko', 'ja-JP'), local('Yuna', 'ko-KR'), local('Amira', 'ms-MY'), local('Nora', 'nb-NO'),
+    local('Ellen', 'nl-BE'), local('Xander', 'nl-NL'), local('Zosia', 'pl-PL'), local('Luciana', 'pt-BR'),
+    local('Joana', 'pt-PT'), local('Ioana', 'ro-RO'), local('Milena', 'ru-RU'), local('Laura', 'sk-SK'),
+    local('Alva', 'sv-SE'), local('Kanya', 'th-TH'), local('Yelda', 'tr-TR'), local('Lesya', 'uk-UA'),
+    local('Linh', 'vi-VN'), local('Tingting', 'zh-CN'), local('Sinji', 'zh-HK'), local('Meijia', 'zh-TW'),
+  ],
 };
 
-/** The voices a default installation of `os` reports, in the order Chrome lists them. */
+/** The voices a default installation of `os` reports, in the order its browser lists them. */
 export function voicesFor(os: OsFamily): Voice[] {
-  return [...SYSTEM[os], ...GOOGLE].map((voice) => ({ ...voice }));
+  // The "Google" network voices belong to desktop Chrome only.
+  const voices = os === 'android' || os === 'ios' ? SYSTEM[os] : [...SYSTEM[os], ...GOOGLE];
+  return voices.map((voice) => ({ ...voice }));
 }
