@@ -220,6 +220,50 @@ Config LoadConfig() {
       config.mobile_pdf_viewer = mobile->FindBool("pdfViewer").value_or(false);
     }
   }
+  if (const DictValue* caps = dict->FindDict("webglCaps")) {
+    for (int version = 1; version <= 2; ++version) {
+      const DictValue* one = caps->FindDict(version == 1 ? "1" : "2");
+      if (!one) {
+        continue;
+      }
+      Config::WebGLCaps& target = config.webgl_caps[version - 1];
+      if (const DictValue* params = one->FindDict("p")) {
+        for (const auto [name, value] : *params) {
+          uint32_t pname = 0;
+          if (!StringToUint(name, &pname)) {
+            continue;
+          }
+          std::vector<double> numbers;
+          if (value.is_int() || value.is_double()) {
+            numbers.push_back(value.GetDouble());
+          } else if (const ListValue* list = value.GetIfList()) {
+            for (const Value& item : *list) {
+              if (item.is_int() || item.is_double()) {
+                numbers.push_back(item.GetDouble());
+              }
+            }
+          }
+          if (!numbers.empty() && numbers.size() <= 4) {
+            target.params.emplace_back(pname, std::move(numbers));
+          }
+        }
+      }
+      if (const ListValue* extensions = one->FindList("e")) {
+        target.has_extensions = true;
+        for (const Value& extension : *extensions) {
+          if (extension.is_string() && !extension.GetString().empty()) {
+            target.extensions.push_back(extension.GetString());
+          }
+        }
+      }
+      if (const ListValue* precision = one->FindList("s");
+          precision && precision->size() == 36) {
+        for (const Value& item : *precision) {
+          target.shader_precision.push_back(item.GetIfInt().value_or(0));
+        }
+      }
+    }
+  }
   config.vendor = StringOrEmpty(*dict, "vendor");
   config.client_hints = dict->FindBool("clientHints").value_or(true);
   config.chrome_object = dict->FindBool("chromeObject").value_or(true);

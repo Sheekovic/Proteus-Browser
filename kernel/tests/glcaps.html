@@ -1,0 +1,43 @@
+<!doctype html>
+<body>
+<script>
+// Emits one line of key=value pairs with what WebGL says the graphics card can do.
+const out = [];
+const show = value => value === null ? 'null'
+    : (ArrayBuffer.isView(value) ? value.constructor.name + ':' + Array.from(value).join('/') : typeof value + ':' + value);
+function precision(gl, shader, type) {
+  const format = gl.getShaderPrecisionFormat(shader, type);
+  return format ? [format.rangeMin, format.rangeMax, format.precision].join('/') : 'null';
+}
+function describe(prefix, gl) {
+  if (!gl) { out.push(prefix + '=none'); return; }
+  out.push(prefix + '=ok');
+  out.push(prefix + 'Max=' + show(gl.getParameter(gl.MAX_TEXTURE_SIZE)));
+  out.push(prefix + 'Dims=' + show(gl.getParameter(gl.MAX_VIEWPORT_DIMS)));
+  out.push(prefix + 'Point=' + show(gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)));
+  // 0x8073 is MAX_3D_TEXTURE_SIZE: a WebGL 2 parameter, an error in WebGL 1.
+  out.push(prefix + 'Tex3d=' + show(gl.getParameter(0x8073)));
+  out.push(prefix + 'Error=' + gl.getError());
+  // 0x84FF is MAX_TEXTURE_MAX_ANISOTROPY_EXT: null until its extension is enabled.
+  out.push(prefix + 'AnisoBefore=' + show(gl.getParameter(0x84FF)));
+  gl.getError();
+  const extensions = gl.getSupportedExtensions();
+  out.push(prefix + 'ExtCount=' + extensions.length);
+  for (const name of ['EXT_texture_filter_anisotropic', 'OES_element_index_uint', 'EXT_color_buffer_float',
+                      'WEBGL_debug_renderer_info', 'NOT_A_real_extension']) {
+    out.push(prefix + '_' + name + '=' + extensions.includes(name) + '/' + (gl.getExtension(name) !== null));
+  }
+  out.push(prefix + 'AnisoAfter=' + show(gl.getParameter(0x84FF)));
+  gl.getError();
+  out.push(prefix + 'VertexHighFloat=' + precision(gl, gl.VERTEX_SHADER, gl.HIGH_FLOAT));
+  out.push(prefix + 'FragmentLowInt=' + precision(gl, gl.FRAGMENT_SHADER, gl.LOW_INT));
+  // The native getter must still be the native getter.
+  out.push(prefix + 'Native=' + /\{\s*\[native code\]\s*\}/.test(Function.prototype.toString.call(gl.getParameter)));
+  // A parameter nobody forces keeps working.
+  out.push(prefix + 'Version=' + encodeURIComponent(gl.getParameter(gl.VERSION)));
+}
+describe('gl1', document.createElement('canvas').getContext('webgl'));
+describe('gl2', document.createElement('canvas').getContext('webgl2'));
+document.body.innerText = 'RESULT ' + out.join(' ');
+</script>
+</body>

@@ -9,6 +9,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/base_export.h"
@@ -163,6 +164,24 @@ struct BASE_EXPORT Config {
   // WEBGL_debug_renderer_info strings. Empty means "report the real GPU".
   std::string webgl_vendor;
   std::string webgl_renderer;
+
+  // What the graphics card named above can do, as WebGL reports it; index 0 is for
+  // WebGL 1 contexts and 1 for WebGL 2. Unset means "report the real GPU".
+  struct WebGLCaps {
+    // getParameter() results by parameter name (a GL enum): one number, or the
+    // numbers of an array result. Used only where the real result has that shape.
+    std::vector<std::pair<uint32_t, std::vector<double>>> params;
+    // The extensions that card offers. With |has_extensions| set, extensions not
+    // listed are neither reported nor handed out; listed ones the real GPU lacks
+    // stay unavailable.
+    bool has_extensions = false;
+    std::vector<std::string> extensions;
+    // getShaderPrecisionFormat() results: 36 numbers, for the vertex then the
+    // fragment shader, for low/medium/high float then low/medium/high int, each
+    // as range minimum, range maximum, precision. Empty means the real ones.
+    std::vector<int> shader_precision;
+  };
+  WebGLCaps webgl_caps[2];
 
   // GPUAdapterInfo.vendor / .architecture ("intel" / "gen-12lp"), which must
   // agree with the WebGL strings. Empty means "report the real GPU".

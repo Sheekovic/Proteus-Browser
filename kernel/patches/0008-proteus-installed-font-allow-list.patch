@@ -1,7 +1,7 @@
 From 41ec71e07bfc235669ec70955fcbff9eefaeb878 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 15:59:19 +0000
-Subject: [PATCH 08/22] proteus: installed-font allow-list
+Subject: [PATCH 08/23] proteus: installed-font allow-list
 
 ---
  base/proteus/proteus_config.cc                |   7 +
