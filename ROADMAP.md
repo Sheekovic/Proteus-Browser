@@ -24,7 +24,7 @@ from tests.
 
 ## 3. Proof that it works
 
-- [ ] The whole kernel test suite and the end-to-end test on Linux, on the current kernel
+- [x] The whole kernel test suite and the end-to-end test on Linux, on the current kernel
 - [ ] The Linux sandbox helper's install step, run for real *(needs: leave to change AppArmor on a test machine)*
 - [x] A check of the public detection sites that judges every verdict, to run by hand or from a scheduler, so a regression is noticed
 - [ ] Windows 10, macOS hosts *(needs: machines)*
