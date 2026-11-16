@@ -10,6 +10,7 @@ import { release } from 'node:os';
 import type { OsFamily, Profile, ScreenInfo, UaData } from './profile.ts';
 import { generateAndroidIdentity } from './android.ts';
 import { generateIosIdentity } from './ios.ts';
+import { mediaDevicesFor } from './mediaDevices.ts';
 import { voicesFor } from './voices.ts';
 
 /** The systems with a desktop identity generator; phones have their own (android.ts, ios.ts). */
@@ -245,7 +246,7 @@ export function hostOs(): OsFamily {
 
 export type GeneratedIdentity = Pick<Profile,
   'seed' | 'os' | 'userAgent' | 'platform' | 'uaData' | 'hardwareConcurrency' |
-  'deviceMemory' | 'screen' | 'mobile' | 'webgl' | 'webglCaps' | 'webgpu' | 'noise' | 'fonts' | 'voices'>;
+  'deviceMemory' | 'screen' | 'mobile' | 'webgl' | 'webglCaps' | 'webgpu' | 'noise' | 'fonts' | 'voices' | 'mediaDevices'>;
 
 /**
  * Builds a fresh identity for `os`, matching kernel version `kernelVersion`
@@ -275,5 +276,6 @@ export function generateIdentity(os: OsFamily, kernelVersion: string, rng: Rng =
     noise: { canvas: true, audio: true },
     fonts: fontsFor(os, uaData.platformVersion),
     voices: voicesFor(os),
+    mediaDevices: mediaDevicesFor(os, rng),
   };
 }

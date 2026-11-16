@@ -7,6 +7,7 @@
 
 import type { GeneratedIdentity, Rng } from './fingerprint.ts';
 import { randomSeed } from './fingerprint.ts';
+import { mediaDevicesFor } from './mediaDevices.ts';
 import { voicesFor } from './voices.ts';
 
 interface Device {
@@ -94,6 +95,7 @@ export function generateAndroidIdentity(kernelVersion: string, rng: Rng): Genera
     noise: { canvas: true, audio: true },
     fonts: [...ANDROID_FONTS],
     voices: voicesFor('android'),
+    mediaDevices: mediaDevicesFor('android', rng),
     mobile: {
       viewWidth: device.width,
       viewHeight: device.height - SYSTEM_BARS_HEIGHT,

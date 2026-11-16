@@ -222,6 +222,37 @@ struct BASE_EXPORT Config {
   bool client_hints = true;
   bool chrome_object = true;
 
+  // The microphones, cameras and speakers of the profile's machine, in the order
+  // enumerateDevices() lists them; index 0 is audio input, 1 video input and 2
+  // audio output. With |has_media_devices| set, a page learns which kinds exist
+  // from these lists and, once it was allowed to use a kind, reads these labels
+  // instead of the names of this machine's hardware. |id| is "default" or
+  // "communications" for the entries an operating system adds for its chosen
+  // device, and empty for a device itself.
+  struct MediaDevice {
+    std::string label;
+    std::string id;
+  };
+  bool has_media_devices = false;
+  std::vector<MediaDevice> media_devices[3];
+
+  // What navigator.getBattery() reports, in place of this machine's battery: a
+  // laptop's real charge would otherwise be the same, and change the same way,
+  // in every profile running on it. |battery_level| is from 0 to 1. A battery
+  // that is not charging loses |battery_drain_per_hour| of its charge every hour
+  // counted from |battery_at|, in seconds since the Unix epoch.
+  bool has_battery = false;
+  bool battery_charging = true;
+  double battery_level = 1;
+  double battery_drain_per_hour = 0;
+  double battery_at = 0;
+
+  // navigator.connection.type and .downlinkMax (megabits per second, 0 for
+  // "unlimited"), which only a phone's browser has. Empty means the browser
+  // does not have them, as on a desktop computer.
+  std::string connection_type;
+  double connection_downlink_max = 0;
+
   bool has_geolocation = false;
   double geolocation_latitude = 0;
   double geolocation_longitude = 0;

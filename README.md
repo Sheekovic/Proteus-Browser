@@ -70,6 +70,7 @@ browser use its sandbox: `sudo ./linux-sandbox.sh --install`.
 | Network | WebRTC that never reveals the machine's address, and shows the address you choose instead |
 | Location | The position `navigator.geolocation` reports |
 | Speech | The list of speech synthesis voices |
+| Devices | Which microphones, cameras and speakers exist and what they are called, in the device list and on opened tracks; the battery; on Android, the kind of network connection |
 | Phones | Android (Chrome) and iPhone (Safari) profiles: phone screen and page area, touch, pixel ratio, mobile layout |
 
 The noise is deliberately conservative. It is applied only to content that already
@@ -216,7 +217,8 @@ a real device and make profiles from the reading.
 
 The page reads what any website can read about the device: browser and system
 version, phone model, screen, processor count, memory class, graphics card name and
-limits, font names from a fixed list, speech voices. It does not read the IP address,
+limits, font names from a fixed list, speech voices, and which kinds of media device are
+listed (not their names). It does not read the IP address,
 location, language, time zone, cookies or history, and nothing leaves the page until
 you press a button.
 
@@ -252,6 +254,11 @@ as a reference rather than a general build system; the ones that talk to a build
 server read its address from the `PROTEUS_BUILD_HOST` environment variable
 (`user@host`).
 
+On that setup a release is one command: [`release/make-release.ps1`](release/make-release.ps1)
+` <version>` rebuilds the Linux kernel, runs every kernel test on it, exports the patch
+series, builds the Windows kernel and assembles both bundles, stopping at the first
+failure. It publishes nothing.
+
 `kernel/src` and `kernel/scripts/edits` are the patches in their editable form: new
 source files, and small scripts that make the in-place edits to Chromium's own files.
 
@@ -277,6 +284,15 @@ checks what pages see:
 ```bash
 python kernel/tests/serve.py kernel/tests 8793 &
 node manager/test/e2e/real-kernel.mjs <path to chrome> http://127.0.0.1:8793
+```
+
+**Detection sites** — runs fresh Windows, Android and iPhone profiles past public
+detection sites and compares each verdict with the expected one, so that a regression
+(or a site getting stricter) is noticed. It needs the network and takes a while; run
+it after kernel changes, before a release, or from a scheduler:
+
+```bash
+node manager/test/e2e/site-check.mjs <path to chrome>
 ```
 
 [`kernel/tests/detect.html`](kernel/tests/detect.html) is a page of the consistency
@@ -318,6 +334,10 @@ Worth knowing before relying on it:
   machine's own — which includes every phone profile — claims that system's fonts and
   hides the machine's, but draws them with substitutes. A page finds the names;
   careful measurement of the glyphs can tell a substitute from the real font.
+- **A camera is still this machine's camera.** A profile decides which devices are
+  listed and what they are called. A page that is allowed to open one gets this
+  machine's picture and sound, and the resolutions its hardware offers; a listed
+  device the machine has no counterpart for cannot be opened.
 - **Tested on few machines.** Results on detection sites depend on the host; what
   holds on one Windows 11 machine is not a guarantee elsewhere.
 - **No protection is complete.** Sites combine many signals — address reputation,

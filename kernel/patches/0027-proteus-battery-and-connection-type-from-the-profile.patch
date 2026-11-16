@@ -1,0 +1,126 @@
+From 9a17f20e23608c67de2629d5a801d8f7bf13a332 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Mon, 16 Nov 2026 22:14:46 +0000
+Subject: [PATCH 27/27] proteus: battery and connection type from the profile
+
+---
+ content/child/runtime_features.cc             |  7 ++++++
+ .../modules/battery/battery_dispatcher.cc     | 25 +++++++++++++++++++
+ .../modules/netinfo/network_information.cc    | 19 ++++++++++++++
+ 3 files changed, 51 insertions(+)
+
+diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
+index 6a3c4650a0..5cf804753b 100644
+--- a/content/child/runtime_features.cc
++++ b/content/child/runtime_features.cc
+@@ -10,6 +10,7 @@
+ #include "base/base_switches.h"
+ #include "base/command_line.h"
+ #include "base/feature_list.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/logging.h"
+ #include "base/memory/stack_allocated.h"
+ #include "base/metrics/field_trial.h"
+@@ -605,6 +606,12 @@ void SetRuntimeFeaturesDefaultsAndUpdateFromArgs(
+     WebRuntimeFeatures::EnableXSLT(value == "true");
+   }
+ 
++  // Proteus: a phone's browser also tells pages which kind of connection it is
++  // on (NetworkInformation.type, .downlinkMax and the typechange event).
++  if (!base::proteus::GetConfig().connection_type.empty()) {
++    WebRuntimeFeatures::EnableNetInfoDownlinkMax(true);
++  }
++
+   ResolveInvalidConfigurations();
+ }
+ 
+diff --git a/third_party/blink/renderer/modules/battery/battery_dispatcher.cc b/third_party/blink/renderer/modules/battery/battery_dispatcher.cc
+index 86be964c01..aa1e688ff4 100644
+--- a/third_party/blink/renderer/modules/battery/battery_dispatcher.cc
++++ b/third_party/blink/renderer/modules/battery/battery_dispatcher.cc
+@@ -4,6 +4,10 @@
+ 
+ #include "third_party/blink/renderer/modules/battery/battery_dispatcher.h"
+ 
++#include <algorithm>
++
++#include "base/proteus/proteus_config.h"
++#include "base/time/time.h"
+ #include "services/device/public/mojom/battery_status.mojom-blink.h"
+ #include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
+ #include "third_party/blink/public/platform/platform.h"
+@@ -30,6 +34,27 @@ void BatteryDispatcher::OnDidChange(
+ 
+   DCHECK(battery_status);
+ 
++  // Proteus: the battery of the profile's device.
++  if (const base::proteus::Config& config = base::proteus::GetConfig();
++      config.has_battery) {
++    double level = config.battery_level;
++    if (!config.battery_charging && config.battery_at > 0) {
++      const double hours =
++          (base::Time::Now().InSecondsFSinceUnixEpoch() - config.battery_at) /
++          3600.0;
++      level -= config.battery_drain_per_hour * std::max(0.0, hours);
++    }
++    level = std::clamp(level, 0.05, 1.0);
++    // A full battery on a charger has finished charging; otherwise no browser
++    // can tell how long is left, which it reports as "unknown".
++    UpdateBatteryStatus(BatteryStatus(
++        config.battery_charging,
++        config.battery_charging && level >= 1 ? base::TimeDelta()
++                                              : base::TimeDelta::Max(),
++        base::TimeDelta::Max(), level));
++    return;
++  }
++
+   UpdateBatteryStatus(BatteryStatus(
+       battery_status->charging, base::Seconds(battery_status->charging_time),
+       base::Seconds(battery_status->discharging_time), battery_status->level));
+diff --git a/third_party/blink/renderer/modules/netinfo/network_information.cc b/third_party/blink/renderer/modules/netinfo/network_information.cc
+index 81df80e2b5..1f41672ece 100644
+--- a/third_party/blink/renderer/modules/netinfo/network_information.cc
++++ b/third_party/blink/renderer/modules/netinfo/network_information.cc
+@@ -6,6 +6,9 @@
+ 
+ #include <algorithm>
+ 
++#include <limits>
++
++#include "base/proteus/proteus_config.h"
+ #include "base/time/time.h"
+ #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
+ #include "third_party/blink/public/platform/task_type.h"
+@@ -84,6 +87,14 @@ bool NetworkInformation::IsObserving() const {
+ }
+ 
+ V8ConnectionType NetworkInformation::type() const {
++  // Proteus: the connection of the profile's device.
++  if (const std::string& forced = base::proteus::GetConfig().connection_type;
++      !forced.empty()) {
++    if (const auto type = V8ConnectionType::Create(String::FromUtf8(forced))) {
++      return *type;
++    }
++  }
++
+   if (RuntimeEnabledFeatures::NetInfoConstantTypeEnabled()) {
+     return V8ConnectionType(V8ConnectionType::Enum::kUnknown);
+   }
+@@ -100,6 +111,14 @@ V8ConnectionType NetworkInformation::type() const {
+ }
+ 
+ double NetworkInformation::downlinkMax() const {
++  // Proteus: the connection of the profile's device.
++  if (const base::proteus::Config& config = base::proteus::GetConfig();
++      !config.connection_type.empty()) {
++    return config.connection_downlink_max > 0
++               ? config.connection_downlink_max
++               : std::numeric_limits<double>::infinity();
++  }
++
+   if (RuntimeEnabledFeatures::NetInfoConstantTypeEnabled()) {
+     return std::numeric_limits<double>::infinity();
+   }
+-- 
+2.43.0
+

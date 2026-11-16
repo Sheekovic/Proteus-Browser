@@ -1,0 +1,33 @@
+<!doctype html>
+<body>
+<img src="/slow?ms=5000" alt="">
+<script>
+// Reports what navigator.getBattery() and navigator.connection say.
+let finished = false;
+function finish(fields) {
+  if (finished) return;
+  finished = true;
+  document.body.innerText = 'RESULT ' + fields.join(' ');
+}
+(async () => {
+  const fields = [];
+  const connection = navigator.connection;
+  fields.push('connection=' + (connection ? 'present' : 'absent'));
+  if (connection) {
+    fields.push('type=' + ('type' in connection ? connection.type : 'absent'));
+    fields.push('downlinkMax=' + ('downlinkMax' in connection ? connection.downlinkMax : 'absent'));
+    fields.push('typechange=' + ('ontypechange' in connection));
+    fields.push('effectiveType=' + connection.effectiveType);
+  }
+  if (!navigator.getBattery) {
+    finish([...fields, 'battery=absent']);
+    return;
+  }
+  const battery = await navigator.getBattery();
+  fields.push('battery=present', 'charging=' + battery.charging, 'level=' + battery.level,
+              'chargingTime=' + battery.chargingTime, 'dischargingTime=' + battery.dischargingTime);
+  finish(fields);
+})().catch(error => finish(['error=' + String(error).replace(/ /g, '_')]));
+setTimeout(() => finish(['error=timeout']), 4500);
+</script>
+</body>

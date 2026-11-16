@@ -1,0 +1,523 @@
+From 41538cc7bee3f6f702ece6fa5c95c0ec865d0d87 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Mon, 16 Nov 2026 22:14:35 +0000
+Subject: [PATCH 26/27] proteus: microphones, cameras and speakers from the
+ profile
+
+---
+ base/proteus/proteus_config.cc                |  44 ++++
+ base/proteus/proteus_config.h                 |  31 +++
+ .../renderer/modules/mediastream/BUILD.gn     |   2 +
+ .../modules/mediastream/media_devices.cc      |  14 +-
+ .../mediastream/proteus_media_devices.cc      | 248 ++++++++++++++++++
+ .../mediastream/proteus_media_devices.h       |  54 ++++
+ .../mediastream/user_media_processor.cc       |  19 +-
+ 7 files changed, 407 insertions(+), 5 deletions(-)
+ create mode 100644 third_party/blink/renderer/modules/mediastream/proteus_media_devices.cc
+ create mode 100644 third_party/blink/renderer/modules/mediastream/proteus_media_devices.h
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index a6b1f520d5..0df0f76b94 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -297,6 +297,50 @@ Config LoadConfig() {
+       config.geolocation_accuracy = accuracy > 0 ? accuracy : 50.0;
+     }
+   }
++  if (const DictValue* devices = dict->FindDict("mediaDevices")) {
++    static const char* const kKinds[] = {"audioInput", "videoInput",
++                                         "audioOutput"};
++    config.has_media_devices = true;
++    for (size_t kind = 0; kind < 3; ++kind) {
++      const ListValue* list = devices->FindList(kKinds[kind]);
++      if (!list) {
++        continue;
++      }
++      for (const Value& item : *list) {
++        const DictValue* entry = item.GetIfDict();
++        if (!entry || config.media_devices[kind].size() >= 16) {
++          continue;
++        }
++        Config::MediaDevice device;
++        device.label = StringOrEmpty(*entry, "label");
++        const std::string id = StringOrEmpty(*entry, "id");
++        if (id == "default" || id == "communications") {
++          device.id = id;
++        }
++        config.media_devices[kind].push_back(std::move(device));
++      }
++    }
++  }
++  if (const DictValue* battery = dict->FindDict("battery")) {
++    const double level = battery->FindDouble("level").value_or(1.0);
++    const double drain = battery->FindDouble("drainPerHour").value_or(0.0);
++    if (level >= 0 && level <= 1 && drain >= 0 && drain <= 1) {
++      config.has_battery = true;
++      config.battery_charging = battery->FindBool("charging").value_or(true);
++      config.battery_level = level;
++      config.battery_drain_per_hour = drain;
++      config.battery_at = battery->FindDouble("at").value_or(0.0);
++    }
++  }
++  if (const DictValue* connection = dict->FindDict("connection")) {
++    const std::string type = StringOrEmpty(*connection, "type");
++    if (type == "wifi" || type == "cellular" || type == "ethernet" ||
++        type == "bluetooth" || type == "other" || type == "unknown") {
++      config.connection_type = type;
++      const double max = connection->FindDouble("downlinkMax").value_or(0.0);
++      config.connection_downlink_max = max > 0 && max < 100000 ? max : 0;
++    }
++  }
+   if (const ListValue* voices = dict->FindList("voices")) {
+     for (const Value& item : *voices) {
+       const DictValue* entry = item.GetIfDict();
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index dd40161e27..62c28e5bf2 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -222,6 +222,37 @@ struct BASE_EXPORT Config {
+   bool client_hints = true;
+   bool chrome_object = true;
+ 
++  // The microphones, cameras and speakers of the profile's machine, in the order
++  // enumerateDevices() lists them; index 0 is audio input, 1 video input and 2
++  // audio output. With |has_media_devices| set, a page learns which kinds exist
++  // from these lists and, once it was allowed to use a kind, reads these labels
++  // instead of the names of this machine's hardware. |id| is "default" or
++  // "communications" for the entries an operating system adds for its chosen
++  // device, and empty for a device itself.
++  struct MediaDevice {
++    std::string label;
++    std::string id;
++  };
++  bool has_media_devices = false;
++  std::vector<MediaDevice> media_devices[3];
++
++  // What navigator.getBattery() reports, in place of this machine's battery: a
++  // laptop's real charge would otherwise be the same, and change the same way,
++  // in every profile running on it. |battery_level| is from 0 to 1. A battery
++  // that is not charging loses |battery_drain_per_hour| of its charge every hour
++  // counted from |battery_at|, in seconds since the Unix epoch.
++  bool has_battery = false;
++  bool battery_charging = true;
++  double battery_level = 1;
++  double battery_drain_per_hour = 0;
++  double battery_at = 0;
++
++  // navigator.connection.type and .downlinkMax (megabits per second, 0 for
++  // "unlimited"), which only a phone's browser has. Empty means the browser
++  // does not have them, as on a desktop computer.
++  std::string connection_type;
++  double connection_downlink_max = 0;
++
+   bool has_geolocation = false;
+   double geolocation_latitude = 0;
+   double geolocation_longitude = 0;
+diff --git a/third_party/blink/renderer/modules/mediastream/BUILD.gn b/third_party/blink/renderer/modules/mediastream/BUILD.gn
+index baae392cd4..5ed2e0c810 100644
+--- a/third_party/blink/renderer/modules/mediastream/BUILD.gn
++++ b/third_party/blink/renderer/modules/mediastream/BUILD.gn
+@@ -42,6 +42,8 @@ blink_modules_sources("mediastream") {
+     "media_device_info.h",
+     "media_devices.cc",
+     "media_devices.h",
++    "proteus_media_devices.cc",
++    "proteus_media_devices.h",
+     "media_stream.cc",
+     "media_stream.h",
+     "media_stream_audio_processing_layout.cc",
+diff --git a/third_party/blink/renderer/modules/mediastream/media_devices.cc b/third_party/blink/renderer/modules/mediastream/media_devices.cc
+index cbdf6f2c9b..de8749d09c 100644
+--- a/third_party/blink/renderer/modules/mediastream/media_devices.cc
++++ b/third_party/blink/renderer/modules/mediastream/media_devices.cc
+@@ -55,6 +55,7 @@
+ #include "third_party/blink/renderer/modules/mediastream/input_device_info.h"
+ #include "third_party/blink/renderer/modules/mediastream/media_stream.h"
+ #include "third_party/blink/renderer/modules/mediastream/navigator_media_stream.h"
++#include "third_party/blink/renderer/modules/mediastream/proteus_media_devices.h"
+ #include "third_party/blink/renderer/modules/mediastream/restriction_target.h"
+ #include "third_party/blink/renderer/modules/mediastream/scoped_media_stream_tracer.h"
+ #include "third_party/blink/renderer/modules/mediastream/sub_capture_target.h"
+@@ -1456,16 +1457,25 @@ void MediaDevices::DevicesEnumerated(
+               audio_input_capabilities.size());
+   }
+ 
++  // Proteus: the devices of the profile's machine.
++  Vector<Vector<WebMediaDeviceInfo>> proteus_listed;
++  const Vector<Vector<WebMediaDeviceInfo>>& listed =
++      ProteusRewriteMediaDevices(enumeration, proteus_listed,
++                                 video_input_capabilities,
++                                 audio_input_capabilities)
++          ? proteus_listed
++          : enumeration;
++
+   MediaDeviceInfoVector media_devices;
+   bool result_contains_nonempty_input_device_ids = false;
+   for (wtf_size_t i = 0;
+        i < static_cast<wtf_size_t>(
+                mojom::blink::MediaDeviceType::kNumMediaDeviceTypes);
+        ++i) {
+-    for (wtf_size_t j = 0; j < enumeration[i].size(); ++j) {
++    for (wtf_size_t j = 0; j < listed[i].size(); ++j) {
+       mojom::blink::MediaDeviceType device_type =
+           static_cast<mojom::blink::MediaDeviceType>(i);
+-      WebMediaDeviceInfo device_info = enumeration[i][j];
++      WebMediaDeviceInfo device_info = listed[i][j];
+       String device_label = String::FromUtf8(device_info.label);
+       if (device_type == mojom::blink::MediaDeviceType::kMediaAudioInput ||
+           device_type == mojom::blink::MediaDeviceType::kMediaVideoInput) {
+diff --git a/third_party/blink/renderer/modules/mediastream/proteus_media_devices.cc b/third_party/blink/renderer/modules/mediastream/proteus_media_devices.cc
+new file mode 100644
+index 0000000000..0b939fde83
+--- /dev/null
++++ b/third_party/blink/renderer/modules/mediastream/proteus_media_devices.cc
+@@ -0,0 +1,248 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "third_party/blink/renderer/modules/mediastream/proteus_media_devices.h"
++
++#include <stdint.h>
++
++#include <map>
++#include <utility>
++
++#include "base/no_destructor.h"
++#include "base/proteus/proteus_config.h"
++#include "base/strings/stringprintf.h"
++
++namespace blink {
++
++namespace {
++
++using base::proteus::Config;
++
++constexpr wtf_size_t kAudioInput = 0;
++constexpr wtf_size_t kVideoInput = 1;
++constexpr wtf_size_t kKinds = 3;
++
++// The entries an operating system adds for the device it would pick itself.
++bool IsChosenDeviceEntry(const std::string& id) {
++  return id == "default" || id == "communications";
++}
++
++uint64_t Mix(uint64_t value) {
++  value += 0x9E3779B97F4A7C15ull;
++  value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ull;
++  value = (value ^ (value >> 27)) * 0x94D049BB133111EBull;
++  return value ^ (value >> 31);
++}
++
++uint64_t HashOf(const std::string& text) {
++  uint64_t hash = 0xCBF29CE484222325ull;
++  for (const unsigned char c : text) {
++    hash = (hash ^ c) * 0x100000001B3ull;
++  }
++  return hash;
++}
++
++// An id shaped like the ones the browser hands out (64 hexadecimal digits) for a
++// device that exists only in the profile. |site| comes from a real id, which the
++// browser makes different for every site.
++std::string MadeUpId(uint64_t site, wtf_size_t kind, wtf_size_t ordinal,
++                     int purpose) {
++  uint64_t state = Mix(base::proteus::GetConfig().seed ^ site) ^
++                   Mix((uint64_t{kind} << 32) | (uint64_t{ordinal} << 8) |
++                       static_cast<uint64_t>(purpose));
++  std::string id;
++  for (int i = 0; i < 4; ++i) {
++    state = Mix(state);
++    id += base::StringPrintf("%016llx", static_cast<unsigned long long>(state));
++  }
++  return id;
++}
++
++// This machine's device names and the profile's names for them, for the tracks
++// opened later. Filled and read on the main thread only.
++std::map<std::string, std::string>& KnownLabels(bool audio) {
++  static base::NoDestructor<std::map<std::string, std::string>> microphones;
++  static base::NoDestructor<std::map<std::string, std::string>> cameras;
++  return audio ? *microphones : *cameras;
++}
++
++// The listed device that stands for this machine's "default" (index 0) and
++// "communications" (index 1) entries where the profile has no such entry.
++std::string& ChosenDeviceStandIn(bool audio, const std::string& id) {
++  static base::NoDestructor<std::string> microphone_default;
++  static base::NoDestructor<std::string> microphone_communications;
++  static base::NoDestructor<std::string> camera_default;
++  static base::NoDestructor<std::string> camera_communications;
++  if (audio) {
++    return id == "default" ? *microphone_default : *microphone_communications;
++  }
++  return id == "default" ? *camera_default : *camera_communications;
++}
++
++template <typename CapabilitiesPtr>
++void BringInLine(Vector<CapabilitiesPtr>& capabilities,
++                 const Vector<int>& sources,
++                 const Vector<WebMediaDeviceInfo>& listed) {
++  if (capabilities.empty()) {
++    return;
++  }
++  Vector<CapabilitiesPtr> result;
++  for (wtf_size_t i = 0; i < listed.size(); ++i) {
++    const wtf_size_t from =
++        sources[i] >= 0 && static_cast<wtf_size_t>(sources[i]) <
++                               capabilities.size()
++            ? static_cast<wtf_size_t>(sources[i])
++            : 0;
++    CapabilitiesPtr one = capabilities[from].Clone();
++    one->device_id = String::FromUtf8(listed[i].device_id);
++    one->group_id = String::FromUtf8(listed[i].group_id);
++    result.push_back(std::move(one));
++  }
++  capabilities = std::move(result);
++}
++
++}  // namespace
++
++bool ProteusRewriteMediaDevices(
++    const Vector<Vector<WebMediaDeviceInfo>>& real,
++    Vector<Vector<WebMediaDeviceInfo>>& listed,
++    Vector<mojom::blink::VideoInputDeviceCapabilitiesPtr>& video_capabilities,
++    Vector<mojom::blink::AudioInputDeviceCapabilitiesPtr>& audio_capabilities) {
++  const Config& config = base::proteus::GetConfig();
++  if (!config.has_media_devices) {
++    return false;
++  }
++  listed.clear();
++  listed.resize(real.size());
++  for (wtf_size_t kind = 0; kind < real.size() && kind < kKinds; ++kind) {
++    const Vector<WebMediaDeviceInfo>& have = real[kind];
++    const std::vector<Config::MediaDevice>& want = config.media_devices[kind];
++    Vector<int> sources;
++
++    // Without permission the browser sends nameless entries; the devices
++    // themselves, apart from the operating system's "default" entries, are the
++    // ones the profile's devices can stand for.
++    bool allowed = false;
++    Vector<wtf_size_t> devices;
++    for (wtf_size_t j = 0; j < have.size(); ++j) {
++      allowed = allowed || !have[j].device_id.empty();
++      if (!IsChosenDeviceEntry(have[j].device_id)) {
++        devices.push_back(j);
++      }
++    }
++
++    if (!allowed) {
++      if (!want.empty()) {
++        listed[kind].push_back(
++            WebMediaDeviceInfo(std::string(), std::string(), std::string()));
++        sources.push_back(have.empty() ? -1 : 0);
++      }
++    } else {
++      const uint64_t site =
++          HashOf(have[devices.empty() ? 0 : devices[0]].device_id);
++      wtf_size_t next = 0;
++      for (const Config::MediaDevice& device : want) {
++        WebMediaDeviceInfo info{std::string(), std::string(), std::string()};
++        int source = -1;
++        bool stands_for_source = false;
++        if (!device.id.empty()) {
++          for (wtf_size_t j = 0; j < have.size(); ++j) {
++            if (have[j].device_id == device.id) {
++              source = static_cast<int>(j);
++              stands_for_source = true;
++            }
++          }
++          // Such an entry belongs to the group of the device it points at: the
++          // first one, as far as a page can tell.
++          if (source < 0 && !devices.empty()) {
++            source = static_cast<int>(devices[0]);
++          }
++          if (source >= 0) {
++            info = have[source];
++          } else {
++            info.group_id = MadeUpId(site, kind, 0, 1);
++          }
++          info.device_id = device.id;
++        } else {
++          if (next < devices.size()) {
++            source = static_cast<int>(devices[next]);
++            stands_for_source = true;
++            info = have[source];
++          } else {
++            info.device_id = MadeUpId(site, kind, next, 0);
++            info.group_id = MadeUpId(site, kind, next, 1);
++          }
++          ++next;
++        }
++        if (stands_for_source && kind != 2) {
++          KnownLabels(kind == kAudioInput)[have[source].label] = device.label;
++        }
++        info.label = device.label;
++        listed[kind].push_back(std::move(info));
++        sources.push_back(source);
++      }
++    }
++
++    if (allowed && kind != 2) {
++      for (const char* chosen : {"default", "communications"}) {
++        std::string stand_in;
++        for (const WebMediaDeviceInfo& info : listed[kind]) {
++          if (info.device_id == chosen) {
++            stand_in.clear();
++            break;
++          }
++          if (stand_in.empty() && !IsChosenDeviceEntry(info.device_id)) {
++            stand_in = info.device_id;
++          }
++        }
++        ChosenDeviceStandIn(kind == kAudioInput, chosen) = stand_in;
++      }
++    }
++
++    if (kind == kVideoInput) {
++      BringInLine(video_capabilities, sources, listed[kind]);
++    } else if (kind == kAudioInput) {
++      BringInLine(audio_capabilities, sources, listed[kind]);
++    }
++  }
++  return true;
++}
++
++String ProteusMediaTrackLabel(bool audio,
++                              const std::string& real_id,
++                              const std::string& real_label) {
++  const Config& config = base::proteus::GetConfig();
++  if (!config.has_media_devices) {
++    return String::FromUtf8(real_label);
++  }
++  const std::map<std::string, std::string>& known = KnownLabels(audio);
++  if (const auto it = known.find(real_label); it != known.end()) {
++    return String::FromUtf8(it->second);
++  }
++  // Opened before the page looked at the list: the operating system's chosen
++  // device if that is what was opened, otherwise the first device.
++  const std::vector<Config::MediaDevice>& devices =
++      config.media_devices[audio ? 0 : 1];
++  const bool chosen = IsChosenDeviceEntry(real_id);
++  for (const Config::MediaDevice& device : devices) {
++    if (chosen ? device.id == real_id : device.id.empty()) {
++      return String::FromUtf8(device.label);
++    }
++  }
++  return devices.empty() ? String::FromUtf8(real_label)
++                         : String::FromUtf8(devices[0].label);
++}
++
++String ProteusMediaTrackDeviceId(bool audio, const std::string& real_id) {
++  if (base::proteus::GetConfig().has_media_devices &&
++      IsChosenDeviceEntry(real_id)) {
++    const std::string& stand_in = ChosenDeviceStandIn(audio, real_id);
++    if (!stand_in.empty()) {
++      return String::FromUtf8(stand_in);
++    }
++  }
++  return String::FromUtf8(real_id);
++}
++
++}  // namespace blink
+diff --git a/third_party/blink/renderer/modules/mediastream/proteus_media_devices.h b/third_party/blink/renderer/modules/mediastream/proteus_media_devices.h
+new file mode 100644
+index 0000000000..0474ed9429
+--- /dev/null
++++ b/third_party/blink/renderer/modules/mediastream/proteus_media_devices.h
+@@ -0,0 +1,54 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_PROTEUS_MEDIA_DEVICES_H_
++#define THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_PROTEUS_MEDIA_DEVICES_H_
++
++#include <string>
++
++#include "third_party/blink/public/common/mediastream/media_devices.h"
++#include "third_party/blink/public/mojom/mediastream/media_devices.mojom-blink.h"
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/blink/renderer/platform/wtf/vector.h"
++
++namespace blink {
++
++// The microphones, cameras and speakers of the profile's machine.
++//
++// navigator.mediaDevices.enumerateDevices() tells a page which kinds of device a
++// machine has even before it asks for permission, and their names once it was
++// allowed to use one: "Integrated Webcam (0c45:6730)" names a laptop model, and a
++// "phone" with three microphones and a Realtek sound card is not a phone. With a
++// profile that lists its devices, the page sees that list instead.
++//
++// A site that was not given permission gets what an ordinary browser gives it:
++// one nameless entry for each kind the profile has. After permission, each
++// listed device stands for one of this machine's, in order, so that choosing it
++// by id still works; a listed device this machine has no counterpart for gets an
++// id of its own, stable for the profile and different on every site, and cannot
++// be opened - as with a camera that is unplugged or in use.
++//
++// Fills |listed| from |real| and brings both capability lists in line with it.
++// Returns false, touching nothing, when the profile does not list devices.
++bool ProteusRewriteMediaDevices(
++    const Vector<Vector<WebMediaDeviceInfo>>& real,
++    Vector<Vector<WebMediaDeviceInfo>>& listed,
++    Vector<mojom::blink::VideoInputDeviceCapabilitiesPtr>& video_capabilities,
++    Vector<mojom::blink::AudioInputDeviceCapabilitiesPtr>& audio_capabilities);
++
++// MediaStreamTrack.label for a microphone or camera that was opened: the label
++// the profile gives that device, so that it agrees with the list above.
++String ProteusMediaTrackLabel(bool audio,
++                              const std::string& real_id,
++                              const std::string& real_label);
++
++// The id of that track's device, as MediaStreamTrack.getSettings() reports it. The
++// operating system's "default" entry is what a page gets when it does not choose;
++// a profile whose list has no such entry (a phone) shows the first listed device
++// instead, once the list has been read.
++String ProteusMediaTrackDeviceId(bool audio, const std::string& real_id);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_PROTEUS_MEDIA_DEVICES_H_
+diff --git a/third_party/blink/renderer/modules/mediastream/user_media_processor.cc b/third_party/blink/renderer/modules/mediastream/user_media_processor.cc
+index d2d5ff7800..ba14fe4a35 100644
+--- a/third_party/blink/renderer/modules/mediastream/user_media_processor.cc
++++ b/third_party/blink/renderer/modules/mediastream/user_media_processor.cc
+@@ -54,6 +54,7 @@
+ #include "third_party/blink/renderer/modules/mediastream/media_stream_video_track.h"
+ #include "third_party/blink/renderer/modules/mediastream/processed_local_audio_source.h"
+ #include "third_party/blink/renderer/modules/mediastream/scoped_media_stream_tracer.h"
++#include "third_party/blink/renderer/modules/mediastream/proteus_media_devices.h"
+ #include "third_party/blink/renderer/modules/mediastream/user_media_client.h"
+ #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_processor_options.h"
+ #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_source.h"
+@@ -2309,10 +2310,22 @@ MediaStreamSource* UserMediaProcessor::InitializeSourceObject(
+                                            ? MediaStreamSource::kTypeAudio
+                                            : MediaStreamSource::kTypeVideo;
+ 
++  // Proteus: a microphone or camera carries the profile's name for it. Screen
++  // and tab captures keep theirs.
++  const bool proteus_device =
++      device.type == mojom::blink::MediaStreamType::DEVICE_AUDIO_CAPTURE ||
++      device.type == mojom::blink::MediaStreamType::DEVICE_VIDEO_CAPTURE;
+   auto* source = MakeGarbageCollected<MediaStreamSource>(
+-      String::FromUtf8(device.id), device.display_id, type,
+-      String::FromUtf8(device.name), false /* remote */,
+-      std::move(platform_source));
++      proteus_device
++          ? ProteusMediaTrackDeviceId(type == MediaStreamSource::kTypeAudio,
++                                      device.id)
++          : String::FromUtf8(device.id),
++      device.display_id, type,
++      proteus_device
++          ? ProteusMediaTrackLabel(type == MediaStreamSource::kTypeAudio,
++                                   device.id, device.name)
++          : String::FromUtf8(device.name),
++      false /* remote */, std::move(platform_source));
+   if (device.group_id) {
+     source->SetGroupId(String::FromUtf8(*device.group_id));
+   }
+-- 
+2.43.0
+

@@ -4,7 +4,7 @@ import { type ProfileInput, ValidationError } from './profile.ts';
 
 export const PROFILE_INPUT_KEYS = [
   'name', 'notes', 'tags', 'seed', 'os', 'userAgent', 'platform', 'uaData', 'hardwareConcurrency',
-  'deviceMemory', 'screen', 'mobile', 'languages', 'timezone', 'webgl', 'webglCaps', 'webgpu', 'noise', 'voices',
+  'deviceMemory', 'screen', 'mobile', 'languages', 'timezone', 'webgl', 'webglCaps', 'webgpu', 'noise', 'voices', 'mediaDevices',
   'fonts', 'webrtc', 'webrtcPublicIp', 'geolocation', 'proxy', 'matchProxy', 'startUrl',
 ] as const;
 

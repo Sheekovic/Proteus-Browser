@@ -1,0 +1,64 @@
+<!doctype html>
+<body>
+<img src="/slow?ms=9000" alt="">
+<script>
+// Reports what navigator.mediaDevices shows: the kinds of device before the page may
+// use any, and the names, ids and track labels once it may.
+// Spaces in names are printed as "_" and names are separated by "|".
+// usage: mediadev.html          asks to use a microphone and a camera
+//        mediadev.html?list     only what a page sees without asking
+let finished = false;
+function finish(fields) {
+  if (finished) return;
+  finished = true;
+  document.body.innerText = 'RESULT ' + fields.join(' ');
+}
+const names = (list, kind) => list.filter(d => d.kind === kind).map(d => d.label.replace(/ /g, '_')).join('|') || 'none';
+const chosen = (id) => id === 'default' || id === 'communications';
+
+(async () => {
+  const fields = [];
+  const before = await navigator.mediaDevices.enumerateDevices();
+  fields.push('kinds=' + (before.map(d => d.kind).join(',') || 'none'));
+  fields.push('nameless=' + before.every(d => d.label === '' && d.deviceId === '' && d.groupId === ''));
+
+  if (location.search === '?list') {
+    finish(fields);
+    return;
+  }
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+  } catch (error) {
+    finish([...fields, 'open=' + error.name]);
+    return;
+  }
+  const after = await navigator.mediaDevices.enumerateDevices();
+  const ids = after.filter(d => !chosen(d.deviceId)).map(d => d.kind + d.deviceId);
+  const text = JSON.stringify(after) + stream.getTracks().map(t => t.label).join();
+  fields.push('open=ok');
+  fields.push('mics=' + names(after, 'audioinput'));
+  fields.push('cameras=' + names(after, 'videoinput'));
+  fields.push('speakers=' + names(after, 'audiooutput'));
+  fields.push('idShape=' + after.every(d => chosen(d.deviceId) || /^[0-9a-f]{64}$/.test(d.deviceId)));
+  fields.push('groupShape=' + after.every(d => /^[0-9a-f]{64}$/.test(d.groupId)));
+  fields.push('idsDiffer=' + (new Set(ids).size === ids.length));
+  fields.push('fake=' + /fake/i.test(text));
+  for (const [name, kind, track] of [['mic', 'audioinput', stream.getAudioTracks()[0]],
+                                     ['camera', 'videoinput', stream.getVideoTracks()[0]]]) {
+    const listed = after.filter(d => d.kind === kind);
+    fields.push(name + 'Track=' + track.label.replace(/ /g, '_'));
+    fields.push(name + 'TrackListed=' + listed.some(d => d.label === track.label));
+    fields.push(name + 'TrackId=' + listed.some(d => d.deviceId === track.getSettings().deviceId));
+  }
+  fields.push('capabilities=' + after.filter(d => d.getCapabilities).every(d => {
+    const c = d.getCapabilities();
+    return c.deviceId === d.deviceId && c.groupId === d.groupId;
+  }));
+  stream.getTracks().forEach(t => t.stop());
+  finish(fields);
+})().catch(error => finish(['error=' + String(error).replace(/ /g, '_')]));
+setTimeout(() => finish(['error=timeout']), 8000);
+</script>
+</body>

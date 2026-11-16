@@ -140,8 +140,8 @@ test('the kernel config carries every setting the kernel patches read', async ()
   });
   const config = buildKernelConfig(profile);
   assert.deepEqual(Object.keys(config).sort(), [
-    'audioNoise', 'canvasNoise', 'deviceMemory', 'fontAliases', 'fonts', 'hardwareConcurrency', 'languages',
-    'platform',
+    'audioNoise', 'battery', 'canvasNoise', 'deviceMemory', 'fontAliases', 'fonts', 'hardwareConcurrency', 'languages',
+    'mediaDevices', 'platform',
     'screen', 'seed', 'timezone', 'uaData', 'userAgent', 'voices', 'webRtcPolicy', 'webglRenderer',
     'webglVendor', 'webgpu',
   ]);

@@ -11,6 +11,7 @@
 
 import type { GeneratedIdentity, Rng } from './fingerprint.ts';
 import { randomSeed } from './fingerprint.ts';
+import { mediaDevicesFor } from './mediaDevices.ts';
 import { voicesFor } from './voices.ts';
 
 /** Screens in points (CSS pixels); every one of these has three device pixels per point. */
@@ -92,6 +93,7 @@ export function generateIosIdentity(rng: Rng): GeneratedIdentity {
     noise: { canvas: true, audio: true },
     fonts: [...IOS_FONTS],
     voices: voicesFor('ios'),
+    mediaDevices: mediaDevicesFor('ios', rng),
     mobile: { viewWidth: width, viewHeight: height - BARS_HEIGHT, deviceScaleFactor: 3, maxTouchPoints: 5 },
   };
 }

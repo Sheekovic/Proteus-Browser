@@ -2,6 +2,7 @@
 
 import { isIP } from 'node:net';
 
+import { cleanMediaDevices, type MediaDevices } from './mediaDevices.ts';
 import { cleanWebGLCaps, type WebGLCaps } from './webglCaps.ts';
 
 /** 'android' is Chrome on an Android phone; 'ios' is Safari on an iPhone. */
@@ -117,6 +118,12 @@ export interface Profile {
 
   /** Speech synthesis voices to report. Empty means "this machine's voices". */
   voices: Voice[];
+
+  /**
+   * The microphones, cameras and speakers pages are shown. null means "this
+   * machine's", the case for profiles saved before this existed.
+   */
+  mediaDevices: MediaDevices | null;
 
   /**
    * Font families sites may find installed. Fonts on the machine that are not listed
@@ -293,6 +300,7 @@ export function validateProfile(profile: Profile): void {
   }
 
   cleanWebGLCaps(profile.webglCaps);  // Throws on a malformed value.
+  cleanMediaDevices(profile.mediaDevices);
 
   if (!isPlainObject(profile.webgpu)) fail('webgpu must be an object');
   checkString(profile.webgpu.vendor, 'webgpu.vendor', 100);

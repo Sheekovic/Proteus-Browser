@@ -60,7 +60,7 @@
        press a button below.</p>
     <p><strong>Collected:</strong> browser and system name and version, device model (phones), screen
        size and pixel ratio, processor count, memory class, graphics card name and its limits, installed font names
-       from a fixed list, speech voices, touch support.</p>
+       from a fixed list, speech voices, which kinds of media device are listed (not their names), touch support.</p>
     <p><strong>Not collected:</strong> IP address, location, language, time zone, cookies, history,
        accounts, or anything typed or stored in this browser.</p>
   </section>
@@ -264,6 +264,19 @@ function readVoices() {
   });
 }
 
+// Which kinds of microphone, camera and speaker entries the browser lists. No
+// permission is asked for, so no device names are read; null where the browser hides
+// the list (a page not served over HTTPS).
+async function readMediaKinds() {
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return null;
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return [...new Set(devices.map((device) => String(device.kind)))];
+  } catch {
+    return null;
+  }
+}
+
 async function collect() {
   const s = window.screen;
   return {
@@ -288,6 +301,7 @@ async function collect() {
     webglCaps: readWebglCaps(),
     webgpu: await readWebgpu(),
     voices: await readVoices(),
+    mediaKinds: await readMediaKinds(),
     fonts: detectFonts(),
   };
 }

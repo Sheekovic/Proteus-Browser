@@ -297,6 +297,50 @@ Config LoadConfig() {
       config.geolocation_accuracy = accuracy > 0 ? accuracy : 50.0;
     }
   }
+  if (const DictValue* devices = dict->FindDict("mediaDevices")) {
+    static const char* const kKinds[] = {"audioInput", "videoInput",
+                                         "audioOutput"};
+    config.has_media_devices = true;
+    for (size_t kind = 0; kind < 3; ++kind) {
+      const ListValue* list = devices->FindList(kKinds[kind]);
+      if (!list) {
+        continue;
+      }
+      for (const Value& item : *list) {
+        const DictValue* entry = item.GetIfDict();
+        if (!entry || config.media_devices[kind].size() >= 16) {
+          continue;
+        }
+        Config::MediaDevice device;
+        device.label = StringOrEmpty(*entry, "label");
+        const std::string id = StringOrEmpty(*entry, "id");
+        if (id == "default" || id == "communications") {
+          device.id = id;
+        }
+        config.media_devices[kind].push_back(std::move(device));
+      }
+    }
+  }
+  if (const DictValue* battery = dict->FindDict("battery")) {
+    const double level = battery->FindDouble("level").value_or(1.0);
+    const double drain = battery->FindDouble("drainPerHour").value_or(0.0);
+    if (level >= 0 && level <= 1 && drain >= 0 && drain <= 1) {
+      config.has_battery = true;
+      config.battery_charging = battery->FindBool("charging").value_or(true);
+      config.battery_level = level;
+      config.battery_drain_per_hour = drain;
+      config.battery_at = battery->FindDouble("at").value_or(0.0);
+    }
+  }
+  if (const DictValue* connection = dict->FindDict("connection")) {
+    const std::string type = StringOrEmpty(*connection, "type");
+    if (type == "wifi" || type == "cellular" || type == "ethernet" ||
+        type == "bluetooth" || type == "other" || type == "unknown") {
+      config.connection_type = type;
+      const double max = connection->FindDouble("downlinkMax").value_or(0.0);
+      config.connection_downlink_max = max > 0 && max < 100000 ? max : 0;
+    }
+  }
   if (const ListValue* voices = dict->FindList("voices")) {
     for (const Value& item : *voices) {
       const DictValue* entry = item.GetIfDict();

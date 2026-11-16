@@ -1,12 +1,42 @@
 // Translates a profile into what the Proteus kernel consumes: the JSON file read
 // through --proteus-config, and the command line for the browser process.
 
+import { createHash } from 'node:crypto';
+
 import { buildFontSubstitutes } from './fontSubstitutes.ts';
 import { SAFARI_MISSING } from './ios.ts';
 import type { Profile } from './profile.ts';
 
-/** The JSON document the kernel's config loader (base/proteus/proteus_config.cc) parses. */
-export function buildKernelConfig(profile: Profile): Record<string, unknown> {
+/** A number from 0 up to 1 that belongs to this profile and `purpose`. */
+function fraction(profile: Profile, purpose: string): number {
+  return createHash('sha256').update(`${profile.seed}|${purpose}`).digest().readUInt32BE(0) / 2 ** 32;
+}
+
+const BATTERY_PERIOD_MS = 6 * 3600_000;
+
+/**
+ * The battery a page is told about, never this machine's own: a laptop's real charge
+ * would be the same in every profile running on it. A computer is on its charger and
+ * full, which is also what one without a battery reports. A phone runs on its
+ * battery: it starts each quarter of the day well charged and loses a few percent an
+ * hour, the same amount whether the browser was restarted in between or not.
+ */
+function batteryOf(profile: Profile, now: number): Record<string, unknown> {
+  if (profile.mobile === null) return { charging: true, level: 1 };
+  const period = Math.floor(now / BATTERY_PERIOD_MS);
+  return {
+    charging: false,
+    level: Math.round((0.7 + 0.3 * fraction(profile, `battery ${period}`)) * 100) / 100,
+    drainPerHour: Math.round((0.04 + 0.05 * fraction(profile, 'battery drain')) * 1000) / 1000,
+    at: period * BATTERY_PERIOD_MS / 1000,
+  };
+}
+
+/**
+ * The JSON document the kernel's config loader (base/proteus/proteus_config.cc) parses.
+ * `now` is the moment of the launch, in milliseconds.
+ */
+export function buildKernelConfig(profile: Profile, now: number = Date.now()): Record<string, unknown> {
   const config: Record<string, unknown> = {
     seed: profile.seed,
     userAgent: profile.userAgent,
@@ -30,16 +60,23 @@ export function buildKernelConfig(profile: Profile): Record<string, unknown> {
   if (profile.webglCaps !== null) config.webglCaps = profile.webglCaps;
   if (profile.webgpu.vendor !== '' || profile.webgpu.architecture !== '') config.webgpu = profile.webgpu;
   if (profile.voices.length > 0) config.voices = profile.voices;
+  if (profile.mediaDevices !== null) config.mediaDevices = profile.mediaDevices;
   if (profile.webrtc === 'proxyOnly' && profile.webrtcPublicIp !== '') {
     config.webRtcPublicIp = profile.webrtcPublicIp;
   }
   if (profile.mobile !== null) config.mobile = profile.mobile;
+  config.battery = batteryOf(profile, now);
+  // Chrome on a phone also says which kind of connection it is on; on Wi-Fi it
+  // gives no upper speed. Desktop Chrome has neither value, and Safari (below) has
+  // no navigator.connection or navigator.getBattery at all.
+  if (profile.os === 'android') config.connection = { type: 'wifi' };
   if (profile.os === 'ios') {
     // Safari: Apple's vendor string, no client hints in script or in requests, no
     // window.chrome, none of the Navigator members Safari lacks, and (unlike an
     // Android phone) the built-in PDF viewer plugins.
     delete config.uaData;
     delete config.deviceMemory;
+    delete config.battery;
     config.vendor = 'Apple Computer, Inc.';
     config.clientHints = false;
     config.chromeObject = false;

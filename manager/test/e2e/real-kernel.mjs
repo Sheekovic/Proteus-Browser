@@ -285,6 +285,14 @@ try {
   const canvasAgain = await readPage(again.debuggerUrl, `${pagesUrl}/canvas.html`);
   check('canvas fingerprint survives a restart', canvasAgain.data, canvas.data);
 
+  const devices = await readPage(again.debuggerUrl, `${pagesUrl}/mediadev.html?list`);
+  check('media devices: a microphone, a camera and speakers, nameless before permission',
+        `${devices.kinds}/${devices.nameless}`, 'audioinput,videoinput,audiooutput/true');
+  const power = await readPage(again.debuggerUrl, `${pagesUrl}/battery.html`);
+  check('battery: a computer on its charger, whatever this machine is',
+        `${power.charging}/${power.level}/${power.chargingTime}/${power.dischargingTime}`, 'true/1/0/Infinity');
+  check('desktop Chrome does not name its connection', power.type, 'absent');
+
   // An iPhone profile is Safari on a phone, in script and in its requests.
   const iphone = await api('POST', '/api/profiles', { name: 'iPhone', os: 'ios', startUrl: `${pagesUrl}/canvas.html` });
   const iphoneStatus = await api('POST', `/api/profiles/${iphone.id}/start`);
@@ -302,6 +310,10 @@ try {
   check('iPhone: pixel ratio', phone.dpr, '3');
   check('iPhone: touch', `${phone.touchPoints}/${phone.touchEvents}/${phone.coarse}`, '5/true/true');
   check('iPhone: platform', phone.platform, 'iPhone');
+  const phoneDevices = await readPage(iphoneStatus.debuggerUrl, `${pagesUrl}/mediadev.html?list`);
+  check('iPhone: a microphone and a camera, no speaker entry', phoneDevices.kinds, 'audioinput,videoinput');
+  const phonePower = await readPage(iphoneStatus.debuggerUrl, `${pagesUrl}/battery.html`);
+  check('iPhone: no battery or connection interface', `${phonePower.battery}/${phonePower.connection}`, 'absent/absent');
   await api('POST', `/api/profiles/${iphone.id}/stop`);
   await api('DELETE', `/api/profiles/${iphone.id}`);
 

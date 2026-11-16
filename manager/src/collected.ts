@@ -10,10 +10,13 @@
 //  - anything else (Firefox, desktop Safari, ...) is refused, since the kernel
 //    cannot pass for those browsers.
 
+import { createHash } from 'node:crypto';
+
 import { ANDROID_FONTS } from './android.ts';
 import type { GeneratedIdentity } from './fingerprint.ts';
 import { IOS_FONTS } from './ios.ts';
 import { randomSeed } from './fingerprint.ts';
+import { type MediaDevices, mediaDevicesFor } from './mediaDevices.ts';
 import { cleanWebGLCaps, type WebGLCaps } from './webglCaps.ts';
 import { type OsFamily, type ScreenInfo, type UaBrand, ValidationError, type Voice } from './profile.ts';
 
@@ -53,6 +56,11 @@ export interface Collected {
   webgpu: { vendor: string; architecture: string } | null;
   voices: Voice[];
   fonts: string[];
+  /**
+   * Which kinds of media device the browser listed ("audioinput", "videoinput",
+   * "audiooutput"); null in readings made before the collector read it.
+   */
+  mediaKinds: string[] | null;
 }
 
 // The kernel receives its configuration on the command line, which is short on
@@ -182,6 +190,8 @@ export function parseCollected(raw: unknown): Collected {
     webgpu: pair(raw.webgpu, 'webgpu', 'vendor', 'architecture'),
     voices,
     fonts,
+    mediaKinds: Array.isArray(raw.mediaKinds)
+        ? MEDIA_KINDS.filter((kind) => (raw.mediaKinds as unknown[]).includes(kind)) : null,
   };
 }
 
@@ -223,6 +233,26 @@ const UA_DATA_DEFAULTS: Record<Exclude<OsFamily, 'ios'>, { platform: string; pla
   linux: { platform: 'Linux', platformVersion: '6.8.0', architecture: 'x86', bitness: '64' },
   android: { platform: 'Android', platformVersion: '14.0.0', architecture: '', bitness: '' },
 };
+
+const MEDIA_KINDS = ['audioinput', 'videoinput', 'audiooutput'];
+
+/**
+ * The devices a default installation of that system shows, less the kinds the device
+ * read did not have: a desktop computer without a camera stays without one.
+ */
+function mediaDevicesOf(c: Collected, os: OsFamily): MediaDevices {
+  // Chosen by the reading itself, so that two profiles of one device have the same
+  // hardware.
+  const model = createHash('sha256')
+      .update(`${c.platform}|${c.webgl?.renderer ?? ''}|${c.screen.width}x${c.screen.height}|${c.hardwareConcurrency}`)
+      .digest().readUInt32BE(0);
+  const devices = mediaDevicesFor(os, (bound) => model % bound);
+  if (c.mediaKinds === null) return devices;
+  if (!c.mediaKinds.includes('audioinput')) devices.audioInput = [];
+  if (!c.mediaKinds.includes('videoinput')) devices.videoInput = [];
+  if (!c.mediaKinds.includes('audiooutput')) devices.audioOutput = [];
+  return devices;
+}
 
 function phoneSettings(c: Collected, screen: ScreenInfo, barsHeight: number): NonNullable<GeneratedIdentity['mobile']> {
   // The page area as the phone reported it, when that is a plausible portrait page;
@@ -269,6 +299,7 @@ export function identityFromCollected(c: Collected, kernelVersion: string): Gene
       // What the phone itself reported, when the collector found any of its fonts.
       fonts: c.fonts.length > 0 ? withinBudget(c.fonts, fontCost, FONT_BUDGET) : [...IOS_FONTS],
       voices,
+      mediaDevices: mediaDevicesOf(c, os),
       mobile: phoneSettings(c, screen, 190),
     };
   }
@@ -311,6 +342,7 @@ export function identityFromCollected(c: Collected, kernelVersion: string): Gene
     // found none of the fonts looked for gets Android's own list.
     fonts: phone && c.fonts.length === 0 ? [...ANDROID_FONTS] : withinBudget(c.fonts, fontCost, FONT_BUDGET),
     voices,
+    mediaDevices: mediaDevicesOf(c, os),
     mobile: phone ? phoneSettings(c, screen, 130) : null,
   };
 }

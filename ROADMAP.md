@@ -26,27 +26,27 @@ from tests.
 
 - [ ] The whole kernel test suite and the end-to-end test on Linux, on the current kernel
 - [ ] The Linux sandbox helper's install step, run for real *(needs: leave to change AppArmor on a test machine)*
-- [ ] A scheduled check of the public detection sites, so a regression is noticed
+- [x] A check of the public detection sites that judges every verdict, to run by hand or from a scheduler, so a regression is noticed
 - [ ] Windows 10, macOS hosts *(needs: machines)*
 
 ## 4. A kernel that gives less away
 
-- [ ] Media devices: the number and kind of cameras, microphones and speakers from the profile
+- [x] Media devices: the number, kind and names of cameras, microphones and speakers from the profile
 - [ ] Generated identities with a graphics card's real capabilities *(needs: readings from more devices)*
-- [ ] Battery and network information that fit the claimed device
+- [x] Battery and network information that fit the claimed device
 - [ ] The TLS handshake of a non-Chrome identity *(large: another network stack's fingerprint)*
 - [ ] A Firefox kernel *(large: a second engine)*
 
 ## 5. Shipping
 
 - [x] Preview bundles for Windows and Linux that run as they are
-- [ ] An optimised "official" build
+- [ ] An optimised "official" build *(needs: about a day of the build server and its disk; it replaces the fast builds there)*
 - [ ] An installer, and a signed one *(needs: a code-signing certificate)*
-- [ ] Release builds made by one command on the build server
+- [ ] Release builds made by one command on the build server *(written: `release/make-release.ps1`; not yet run end to end)*
 
 ## Done before this list existed
 
-Kernel patches 0001–0025 (identity, hardware, graphics and their capabilities, canvas,
+Kernel patches 0001–0025 (0026 and 0027 are the two items ticked in section 4) (identity, hardware, graphics and their capabilities, canvas,
 WebGL and audio noise, fonts, locale, WebRTC, geolocation, voices, phone profiles,
 Safari-on-iPhone profiles, the Proteus name and icon); the manager with its
 interface, API and MCP endpoint; device readings from real hardware; the website with
