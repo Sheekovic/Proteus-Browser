@@ -22,15 +22,20 @@ export interface Settings {
   /** Extra command-line arguments passed to every launch. */
   extraArgs: string[];
   /**
-   * Service asked, through a profile's proxy, for the proxy's exit address and time
-   * zone. Must answer with JSON holding `ip` and `timezone` (or `timezone.id`).
-   * Empty turns the lookup off.
+   * Services asked, through a profile's proxy, for the proxy's exit address and time
+   * zone: one or more addresses separated by spaces, tried in turn until one answers
+   * (a proxy's exits cannot always reach every service). Each must answer with JSON
+   * holding `ip` and `timezone` (or `timezone.id`). Empty turns the lookup off.
    */
   exitLookupUrl: string;
 }
 
+/** The lookup setting of versions that asked a single service. */
+const SINGLE_LOOKUP_DEFAULT = 'https://ipwho.is/';
+
 const DEFAULT_SETTINGS: Settings = {
-  kernelPath: '', kernelVersion: '158.0.8127.37', extraArgs: [], exitLookupUrl: 'https://ipwho.is/',
+  kernelPath: '', kernelVersion: '158.0.8127.37', extraArgs: [],
+  exitLookupUrl: 'https://ipwho.is/ https://api.ip.sb/geoip https://ipapi.co/json/ https://ipinfo.io/json',
 };
 
 /** A fingerprint read from a real device (see collected.ts), as kept on disk. */
@@ -105,7 +110,10 @@ export class Store {
 
   async getSettings(): Promise<Settings> {
     const stored = await readJson<Partial<Settings>>(join(this.dataDir, 'settings.json'));
-    return { ...DEFAULT_SETTINGS, ...stored };
+    const settings = { ...DEFAULT_SETTINGS, ...stored };
+    // Settings saved when only one service was asked move to the list of them.
+    if (settings.exitLookupUrl === SINGLE_LOOKUP_DEFAULT) settings.exitLookupUrl = DEFAULT_SETTINGS.exitLookupUrl;
+    return settings;
   }
 
   async updateSettings(patch: Partial<Settings>): Promise<Settings> {
@@ -127,11 +135,11 @@ export class Store {
       next.extraArgs = patch.extraArgs;
     }
     if (patch.exitLookupUrl !== undefined) {
-      if (typeof patch.exitLookupUrl !== 'string' ||
-          (patch.exitLookupUrl !== '' && !/^https?:\/\/[^\s]+$/i.test(patch.exitLookupUrl))) {
-        throw new ValidationError('exitLookupUrl must be an http(s) URL, or empty');
+      if (typeof patch.exitLookupUrl !== 'string' || patch.exitLookupUrl.length > 2000 ||
+          !patch.exitLookupUrl.split(/\s+/).filter(Boolean).every((url) => /^https?:\/\/[^\s]+$/i.test(url))) {
+        throw new ValidationError('exitLookupUrl must be http(s) URLs separated by spaces, or empty');
       }
-      next.exitLookupUrl = patch.exitLookupUrl;
+      next.exitLookupUrl = patch.exitLookupUrl.trim();
     }
     await mkdir(this.dataDir, { recursive: true });
     await writeJson(join(this.dataDir, 'settings.json'), next);

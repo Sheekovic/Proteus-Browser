@@ -14,6 +14,11 @@ import { openTunnel } from './proxyRelay.ts';
 export interface ProxyExit {
   /** Address sites see. */
   ip: string;
+  /**
+   * The exit's IPv4 address, when `ip` is an IPv6 one and the exit has both. Sites
+   * reached over IPv4 see this one, and it is the form WebRTC shows.
+   */
+  ipv4?: string;
   /** IANA time zone of that address, or '' when the service did not say. */
   timezone: string;
   /** Rough position of that address (its city), when the service gave one. */
@@ -23,6 +28,22 @@ export interface ProxyExit {
 
 const LOOKUP_TIMEOUT_MS = 15_000;
 const MAX_REPLY_BYTES = 256 * 1024;
+/**
+ * A proxy's exits come and go, residential ones especially: the same request is
+ * refused one moment and served the next, and some exits cannot reach some services.
+ * So every service is asked in turn, and the whole list again after a pause, until
+ * one answers or this much time has passed.
+ */
+const LOOKUP_ROUNDS = 3;
+const LOOKUP_PAUSE_MS = 1_500;
+const LOOKUP_DEADLINE_MS = 45_000;
+/** A service that has no IPv6 address, so its answer is the exit's IPv4 one. */
+const IPV4_ONLY_LOOKUP = 'https://api.ipify.org/?format=json';
+
+/** The services of a lookup setting: one or more addresses separated by spaces. */
+export function lookupServices(setting: string): string[] {
+  return setting.split(/\s+/).filter((url) => url !== '');
+}
 
 function decodeChunked(body: Buffer): Buffer {
   const parts: Buffer[] = [];
@@ -95,8 +116,10 @@ export function parseExit(json: string): ProxyExit {
     timezone = '';
   }
   const exit: ProxyExit = { ip, timezone };
-  const latitude = [data.latitude, data.lat].find((value) => typeof value === 'number');
-  const longitude = [data.longitude, data.lon].find((value) => typeof value === 'number');
+  // Most services give two numbers; some give one "latitude,longitude" text.
+  const pair = typeof data.loc === 'string' ? data.loc.split(',').map(Number) : [];
+  const latitude = [data.latitude, data.lat, pair[0]].find((value) => typeof value === 'number' && Number.isFinite(value));
+  const longitude = [data.longitude, data.lon, pair[1]].find((value) => typeof value === 'number' && Number.isFinite(value));
   if (typeof latitude === 'number' && typeof longitude === 'number' &&
       Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 && (latitude !== 0 || longitude !== 0)) {
     exit.latitude = latitude;
@@ -132,22 +155,66 @@ function positionNear(latitude: number, longitude: number, seed: string): NonNul
 }
 
 /**
- * Asks `lookupUrl` directly which address this machine has from outside. Used for a
- * profile without a proxy, so that WebRTC can show the address sites see anyway.
+ * Asks each service of `services` in turn until one answers, and the whole list again
+ * after a pause, as described at LOOKUP_ROUNDS. An answer without a time zone is kept
+ * only if no service gives a better one in that round.
  */
-export async function lookupOwnAddress(lookupUrl: string): Promise<ProxyExit> {
-  const response = await fetch(lookupUrl, {
-    headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`the lookup service answered ${response.status}`);
-  return parseExit(await response.text());
+async function firstAnswer(services: readonly string[], ask: (url: URL) => Promise<string>,
+                           pauseMs: number): Promise<ProxyExit> {
+  const urls = services.map((service) => new URL(service));
+  if (urls.length === 0) throw new Error('no lookup service is set');
+  for (const url of urls) {
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('the lookup URL must be http(s)');
+  }
+  const deadline = Date.now() + LOOKUP_DEADLINE_MS;
+  let lastError = new Error('the lookup did not succeed');
+  for (let round = 0; round < LOOKUP_ROUNDS && Date.now() < deadline; round++) {
+    if (round > 0) await new Promise((resolve) => setTimeout(resolve, pauseMs));
+    let addressOnly: ProxyExit | undefined;
+    for (const url of urls) {
+      if (Date.now() >= deadline) break;
+      try {
+        const exit = parseExit(await ask(url));
+        if (exit.timezone !== '') return exit;
+        addressOnly ??= exit;
+      } catch (error) {
+        lastError = error as Error;
+        // Asking again will not change the proxy's mind about the login.
+        if (/user name or password/.test(lastError.message)) throw lastError;
+      }
+    }
+    if (addressOnly) return addressOnly;
+  }
+  throw lastError;
 }
 
-/** Asks `lookupUrl`, through `proxy`, what the proxy's exit looks like from outside. */
-export async function lookupProxyExit(proxy: ProxySettings, lookupUrl: string): Promise<ProxyExit> {
-  const url = new URL(lookupUrl);
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('the lookup URL must be http(s)');
-  return parseExit(await getThroughProxy(proxy, url));
+/**
+ * Asks the lookup services directly which address this machine has from outside. Used
+ * for a profile without a proxy, so that WebRTC can show the address sites see anyway.
+ */
+export async function lookupOwnAddress(lookupSetting: string): Promise<ProxyExit> {
+  return firstAnswer(lookupServices(lookupSetting), async (url) => {
+    const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
+    if (!response.ok) throw new Error(`the lookup service answered ${response.status}`);
+    return response.text();
+  }, 0);
+}
+
+/** Asks the lookup services, through `proxy`, what the proxy's exit looks like from outside. */
+export async function lookupProxyExit(proxy: ProxySettings, lookupSetting: string,
+                                      pauseMs: number = LOOKUP_PAUSE_MS): Promise<ProxyExit> {
+  const exit = await firstAnswer(lookupServices(lookupSetting), (url) => getThroughProxy(proxy, url), pauseMs);
+  // An exit with both kinds of address answered over IPv6. Its IPv4 address is the
+  // one WebRTC needs, so ask a service that is only reachable over IPv4. Best effort.
+  if (isIP(exit.ip) === 6) {
+    try {
+      const other = parseExit(await getThroughProxy(proxy, new URL(IPV4_ONLY_LOOKUP)));
+      if (isIP(other.ip) === 4) exit.ipv4 = other.ip;
+    } catch {
+      // The exit has no IPv4 address, or it went away: WebRTC then shows no public address.
+    }
+  }
+  return exit;
 }
 
 /**
@@ -171,7 +238,8 @@ export function withProxyExit(profile: Profile, exit: ProxyExit): Profile {
   return {
     ...profile,
     timezone: profile.timezone !== '' ? profile.timezone : exit.timezone,
-    webrtcPublicIp: profile.webrtcPublicIp !== '' || isIP(exit.ip) !== 4 ? profile.webrtcPublicIp : exit.ip,
+    webrtcPublicIp: profile.webrtcPublicIp !== '' ? profile.webrtcPublicIp
+        : isIP(exit.ip) === 4 ? exit.ip : exit.ipv4 ?? '',
     geolocation: profile.geolocation !== null || exit.latitude === undefined || exit.longitude === undefined
         ? profile.geolocation : positionNear(exit.latitude, exit.longitude, profile.seed),
   };

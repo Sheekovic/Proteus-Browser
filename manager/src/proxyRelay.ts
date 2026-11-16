@@ -11,6 +11,18 @@ import { createServer, connect, type Server, type Socket } from 'node:net';
 import type { ProxySettings } from './profile.ts';
 
 const HANDSHAKE_TIMEOUT_MS = 30_000;
+/**
+ * How long the upstream proxy gets to accept a connection and to answer each step of
+ * setting up a tunnel. A proxy that takes the connection and then says nothing is
+ * common enough (a residential exit that has just gone away) that waiting for ever
+ * is not an option: the browser's request, or the start of a profile, would hang.
+ */
+let TUNNEL_TIMEOUT_MS = 12_000;
+
+/** Shortens that limit so that tests of a silent proxy do not take as long as the real thing. */
+export function setTunnelTimeoutForTests(ms: number): void {
+  TUNNEL_TIMEOUT_MS = ms;
+}
 
 /** Reads exact byte counts, or up to a delimiter, from a socket. */
 class Reader {
@@ -18,6 +30,7 @@ class Reader {
   private buffer: Buffer = Buffer.alloc(0);
   private wake: (() => void) | null = null;
   private ended = false;
+  private timedOut = false;
   private readonly onData = (chunk: Buffer): void => {
     this.buffer = Buffer.concat([this.buffer, chunk]);
     this.wake?.();
@@ -33,10 +46,13 @@ class Reader {
     socket.on('end', this.onEnd);
     socket.on('close', this.onEnd);
     socket.on('error', this.onEnd);
+    socket.once('timeout', () => { this.timedOut = true; });
   }
 
   private async more(): Promise<void> {
-    if (this.ended) throw new Error('connection closed during the handshake');
+    if (this.ended) {
+      throw new Error(this.timedOut ? 'the proxy did not answer in time' : 'connection closed during the handshake');
+    }
     await new Promise<void>((resolve) => { this.wake = resolve; });
     this.wake = null;
   }
@@ -71,12 +87,26 @@ class Reader {
   }
 }
 
+/**
+ * Connects to the upstream proxy. The socket is closed if it stays silent for
+ * TUNNEL_TIMEOUT_MS; whoever finishes setting up a tunnel on it lifts that limit
+ * (established()).
+ */
 function openSocket(host: string, port: number): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = connect({ host, port });
-    socket.once('connect', () => { socket.off('error', reject); resolve(socket); });
+    const onClose = (): void => reject(new Error('the proxy did not answer in time'));
+    socket.setTimeout(TUNNEL_TIMEOUT_MS);
+    socket.on('timeout', () => socket.destroy());
+    socket.once('connect', () => { socket.off('error', reject); socket.off('close', onClose); resolve(socket); });
     socket.once('error', reject);
+    socket.once('close', onClose);
   });
+}
+
+/** The tunnel is up: from here on the connection may be idle for as long as its user likes. */
+function established(socket: Socket): void {
+  socket.setTimeout(0);
 }
 
 /** Opens a tunnel to host:port through an HTTP proxy, using CONNECT. */
@@ -87,13 +117,20 @@ async function throughHttp(proxy: ProxySettings, host: string, port: number): Pr
   const login = (proxy.username ?? '') === '' ? '' : `Proxy-Authorization: Basic ${credentials}\r\n`;
   socket.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n${login}\r\n`);
   const reader = new Reader(socket);
-  const head = await reader.until('\r\n\r\n', 16_384);
+  let head: string;
+  try {
+    head = await reader.until('\r\n\r\n', 16_384);
+  } catch (error) {
+    socket.destroy();
+    throw error;
+  }
   const status = Number(head.split(' ')[1]);
   if (status !== 200) {
     socket.destroy();
     throw new Error(status === 407 ? 'the proxy rejected the user name or password'
                                    : `the proxy answered ${status || 'with something unexpected'}`);
   }
+  established(socket);
   return [socket, reader.release()];
 }
 
@@ -119,6 +156,7 @@ async function throughSocks5(proxy: ProxySettings, host: string, port: number): 
     if (reply !== 0) throw new Error(`the proxy could not connect (SOCKS reply ${reply})`);
     const addressLength = addressType === 1 ? 4 : addressType === 4 ? 16 : (await reader.bytes(1))[0];
     await reader.bytes(addressLength + 2);
+    established(socket);
     return [socket, reader.release()];
   } catch (error) {
     socket.destroy();
