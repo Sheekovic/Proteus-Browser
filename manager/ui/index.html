@@ -273,6 +273,15 @@
         <label>Kernel version<input name="kernelVersion" placeholder="158.0.8127.37"></label>
         <label>Extra launch arguments (space separated)<input name="extraArgs"></label>
       </div>
+      <h2 style="margin-top:20px">Proxies</h2>
+      <p class="hint">Before a profile with a proxy starts, Proteus asks through that proxy where it comes out, and matches the
+        browser's time zone, location and WebRTC address to it.</p>
+      <div class="fields">
+        <label style="grid-column: 1 / -1">Services to ask, in turn (separated by spaces; empty turns matching off)
+          <input name="exitLookupUrl" spellcheck="false"></label>
+        <label>Look again while a profile runs, every (minutes; 0 for never)
+          <input name="exitWatchMinutes" type="number" min="0" max="1440" step="1"></label>
+      </div>
       <div class="row"><button class="button primary" type="submit">Save</button></div>
     </form>
     <div class="panel">
@@ -764,6 +773,8 @@ async function loadSettings() {
   form.kernelPath.value = settings.kernelPath;
   form.kernelVersion.value = settings.kernelVersion;
   form.extraArgs.value = settings.extraArgs.join(' ');
+  form.exitLookupUrl.value = settings.exitLookupUrl;
+  form.exitWatchMinutes.value = settings.exitWatchMinutes;
   const state = $('kernel-state');
   state.textContent = settings.kernelPath ? `version ${settings.kernelVersion}` : 'not set — see Settings';
   state.classList.toggle('warn', !settings.kernelPath);
@@ -776,6 +787,8 @@ $('settings').addEventListener('submit', async (event) => {
       kernelPath: f.kernelPath.value.trim(),
       kernelVersion: f.kernelVersion.value.trim(),
       extraArgs: f.extraArgs.value.split(' ').map((s) => s.trim()).filter(Boolean),
+      exitLookupUrl: f.exitLookupUrl.value.trim(),
+      exitWatchMinutes: Number(f.exitWatchMinutes.value) || 0,
     });
     toast('Settings saved.');
     await loadSettings();
