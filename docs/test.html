@@ -11,33 +11,38 @@
 <meta property="og:title" content="Test your browser — Proteus">
 <meta property="og:image" content="https://sheekovic.github.io/Proteus-Browser/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="site.css?v=2">
 </head>
 <body>
 <div id="probe"></div>
 
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="./">
-      <img src="icon.svg" alt="" width="28" height="28">
-      Proteus
+    <a class="brand" href="./" aria-label="Proteus">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="proteus-logo-dark.svg">
+        <img src="proteus-logo.svg" alt="Proteus" width="134" height="34">
+      </picture>
     </a>
     <nav>
-      <a href="./#capabilities">Capabilities</a>
+      <a class="optional" href="./#capabilities">Capabilities</a>
       <a href="test.html" class="here">Test your browser</a>
       <a href="https://github.com/Sheekovic/Proteus-Browser">GitHub</a>
     </nav>
   </div>
 </header>
 
-<main class="wrap">
-  <div class="page-head">
+<div class="page-head">
+  <div class="wrap">
     <h1>Test your browser</h1>
     <p>What a website can find out by asking your browser the same question twice, or in two ways.
        Each check has one right answer on a real device, so a wrong answer shows tampering or an
        identity whose parts do not agree. Open this page in any browser: an ordinary one passes
        everything, and a good anti-detect browser must too.</p>
   </div>
+</div>
+
+<main class="wrap">
 
   <div class="summary">
     <div class="score">
@@ -82,11 +87,11 @@
 
 <footer>
   <div class="wrap">
-    <span>Proteus · BSD 3-Clause</span>
+    <img src="proteus-logo-dark.svg" alt="Proteus" width="102" height="26">
     <span>This page runs entirely in your browser and sends nothing.</span>
   </div>
 </footer>
 
-<script src="test.js"></script>
+<script src="test.js?v=2"></script>
 </body>
 </html>
