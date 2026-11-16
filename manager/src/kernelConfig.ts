@@ -62,6 +62,12 @@ export interface LaunchPaths {
    * value: the local relay of a proxy that needs a login.
    */
   proxyServer?: string;
+  /**
+   * False when the kernel's sandboxed network service could not be given access to
+   * the kernel's own files (see winSandbox.ts). It would die at start and take the
+   * first page with it, so the kernel is then started without that one sandbox.
+   */
+  networkSandbox?: boolean;
 }
 
 /**
@@ -76,12 +82,12 @@ const QUIET_START_ARGS = [
   '--disable-sync',
   '--disable-default-apps',
   '--no-pings',
-  '--disable-features=OptimizationHints,MediaRouter,InterestFeedContentSuggestions,Translate,PreconnectToSearch,' +
-      'Prewarm,AimEnabled,AimServerEligibilityEnabled,AimServerRequestOnStartupEnabled,DnsOverHttpsUpgrade,' +
-      // Not about quietness: on Windows the kernel's sandboxed network service dies
-      // as the browser starts and is restarted, and the start page, requested in
-      // between, never loads (the window stays on a blank page).
-      'NetworkServiceSandbox',
+];
+
+/** Browser features that phone home or fetch content on their own; switched off for the same reason. */
+const QUIET_DISABLED_FEATURES = [
+  'OptimizationHints', 'MediaRouter', 'InterestFeedContentSuggestions', 'Translate', 'PreconnectToSearch',
+  'Prewarm', 'AimEnabled', 'AimServerEligibilityEnabled', 'AimServerRequestOnStartupEnabled', 'DnsOverHttpsUpgrade',
 ];
 
 /** Command-line arguments for launching the kernel with `profile`. */
@@ -109,6 +115,9 @@ export function buildKernelArgs(profile: Profile, paths: LaunchPaths, extraArgs:
   // only when asked for here.
   if (profile.mobile !== null) args.push('--touch-events=enabled');
   args.push(...QUIET_START_ARGS);
+  const disabled = paths.networkSandbox === false ? [...QUIET_DISABLED_FEATURES, 'NetworkServiceSandbox']
+                                                   : QUIET_DISABLED_FEATURES;
+  args.push(`--disable-features=${disabled.join(',')}`);
   if (paths.proxyServer !== undefined) {
     args.push(`--proxy-server=${paths.proxyServer}`);
   } else if (profile.proxy) {

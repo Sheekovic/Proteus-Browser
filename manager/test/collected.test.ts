@@ -90,13 +90,16 @@ test('phones keep their model, page area and touch', () => {
   assert.equal(pixel.uaData.model, 'Pixel 9');
   assert.equal(pixel.uaData.mobile, true);
   assert.deepEqual(pixel.mobile, { viewWidth: 412, viewHeight: 785, deviceScaleFactor: 2.625, maxTouchPoints: 5 });
-  assert.deepEqual(pixel.fonts, [], 'phones keep the machine\'s fonts');
+  assert.deepEqual(pixel.fonts, ['Roboto'], 'the fonts the phone itself reported');
+  const noFonts = identityFromCollected(parseCollected({ ...pixelPhone(), fonts: [] }), KERNEL);
+  assert.ok(noFonts.fonts.includes('Roboto') && !noFonts.fonts.includes('Segoe UI'), 'else those of Android');
 
   const apple = identityFromCollected(parseCollected(iphone()), KERNEL);
   assert.equal(apple.os, 'ios');
   assert.match(apple.userAgent, /Version\/18\.6 Mobile\/15E148 Safari\/604\.1$/, 'Safari keeps its own user agent');
   assert.deepEqual(apple.mobile, { viewWidth: 393, viewHeight: 659, deviceScaleFactor: 3, maxTouchPoints: 5 });
   assert.equal(apple.webgl.renderer, 'Apple GPU');
+  assert.ok(apple.fonts.includes('Helvetica Neue') && !apple.fonts.includes('Segoe UI'), 'iOS fonts, not those of the machine');
 });
 
 test('two profiles from one fingerprint are the same model with different seeds', () => {

@@ -38,8 +38,9 @@ run `Start Proteus.cmd` (Windows) or `./start-proteus.sh` (Linux). Check the dow
 against `SHA256SUMS.txt`.
 
 They are previews: unsigned, so Windows warns before running them, and not optimised
-"official" builds. On Linux the browser's sandbox needs unprivileged user namespaces,
-which Ubuntu 24.04 and later restrict by default.
+"official" builds. On Linux systems that restrict unprivileged user namespaces (Ubuntu
+23.10 and later) the start script says so and names the one command that lets the
+browser use its sandbox: `sudo ./linux-sandbox.sh --install`.
 
 ## Contents
 
@@ -64,7 +65,7 @@ which Ubuntu 24.04 and later restrict by default.
 | Hardware | Processor count, device memory, screen and available screen size |
 | Graphics | WebGL vendor and renderer, the card's limits, extensions and shader precision, WebGPU adapter info |
 | Fingerprints | Canvas, WebGL and audio readbacks carry a small noise derived from the profile's seed: stable for a profile, different between profiles |
-| Fonts | An allow-list of installed fonts, with substitutes for claimed fonts the machine lacks |
+| Fonts | An allow-list of installed fonts, with substitutes for claimed fonts the machine lacks; phone profiles claim Android's or iOS's fonts, not the machine's |
 | Locale | Languages, `Accept-Language`, time zone |
 | Network | WebRTC that never reveals the machine's address, and shows the address you choose instead |
 | Location | The position `navigator.geolocation` reports |
@@ -255,14 +256,12 @@ Worth knowing before relying on it:
   others report the machine's own.
 - **A limit is a claim.** A page that actually allocates beyond a claimed limit
   succeeds if the real hardware allows it.
-- **Phone profiles keep the machine's fonts.**
-- **Fonts are best within one system family.** Claiming another operating system's
-  fonts relies on substitutes, which careful measurement can distinguish.
+- **Fonts of another system are stand-ins.** A profile of a system other than the
+  machine's own — which includes every phone profile — claims that system's fonts and
+  hides the machine's, but draws them with substitutes. A page finds the names;
+  careful measurement of the glyphs can tell a substitute from the real font.
 - **Tested on few machines.** Results on detection sites depend on the host; what
   holds on one Windows 11 machine is not a guarantee elsewhere.
-- **On Windows the manager starts the kernel with the network service sandbox
-  off.** With it on, this build's network service fails at start and the first page
-  never loads. The cause has not been found yet.
 - **No protection is complete.** Sites combine many signals — address reputation,
   behaviour, account history — that no browser controls.
 

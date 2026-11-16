@@ -29,6 +29,20 @@ const VERSIONS: readonly (readonly [string, string])[] = [
 ];
 
 /**
+ * Font families iOS ships and a page can find by name (a selection of the well-known
+ * ones; iOS has more). Claimed by an iPhone profile for the reason given at
+ * ANDROID_FONTS in android.ts.
+ */
+export const IOS_FONTS: readonly string[] = [
+  'American Typewriter', 'Apple Color Emoji', 'Apple SD Gothic Neo', 'Arial', 'Avenir', 'Avenir Next',
+  'Avenir Next Condensed', 'Baskerville', 'Bodoni 72', 'Bradley Hand', 'Chalkboard SE', 'Chalkduster', 'Cochin',
+  'Copperplate', 'Courier', 'Courier New', 'Didot', 'Futura', 'Geeza Pro', 'Georgia', 'Gill Sans', 'Helvetica',
+  'Helvetica Neue', 'Hiragino Sans', 'Hoefler Text', 'Marker Felt', 'Menlo', 'Noteworthy', 'Optima', 'Palatino',
+  'Papyrus', 'PingFang SC', 'Rockwell', 'Savoye LET', 'Snell Roundhand', 'Symbol', 'Times New Roman',
+  'Trebuchet MS', 'Verdana', 'Zapfino',
+];
+
+/**
  * Height in points that the status bar and Safari's address and tool bars take from
  * the screen while they are all showing.
  */
@@ -76,8 +90,7 @@ export function generateIosIdentity(rng: Rng): GeneratedIdentity {
     webglCaps: null,
     webgpu: { vendor: '', architecture: '' },
     noise: { canvas: true, audio: true },
-    // No font list, for the reason given in android.ts.
-    fonts: [],
+    fonts: [...IOS_FONTS],
     voices: voicesFor('ios'),
     mobile: { viewWidth: width, viewHeight: height - BARS_HEIGHT, deviceScaleFactor: 3, maxTouchPoints: 5 },
   };

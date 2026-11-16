@@ -255,6 +255,8 @@ test('an iPhone profile is Safari, not Chrome', async () => {
     assert.ok(profile.mobile);
     assert.equal(profile.mobile.deviceScaleFactor, 3);
     assert.ok(profile.voices.some((voice) => voice.name === 'Samantha' && voice.default));
+    assert.ok(profile.fonts.includes('Helvetica Neue') && !profile.fonts.includes('Segoe UI') &&
+              !profile.fonts.includes('Roboto'));
     const config = buildKernelConfig(profile) as Record<string, any>;
     assert.equal(config.vendor, 'Apple Computer, Inc.');
     assert.equal(config.clientHints, false);
@@ -287,7 +289,14 @@ test('an Android profile is one real phone model, consistently', async () => {
     assert.match(profile.webgl.renderer, /^ANGLE \(ARM, Mali-G\d+.*, OpenGL ES 3\.2\)$/);
     assert.equal(profile.webgpu.vendor, 'arm');
     assert.ok(profile.voices.every((voice) => voice.local && !voice.name.startsWith('Google')));
+    // A phone claims its own system's fonts and none of a desktop's.
+    assert.ok(profile.fonts.includes('Roboto') && profile.fonts.includes('Noto Sans'));
+    for (const desktop of ['Segoe UI', 'Calibri', 'Consolas', 'Helvetica Neue', 'DejaVu Sans']) {
+      assert.ok(!profile.fonts.includes(desktop), desktop);
+    }
     const config = buildKernelConfig(profile);
+    assert.deepEqual(config.fonts, profile.fonts);
+    assert.ok('Roboto' in (config.fontAliases as object), 'with stand-ins, since the machine lacks them');
     assert.deepEqual(config.mobile, profile.mobile);
     assert.ok(Buffer.byteLength(JSON.stringify(config)) < 12_000);
   }

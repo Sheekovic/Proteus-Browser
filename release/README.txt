@@ -35,8 +35,10 @@ THIS IS A PREVIEW
   - Windows will warn that the program is from an unknown publisher: the files
     are not code-signed. Choose "More info", then "Run anyway".
   - Antivirus software may scan the browser for a minute the first time it runs.
-  - On Linux the browser needs unprivileged user namespaces for its sandbox.
-    Ubuntu 24.04 and later restrict them; see the project page.
+  - On Linux systems that restrict unprivileged user namespaces (Ubuntu 23.10
+    and later), run this once so the browser can use its sandbox:
+        sudo ./linux-sandbox.sh --install
+    The start script tells you when it is needed.
   - Not an optimised "official" build: it is somewhat slower than a retail browser.
 
 Check how a profile looks to a website:

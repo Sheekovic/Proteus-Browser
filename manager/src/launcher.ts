@@ -10,6 +10,7 @@ import type { Profile } from './profile.ts';
 import { lookupOwnAddress, lookupProxyExit, type ProxyExit, withOwnAddress, withProxyExit } from './proxyExit.ts';
 import { needsRelay, startProxyRelay } from './proxyRelay.ts';
 import type { Store } from './store.ts';
+import { allowSandboxToReadKernel } from './winSandbox.ts';
 
 export class LaunchError extends Error {}
 
@@ -51,18 +52,27 @@ const STOP_GRACE_MS = 8_000;
 /** Starts the kernel process. Replaceable so tests can run a stand-in kernel. */
 export type SpawnKernel = (kernelPath: string, args: string[]) => ChildProcess;
 
+/**
+ * Gets the kernel's folder ready for the kernel's own sandbox, and tells whether the
+ * network service sandbox can be left on. Replaceable for the same reason.
+ */
+export type PrepareKernel = (kernelPath: string) => Promise<boolean>;
+
 const spawnRealKernel: SpawnKernel = (kernelPath, args) =>
   spawn(kernelPath, args, { stdio: 'ignore', windowsHide: false });
 
 export class Launcher {
   private readonly store: Store;
   private readonly spawnKernel: SpawnKernel;
+  private readonly prepareKernel: PrepareKernel;
   private readonly running = new Map<string, Running>();
   private readonly lastExit = new Map<string, NonNullable<ProfileStatus['lastExit']>>();
 
-  constructor(store: Store, spawnKernel: SpawnKernel = spawnRealKernel) {
+  constructor(store: Store, spawnKernel: SpawnKernel = spawnRealKernel,
+              prepareKernel: PrepareKernel = (kernelPath) => allowSandboxToReadKernel(kernelPath)) {
     this.store = store;
     this.spawnKernel = spawnKernel;
+    this.prepareKernel = prepareKernel;
   }
 
   status(id: string): ProfileStatus {
@@ -142,7 +152,8 @@ export class Launcher {
     // A proxy with a login is reached through a local relay that logs in for the kernel.
     const relay = needsRelay(profile.proxy) ? await startProxyRelay(profile.proxy) : undefined;
     const proxyServer = relay ? `socks5://127.0.0.1:${relay.port}` : undefined;
-    const args = buildKernelArgs(profile, { userDataDir, configFile, proxyServer }, settings.extraArgs);
+    const networkSandbox = await this.prepareKernel(settings.kernelPath);
+    const args = buildKernelArgs(profile, { userDataDir, configFile, proxyServer, networkSandbox }, settings.extraArgs);
     const child = this.spawnKernel(settings.kernelPath, args);
 
     const spawned = new Promise<void>((resolve, reject) => {

@@ -75,7 +75,8 @@ tar -xJf "$NODE_LIN" -C "$WORK/node-linux"
 cp "$WORK"/node-linux/node-*/bin/node "$LIN/node/"
 cp "$WORK"/node-linux/node-*/LICENSE "$LIN/licenses/Node.js-LICENSE.txt"
 sed 's/\r$//' "$STAGE/release/start-proteus.sh" > "$LIN/start-proteus.sh"
-chmod +x "$LIN/start-proteus.sh" "$LIN/kernel/chrome" "$LIN/kernel/chrome_crashpad_handler" "$LIN/node/node"
+sed 's/\r$//' "$STAGE/release/linux-sandbox.sh" > "$LIN/linux-sandbox.sh"
+chmod +x "$LIN/start-proteus.sh" "$LIN/linux-sandbox.sh" "$LIN/kernel/chrome" "$LIN/kernel/chrome_crashpad_handler" "$LIN/node/node"
 (cd "$WORK/linux" && tar -cf - Proteus | xz -T0 -6 > "$OUT/Proteus-$VERSION-linux-x64.tar.xz")
 
 (cd "$OUT" && sha256sum Proteus-"$VERSION"-* > SHA256SUMS.txt && cat SHA256SUMS.txt && ls -la)

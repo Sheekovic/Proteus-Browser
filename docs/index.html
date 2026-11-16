@@ -168,7 +168,7 @@ node src/main.ts</pre>
       <ul class="plain">
         <li><strong>It is Chromium underneath.</strong> An iPhone profile reports Safari's identity, but a site that probes engine behaviour or looks at the TLS handshake can tell it is not WebKit. There is no Firefox kernel.</li>
         <li><strong>A limit is a claim.</strong> A page that really allocates beyond a claimed graphics limit succeeds if the hardware allows it.</li>
-        <li><strong>Phone profiles keep the machine's fonts.</strong></li>
+        <li><strong>Fonts of another system are stand-ins.</strong> A phone or cross-system profile claims that system's fonts and hides the machine's, but draws them with substitutes that careful measurement can tell apart.</li>
         <li><strong>No protection is complete.</strong> Sites combine many signals — address reputation, behaviour, account history — that no browser controls.</li>
       </ul>
       <p class="lead" style="margin-top:22px">Proteus is for separating identities you are entitled to have:

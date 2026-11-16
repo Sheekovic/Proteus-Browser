@@ -10,7 +10,9 @@
 //  - anything else (Firefox, desktop Safari, ...) is refused, since the kernel
 //    cannot pass for those browsers.
 
+import { ANDROID_FONTS } from './android.ts';
 import type { GeneratedIdentity } from './fingerprint.ts';
+import { IOS_FONTS } from './ios.ts';
 import { randomSeed } from './fingerprint.ts';
 import { cleanWebGLCaps, type WebGLCaps } from './webglCaps.ts';
 import { type OsFamily, type ScreenInfo, type UaBrand, ValidationError, type Voice } from './profile.ts';
@@ -264,7 +266,8 @@ export function identityFromCollected(c: Collected, kernelVersion: string): Gene
       webglCaps: c.webglCaps ?? null,
       webgpu: { vendor: '', architecture: '' },
       noise: { canvas: true, audio: true },
-      fonts: [],
+      // What the phone itself reported, when the collector found any of its fonts.
+      fonts: c.fonts.length > 0 ? withinBudget(c.fonts, fontCost, FONT_BUDGET) : [...IOS_FONTS],
       voices,
       mobile: phoneSettings(c, screen, 190),
     };
@@ -303,10 +306,10 @@ export function identityFromCollected(c: Collected, kernelVersion: string): Gene
     webglCaps: c.webglCaps ?? null,
     webgpu: c.webgpu ?? { vendor: '', architecture: '' },
     noise: { canvas: true, audio: true },
-    // Phones keep the machine's fonts, as generated phone profiles do (android.ts).
     // The collector lists a system's own fonts before those that programs add, so a
-    // list too long for the kernel loses the added ones first.
-    fonts: phone ? [] : withinBudget(c.fonts, fontCost, FONT_BUDGET),
+    // list too long for the kernel loses the added ones first. A phone reading that
+    // found none of the fonts looked for gets Android's own list.
+    fonts: phone && c.fonts.length === 0 ? [...ANDROID_FONTS] : withinBudget(c.fonts, fontCost, FONT_BUDGET),
     voices,
     mobile: phone ? phoneSettings(c, screen, 130) : null,
   };

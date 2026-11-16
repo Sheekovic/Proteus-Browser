@@ -38,6 +38,23 @@ const DEVICES: readonly Device[] = [
 const ANDROID_VERSIONS = ['13.0.0', '14.0.0', '15.0.0'];
 
 /**
+ * The font families Android itself ships and a page can find by name. A phone profile
+ * claims these and hides the machine's own: a "phone" on which Segoe UI or Calibri is
+ * installed is a desktop. The machine does not have them, so each is drawn with a
+ * stand-in of its kind (fontSubstitutes.ts); a page finds the name, though careful
+ * measurement of the glyphs can still tell the stand-in from the real font.
+ */
+export const ANDROID_FONTS: readonly string[] = [
+  'Carrois Gothic SC', 'Coming Soon', 'Cutive Mono', 'Dancing Script', 'Droid Sans Mono', 'Noto Color Emoji',
+  'Noto Sans', 'Noto Sans CJK JP', 'Noto Serif', 'Roboto',
+  // Names Android does not have as fonts but answers to: its font configuration maps
+  // them onto its own sans-serif, serif and monospace faces, so a page finds them.
+  'Arial', 'Helvetica', 'Tahoma', 'Verdana',
+  'Baskerville', 'Georgia', 'Goudy', 'Palatino', 'Times', 'Times New Roman',
+  'Courier', 'Courier New', 'Monaco',
+];
+
+/**
  * Height in CSS pixels that Android's status bar, Chrome's toolbar and the system
  * navigation bar take from the screen, leaving the rest to the page.
  */
@@ -75,9 +92,7 @@ export function generateAndroidIdentity(kernelVersion: string, rng: Rng): Genera
     webglCaps: null,
     webgpu: { vendor: 'arm', architecture: device.gpuFamily },
     noise: { canvas: true, audio: true },
-    // No font list: the fonts stay those of the machine. Hiding them all and standing
-    // in for Android's would leave text looking like neither system.
-    fonts: [],
+    fonts: [...ANDROID_FONTS],
     voices: voicesFor('android'),
     mobile: {
       viewWidth: device.width,
