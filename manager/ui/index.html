@@ -6,166 +6,364 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 512 512%22 role=%22img%22 aria-label=%22Proteus%22%3E%3Cdefs%3E%3ClinearGradient id=%22sea%22 x1=%220%22 y1=%221%22 x2=%221%22 y2=%220%22%3E%3Cstop offset=%220%22 stop-color=%22%230b2559%22/%3E%3Cstop offset=%220.55%22 stop-color=%22%231857c9%22/%3E%3Cstop offset=%221%22 stop-color=%22%2322c1c9%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width=%22512%22 height=%22512%22 rx=%22116%22 fill=%22url(%23sea)%22/%3E%3Cpath d=%22M148 404 V196 C148 132 198 104 252 104 C324 104 368 152 368 212 C368 276 320 318 262 318 C218 318 192 290 192 256 C192 228 214 208 240 208 C262 208 276 224 276 242%22 fill=%22none%22 stroke=%22%23fff%22 stroke-width=%2254%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E">
 <title>Proteus</title>
 <style>
+  /* The Proteus manager. One self-contained page: the manager serves this file and
+     nothing else, so styles, script and artwork all live here. */
   :root {
-    --bg: #f6f7f9; --panel: #ffffff; --text: #1c2330; --muted: #667085; --line: #e2e6ec;
-    --accent: #2f6fed; --accent-text: #ffffff; --danger: #c93c3c; --ok: #1f9d55;
+    --deep: #0b2559; --sea: #1857c9; --shallow: #22c1c9;
+    --bg: #f3f6fb; --panel: #ffffff; --raised: #f7f9fd; --text: #0f1f3d; --muted: #5a6a85; --line: #dfe6f1;
+    --accent: #1857c9; --accent-soft: #e6eefb; --ok: #12905e; --ok-soft: #dff5ec; --danger: #c23838; --danger-soft: #fbe8e8;
+    --gradient: linear-gradient(45deg, var(--deep) 0%, var(--sea) 55%, var(--shallow) 100%);
+    --radius: 16px; --rail: 232px;
+    --mono: ui-monospace, "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #12151b; --panel: #1b2029; --text: #e7eaf0; --muted: #98a2b3; --line: #2b323e;
-      --accent: #5b8cf5; --accent-text: #0d1117; --danger: #ef6b6b; --ok: #4cc38a;
+      --bg: #071226; --panel: #0d1c38; --raised: #112346; --text: #e8eefa; --muted: #93a4c0; --line: #1c2e52;
+      --accent: #6fb1ff; --accent-soft: #12264c; --ok: #4dd69a; --ok-soft: #0d2c2a; --danger: #ff8585; --danger-soft: #34192a;
     }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { display: flex; align-items: center; gap: 12px; padding: 14px 16px;
-           border-bottom: 1px solid var(--line); background: var(--panel); }
-  header h1 { font-size: 18px; margin: 0; flex: 1; }
-  main { max-width: 1040px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
-  h2 { font-size: 15px; margin: 0 0 10px; }
-  button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line);
-           background: var(--panel); color: var(--text); cursor: pointer; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-  button.danger { color: var(--danger); }
-  button:disabled { opacity: .5; cursor: default; }
-  input, select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line);
-                  background: var(--bg); color: var(--text); width: 100%; }
-  label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
-  .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
-  .table-wrap { overflow-x: auto; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); display: flex;
+         font: 14.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+  [hidden] { display: none !important; }
+
+  /* The rail: deep water, with the mark at the surface. */
+  .rail { width: var(--rail); flex: none; background: var(--gradient); background-size: 100% 220%; color: #fff;
+          display: flex; flex-direction: column; padding: 20px 14px 0; position: relative; overflow: hidden; }
+  .rail .logo { display: flex; align-items: center; gap: 10px; padding: 2px 8px 22px; }
+  .rail .logo svg.mark { width: 36px; height: 36px; flex: none; filter: drop-shadow(0 6px 10px rgba(3, 12, 36, .35)); }
+  .rail .logo svg.word { height: 21px; width: auto; }
+  .rail nav { display: grid; gap: 4px; }
+  .rail nav button { display: flex; align-items: center; gap: 11px; width: 100%; padding: 10px 12px; border: 0;
+                     border-radius: 12px; background: transparent; color: rgba(255, 255, 255, .78); cursor: pointer;
+                     text-align: left; font-weight: 600; transition: background .15s ease, color .15s ease; }
+  .rail nav button svg { width: 19px; height: 19px; flex: none; }
+  .rail nav button:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+  .rail nav button.here { background: rgba(255, 255, 255, .18); color: #fff; }
+  .rail nav button .count { margin-left: auto; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+                            background: rgba(255, 255, 255, .18); }
+  .rail .foot { margin-top: auto; padding: 14px 8px 62px; font-size: 12.5px; color: rgba(255, 255, 255, .72);
+                position: relative; z-index: 1; }
+  .rail .foot b { display: block; color: #fff; font-size: 13px; overflow-wrap: anywhere; }
+  .rail .foot .warn { color: #ffd9a8; }
+  .rail .swell { position: absolute; left: 0; bottom: 0; width: 200%; height: 54px; opacity: .22; animation: swell 16s linear infinite; }
+  .rail .swell + .swell { opacity: .14; height: 70px; animation-duration: 25s; animation-direction: reverse; }
+  @keyframes swell { to { transform: translateX(-50%); } }
+
+  main { flex: 1; min-width: 0; overflow-y: auto; }
+  .view { max-width: 1120px; margin: 0 auto; padding: 26px 28px 60px; }
+  .head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .head h1 { font-size: 24px; margin: 0; letter-spacing: -.015em; }
+  .head .sub { color: var(--muted); flex-basis: 100%; margin: -6px 0 0; max-width: 720px; }
+  .head .spacer { flex: 1; }
+  .search { position: relative; }
+  .search input[type=search] { width: 220px; padding: 9px 12px 9px 36px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--panel); }
+  .search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); color: var(--muted); }
+
+  .button { display: inline-flex; align-items: center; gap: 8px; padding: 9px 18px; border-radius: 999px; font-weight: 600;
+            border: 1.5px solid var(--line); background: var(--panel); cursor: pointer; white-space: nowrap;
+            transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease; }
+  .button:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .button.primary { background: var(--gradient); background-size: 160% 160%; border-color: transparent; color: #fff;
+                    box-shadow: 0 8px 18px -10px var(--sea); }
+  .button.primary:hover { background-position: 100% 0; }
+  .button.small { padding: 6px 14px; font-size: 13.5px; }
+  .button.danger { color: var(--danger); }
+  .button.danger:hover { border-color: var(--danger); }
+  .button:disabled { opacity: .5; cursor: default; transform: none; }
+  .button svg { width: 16px; height: 16px; }
+
+  /* Profiles */
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); }
+  .profile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px;
+             display: grid; gap: 12px; animation: surface .4s both; animation-delay: var(--delay, 0ms);
+             transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+  .profile:hover { border-color: color-mix(in srgb, var(--sea) 45%, var(--line)); box-shadow: 0 18px 32px -26px var(--sea); transform: translateY(-2px); }
+  .profile.running { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+  @keyframes surface { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .profile .top { display: flex; gap: 12px; align-items: center; }
+  .badge { width: 44px; height: 44px; border-radius: 13px; background: var(--gradient); color: #fff; flex: none;
+           display: grid; place-items: center; }
+  .badge svg { width: 23px; height: 23px; }
+  .profile h3 { margin: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .profile .system { color: var(--muted); font-size: 13px; }
+  .profile .names { min-width: 0; flex: 1; }
+  .pill { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--raised); color: var(--muted);
+          display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .pill.on { background: var(--ok-soft); color: var(--ok); }
+  .pill.on::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; transform: scale(.7); } }
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 13px; margin: 0; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .profile .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .profile .actions .more { margin-left: auto; position: relative; }
+  .menu { position: absolute; right: 0; bottom: calc(100% + 6px); min-width: 190px; background: var(--panel); border: 1px solid var(--line);
+          border-radius: 12px; padding: 6px; box-shadow: 0 18px 40px -18px rgba(3, 12, 36, .5); z-index: 5; display: grid; }
+  .menu button { text-align: left; border: 0; background: transparent; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+  .menu button:hover { background: var(--accent-soft); }
+  .menu button.danger { color: var(--danger); }
+  .menu button:disabled { opacity: .45; cursor: default; background: transparent; }
+
+  .empty { text-align: center; padding: 56px 20px; border: 1.5px dashed var(--line); border-radius: var(--radius); color: var(--muted); }
+  .empty svg { width: 64px; height: 64px; margin-bottom: 10px; animation: float 6s ease-in-out infinite; }
+  .empty h2 { color: var(--text); margin: 0 0 6px; font-size: 19px; }
+  .empty p { margin: 0 auto 18px; max-width: 420px; }
+  @keyframes float { 50% { transform: translateY(-7px) rotate(-2deg); } }
+
+  /* Lists and forms */
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+  .panel + .panel { margin-top: 16px; }
+  .panel h2 { font-size: 15.5px; margin: 0 0 4px; }
+  .panel p.hint { color: var(--muted); margin: 0 0 14px; font-size: 13.5px; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  th { font-size: 12px; color: var(--muted); font-weight: 600; }
-  td.actions { display: flex; gap: 6px; }
-  .state { font-weight: 600; }
-  .state.running { color: var(--ok); }
-  .muted { color: var(--muted); }
-  #message { min-height: 20px; color: var(--danger); }
-  #message.ok { color: var(--ok); }
-  pre { margin: 0; overflow-x: auto; font: 12px/1.4 ui-monospace, Consolas, monospace; }
-  dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text);
-           max-width: min(760px, 92vw); padding: 16px; }
-  dialog::backdrop { background: rgba(0, 0, 0, .45); }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; color: var(--muted); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  tr:last-child td { border-bottom: 0; }
+  td.wide { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .table-wrap { overflow-x: auto; }
+  label { display: grid; gap: 5px; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  label.check { display: flex; gap: 9px; align-items: center; font-weight: 500; color: var(--text); font-size: 14px; }
+  input:not([type=checkbox]), select { padding: 9px 11px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--raised);
+                                       width: 100%; font-weight: 400; color: var(--text); }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .fields { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+  code { font: .92em var(--mono); background: var(--raised); padding: .1em .4em; border-radius: 6px; }
+
+  /* Choosing a system */
+  .systems { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+  .systems label { position: relative; display: block; cursor: pointer; }
+  .systems input { position: absolute; opacity: 0; }
+  .systems span { display: grid; justify-items: center; gap: 6px; padding: 12px 6px; border-radius: 12px; border: 1.5px solid var(--line);
+                  background: var(--raised); color: var(--text); font-weight: 600; font-size: 13px; transition: border-color .12s ease, background .12s ease; }
+  .systems svg { width: 22px; height: 22px; color: var(--accent); }
+  .systems input:checked + span { border-color: var(--accent); background: var(--accent-soft); }
+  .systems input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* The drawer a new profile is made in */
+  .scrim { position: fixed; inset: 0; background: rgba(3, 12, 36, .5); z-index: 30; opacity: 0; pointer-events: none; transition: opacity .25s ease; }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 100vw); background: var(--panel); z-index: 31;
+            transform: translateX(104%); transition: transform .32s cubic-bezier(.2, .8, .2, 1); display: flex; flex-direction: column;
+            box-shadow: -24px 0 60px -30px rgba(3, 12, 36, .6); }
+  .drawer.open { transform: none; }
+  .drawer header { background: var(--gradient); color: #fff; padding: 20px 22px 34px; position: relative; overflow: hidden; }
+  .drawer header h2 { margin: 0; font-size: 20px; }
+  .drawer header p { margin: 4px 0 0; color: rgba(255, 255, 255, .84); font-size: 13.5px; }
+  .drawer header svg { position: absolute; left: 0; bottom: -1px; width: 200%; height: 26px; animation: swell 14s linear infinite; }
+  .drawer header svg path { fill: var(--panel); }
+  .drawer form { flex: 1; overflow-y: auto; padding: 18px 22px; display: grid; gap: 18px; align-content: start; }
+  .drawer fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 12px; }
+  .drawer legend { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); padding: 0; margin-bottom: 4px; }
+  .drawer footer { padding: 14px 22px; border-top: 1px solid var(--line); display: flex; gap: 10px; justify-content: flex-end; }
+
+  dialog { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--text);
+           max-width: min(780px, 92vw); padding: 20px; }
+  dialog::backdrop { background: rgba(3, 12, 36, .5); }
+  dialog h2 { margin: 0 0 10px; font-size: 18px; }
+  pre { margin: 0; overflow: auto; max-height: 60vh; font: 12.5px/1.5 var(--mono); background: var(--raised); padding: 14px; border-radius: 12px; }
+
+  .toasts { position: fixed; right: 20px; bottom: 20px; display: grid; gap: 8px; z-index: 50; }
+  .toast { padding: 11px 16px; border-radius: 12px; background: var(--deep); color: #fff; font-weight: 500; max-width: 380px;
+           box-shadow: 0 18px 40px -18px rgba(3, 12, 36, .7); animation: surface .3s both; border-left: 4px solid var(--shallow); }
+  .toast.bad { border-left-color: #ff8585; }
+
+  @media (max-width: 760px) {
+    body { flex-direction: column; }
+    .rail { width: 100%; flex-direction: row; align-items: center; padding: 10px 12px; }
+    .rail .logo { padding: 0 6px 0 0; }
+    .rail .logo svg.word, .rail .foot, .rail .swell, .rail nav button span.label { display: none; }
+    .rail nav { display: flex; margin-left: auto; }
+    .view { padding: 18px 16px 50px; }
+    .search input[type=search] { width: 150px; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
-<header>
-  <img src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 512 512%22 role=%22img%22 aria-label=%22Proteus%22%3E%3Cdefs%3E%3ClinearGradient id=%22sea%22 x1=%220%22 y1=%221%22 x2=%221%22 y2=%220%22%3E%3Cstop offset=%220%22 stop-color=%22%230b2559%22/%3E%3Cstop offset=%220.55%22 stop-color=%22%231857c9%22/%3E%3Cstop offset=%221%22 stop-color=%22%2322c1c9%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width=%22512%22 height=%22512%22 rx=%22116%22 fill=%22url(%23sea)%22/%3E%3Cpath d=%22M148 404 V196 C148 132 198 104 252 104 C324 104 368 152 368 212 C368 276 320 318 262 318 C218 318 192 290 192 256 C192 228 214 208 240 208 C262 208 276 224 276 242%22 fill=%22none%22 stroke=%22%23fff%22 stroke-width=%2254%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E" alt="" width="30" height="30" style="border-radius:8px">
-  <h1>Proteus</h1>
-  <button id="refresh">Refresh</button>
-</header>
+
+<aside class="rail">
+  <div class="logo">
+    <svg class="mark" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="116" fill="#fff"/><path d="M148 404 V196 C148 132 198 104 252 104 C324 104 368 152 368 212 C368 276 320 318 262 318 C218 318 192 290 192 256 C192 228 214 208 240 208 C262 208 276 224 276 242" fill="none" stroke="#12409e" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg class="word" viewBox="-14 -164 818 178" role="img" aria-label="Proteus"><g fill="none" stroke="#fff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"><path d="M0 0 V-150 H46 a43 43 0 0 1 0 86 H0"/><path transform="translate(140 0)" d="M0 0 V-100 M0 -50 a50 50 0 0 1 50 -50"/><circle cx="274" cy="-50" r="50"/><path transform="translate(388 0)" d="M0 -150 V-36 a36 36 0 0 0 36 36 M-30 -100 H40"/><path transform="translate(464 0)" d="M2 -50 H100 A50 50 0 1 0 85.4 -14.6"/><path transform="translate(604 0)" d="M0 -100 V-45 a45 45 0 0 0 90 0 V-100 M90 -100 V0"/><path transform="translate(728 0)" d="M70 -82 C56 -100 18 -104 12 -76 C6 -46 74 -54 70 -24 C66 4 22 0 6 -18"/></g></svg>
+  </div>
+  <nav>
+    <button data-view="profiles" class="here"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.300-5.500 6.500-5.500s5.700 1.900 6.500 5.500"/><circle cx="17.500" cy="9" r="2.500"/><path d="M17 14.500c2.400.2 4 1.700 4.600 4.500"/></svg><span class="label">Profiles</span><span class="count" id="count-profiles">0</span></button>
+    <button data-view="devices"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="13" height="10" rx="2"/><path d="M6 18h7"/><rect x="17" y="8" width="4.500" height="11" rx="1.500"/></svg><span class="label">Devices</span><span class="count" id="count-devices">0</span></button>
+    <button data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span class="label">Settings</span></button>
+  </nav>
+  <div class="foot">
+    Kernel
+    <b id="kernel-state">…</b>
+  </div>
+  <svg class="swell" viewBox="0 0 1440 54" preserveAspectRatio="none" aria-hidden="true"><path fill="#fff" d="M0 26 q90 -22 180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 V54 H0 Z"/></svg>
+  <svg class="swell" viewBox="0 0 1440 70" preserveAspectRatio="none" aria-hidden="true"><path fill="#fff" d="M0 34 q90 -28 180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 V70 H0 Z"/></svg>
+</aside>
+
 <main>
-  <div id="message" role="status"></div>
-
-  <section>
-    <h2>Profiles</h2>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Name</th><th>OS</th><th>Screen</th><th>Time zone</th><th>Proxy</th><th>State</th><th></th></tr></thead>
-        <tbody id="profiles"></tbody>
-      </table>
-    </div>
-    <p id="empty" class="muted" hidden>No profiles yet. Create one below.</p>
-  </section>
-
-  <section>
-    <h2>New profile</h2>
-    <form id="create">
-      <div class="grid">
-        <label>Name <input name="name" required maxlength="200" placeholder="Shop account 1"></label>
-        <label>Operating system
-          <select name="os">
-            <option value="">Same as this computer</option>
-            <option value="windows">Windows</option>
-            <option value="macos">macOS</option>
-            <option value="linux">Linux</option>
-            <option value="android">Android phone</option>
-            <option value="ios">iPhone (Safari)</option>
-          </select>
-        </label>
-        <label>Device identity
-          <select name="fingerprintId">
-            <option value="">Generated for the chosen system</option>
-          </select>
-        </label>
-        <label>Languages (comma separated, optional) <input name="languages" placeholder="en-US, en"></label>
-        <label>Time zone (optional) <input name="timezone" placeholder="Europe/Berlin"></label>
-        <label>WebRTC
-          <select name="webrtc">
-            <option value="proxyOnly">Protected (never reveal real IP)</option>
-            <option value="real">Unprotected (stock browser)</option>
-          </select>
-        </label>
-        <label>Public IP shown in WebRTC (optional; your proxy's exit IP)
-          <input name="webrtcPublicIp" placeholder="203.0.113.7"></label>
-        <label>Proxy type
-          <select name="proxyType">
-            <option value="">No proxy</option>
-            <option value="http">HTTP</option>
-            <option value="socks5">SOCKS5</option>
-          </select>
-        </label>
-        <label>Proxy host <input name="proxyHost" placeholder="127.0.0.1"></label>
-        <label>Proxy port <input name="proxyPort" type="number" min="1" max="65535" placeholder="8080"></label>
-        <label>Proxy user name (optional) <input name="proxyUser" autocomplete="off"></label>
-        <label>Proxy password (optional) <input name="proxyPass" type="password" autocomplete="new-password"></label>
-        <label><input name="matchProxy" type="checkbox" checked> Match time zone and WebRTC address to the proxy's exit</label>
-        <label>Start page (optional) <input name="startUrl" placeholder="https://example.com"></label>
+  <!-- Profiles -->
+  <section class="view" id="view-profiles">
+    <div class="head">
+      <h1>Profiles</h1>
+      <span class="spacer"></span>
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.500"/><path d="M16 16l4.500 4.500"/></svg>
+        <input id="filter" type="search" placeholder="Find a profile" aria-label="Find a profile">
       </div>
-      <div class="row"><button class="primary" type="submit">Create profile</button>
-        <span class="muted">A device identity (browser, screen, GPU, noise seed) is generated automatically.</span></div>
-    </form>
+      <button class="button primary" id="new-profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.600" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New profile</button>
+    </div>
+    <div class="grid" id="profiles"></div>
+    <div class="empty" id="no-profiles" hidden>
+      <svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="e" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#0b2559"/><stop offset=".55" stop-color="#1857c9"/><stop offset="1" stop-color="#22c1c9"/></linearGradient></defs><rect width="512" height="512" rx="116" fill="url(#e)"/><path d="M148 404 V196 C148 132 198 104 252 104 C324 104 368 152 368 212 C368 276 320 318 262 318 C218 318 192 290 192 256 C192 228 214 208 240 208 C262 208 276 224 276 242" fill="none" stroke="#fff" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h2 id="empty-title">Every profile is its own device</h2>
+      <p id="empty-text">A profile has its own cookies and its own identity: screen, graphics card, fonts, time zone, fingerprints. Make your first one.</p>
+      <button class="button primary" id="new-profile-empty">Create a profile</button>
+    </div>
   </section>
 
-  <section>
-    <h2>Device fingerprints</h2>
-    <p class="muted">Identities read from real devices. A profile made from one presents itself as that
-       model of device (its screen, graphics card, fonts and voices) with a noise seed of its own.</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Name</th><th>System</th><th>Device</th><th>Screen</th><th>Graphics</th><th></th></tr></thead>
-        <tbody id="fingerprints"></tbody>
-      </table>
-    </div>
-    <p id="no-fingerprints" class="muted" hidden>None yet.</p>
-    <div class="row">
-      <button type="button" id="collect-here">Read this computer's browser</button>
-      <button type="button" id="import-button">Import fingerprint file…</button>
+  <!-- Devices -->
+  <section class="view" id="view-devices" hidden>
+    <div class="head">
+      <h1>Devices</h1>
+      <span class="spacer"></span>
+      <button class="button" id="import-button">Import a reading…</button>
+      <button class="button primary" id="collect-here">Read this computer</button>
       <input id="import-file" type="file" accept=".json,application/json" multiple hidden>
+      <p class="sub">Identities read from real devices. A profile made from one presents itself as that model of device —
+        its screen, graphics card and its limits, fonts and voices — with a noise seed of its own.</p>
     </div>
-    <p class="muted">For another device, open the collector page on it (send it the file
-       <code>collect.html</code> from the manager's <code>ui</code> folder, or host that file on any
-       HTTPS site), then import the file it gives you here. Open it in Chrome, or in Safari on an iPhone.</p>
+    <div class="panel">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>System</th><th>Device</th><th>Screen</th><th>Graphics</th><th></th></tr></thead>
+          <tbody id="fingerprints"></tbody>
+        </table>
+      </div>
+      <p class="hint" id="no-fingerprints" hidden style="margin:6px 0 0">None yet. Read this computer, or import a reading taken on another device.</p>
+    </div>
+    <div class="panel">
+      <h2>Reading another device</h2>
+      <p class="hint" style="margin:0">Open the collector page on that device — send it the file <code>collect.html</code> from the manager's
+        <code>ui</code> folder, or host that file on any HTTPS site — in Chrome, or in Safari on an iPhone. Press “Read this device”,
+        download the result, and import it here.</p>
+    </div>
   </section>
 
-  <section>
-    <h2>Kernel</h2>
-    <form id="settings">
-      <div class="grid">
-        <label>Kernel executable (chrome / chrome.exe) <input name="kernelPath" placeholder="C:\Proteus\kernel\chrome.exe"></label>
-        <label>Kernel version <input name="kernelVersion" placeholder="158.0.8127.37"></label>
-        <label>Extra launch arguments (space separated) <input name="extraArgs" placeholder=""></label>
+  <!-- Settings -->
+  <section class="view" id="view-settings" hidden>
+    <div class="head"><h1>Settings</h1></div>
+    <form class="panel" id="settings">
+      <h2>Kernel</h2>
+      <p class="hint">The browser Proteus starts for each profile. A kernel shipped next to the manager is found by itself.</p>
+      <div class="fields">
+        <label style="grid-column: 1 / -1">Kernel program (chrome / chrome.exe)<input name="kernelPath" placeholder="C:\Proteus\kernel\chrome.exe"></label>
+        <label>Kernel version<input name="kernelVersion" placeholder="158.0.8127.37"></label>
+        <label>Extra launch arguments (space separated)<input name="extraArgs"></label>
       </div>
-      <div class="row"><button type="submit">Save</button></div>
+      <div class="row"><button class="button primary" type="submit">Save</button></div>
     </form>
+    <div class="panel">
+      <h2>Automation</h2>
+      <p class="hint" style="margin:0">Everything here can be done by a program. The API is at <code id="api-address"></code>
+        (routes are listed at <code>/api</code>), and AI assistants can connect to the MCP endpoint at <code id="mcp-address"></code>.
+        Each running profile also has a DevTools address for Puppeteer, Playwright or Selenium — see “Copy DevTools address” on a running profile.</p>
+    </div>
   </section>
 </main>
+
+<!-- New profile -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <header>
+    <h2>New profile</h2>
+    <p>A device identity is made for it: browser, screen, graphics card, noise seed.</p>
+    <svg viewBox="0 0 1440 26" preserveAspectRatio="none" aria-hidden="true"><path d="M0 14 q90 -18 180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 V26 H0 Z"/></svg>
+  </header>
+  <form id="create">
+    <fieldset>
+      <legend>Who</legend>
+      <label>Name<input name="name" required maxlength="200" placeholder="Shop account 1"></label>
+    </fieldset>
+    <fieldset>
+      <legend>Device</legend>
+      <div class="systems" id="systems"></div>
+      <label>Or take the identity of a device you have read
+        <select name="fingerprintId"><option value="">Generate one for the system chosen above</option></select>
+      </label>
+    </fieldset>
+    <fieldset>
+      <legend>Place</legend>
+      <div class="fields">
+        <label>Languages (comma separated)<input name="languages" placeholder="en-US, en"></label>
+        <label>Time zone<input name="timezone" placeholder="Europe/Berlin"></label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Network</legend>
+      <div class="fields">
+        <label>Proxy
+          <select name="proxyType"><option value="">None</option><option value="http">HTTP</option><option value="socks5">SOCKS5</option></select>
+        </label>
+        <label>Host<input name="proxyHost" placeholder="127.0.0.1"></label>
+        <label>Port<input name="proxyPort" type="number" min="1" max="65535" placeholder="8080"></label>
+        <label>User name<input name="proxyUser" autocomplete="off"></label>
+        <label>Password<input name="proxyPass" type="password" autocomplete="new-password"></label>
+      </div>
+      <label class="check"><input name="matchProxy" type="checkbox" checked>Match time zone, location and WebRTC address to where the proxy comes out</label>
+      <div class="fields">
+        <label>WebRTC
+          <select name="webrtc"><option value="proxyOnly">Protected (never reveal the real address)</option><option value="real">Unprotected (as an ordinary browser)</option></select>
+        </label>
+        <label>Address shown in WebRTC<input name="webrtcPublicIp" placeholder="203.0.113.7"></label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Start</legend>
+      <label>Start page<input name="startUrl" placeholder="https://example.com"></label>
+    </fieldset>
+  </form>
+  <footer>
+    <button class="button" id="drawer-cancel" type="button">Cancel</button>
+    <button class="button primary" type="submit" form="create">Create profile</button>
+  </footer>
+</aside>
 
 <dialog id="details">
   <h2 id="details-title"></h2>
   <pre id="details-body"></pre>
-  <div class="row"><button id="details-close">Close</button></div>
+  <div class="row"><button class="button" id="details-close">Close</button></div>
 </dialog>
+<div class="toasts" id="toasts" role="status"></div>
 
 <script>
+'use strict';
 const $ = (id) => document.getElementById(id);
 
-function say(text, ok = false) {
-  $('message').textContent = text;
-  $('message').className = ok ? 'ok' : '';
+// Drawn here once; never built from anything a user typed.
+const ICONS = {
+  windows: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.500l7.500-1v7H3zM11.500 4.300L21 3v8.500h-9.500zM3 12.500h7.500v7l-7.500-1zM11.500 12.500H21V21l-9.500-1.300z"/></svg>',
+  macos: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="11" rx="2"/><path d="M2 19.500h20"/></svg>',
+  linux: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9l3 2.500L7 14M12.500 14H16"/></svg>',
+  android: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.500" width="10" height="19" rx="2.500"/><path d="M11 18.500h2"/></svg>',
+  ios: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.500" width="10" height="19" rx="3"/><path d="M10.500 5.500h3"/></svg>',
+  host: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.500"/><path d="M12 8v4l2.500 2.500"/></svg>',
+};
+const SYSTEM_NAMES = { windows: 'Windows', macos: 'macOS', linux: 'Linux', android: 'Android phone', ios: 'iPhone' };
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function toast(text, bad = false) {
+  const node = el('div', 'toast' + (bad ? ' bad' : ''), text);
+  $('toasts').append(node);
+  setTimeout(() => node.remove(), bad ? 7000 : 3500);
 }
 
 async function api(method, path, body) {
@@ -180,134 +378,156 @@ async function api(method, path, body) {
   return data;
 }
 
-function cell(text, className) {
-  const td = document.createElement('td');
-  td.textContent = text;
-  if (className) td.className = className;
-  return td;
-}
-
-function button(label, onClick, className) {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.textContent = label;
-  if (className) b.className = className;
-  b.addEventListener('click', async () => {
-    b.disabled = true;
-    try { await onClick(); } catch (error) { say(error.message); } finally { b.disabled = false; }
+/** A button that runs `action`, stays disabled meanwhile and reports a failure. */
+function button(label, action, className = 'button small') {
+  const node = el('button', className, label);
+  node.type = 'button';
+  node.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    node.disabled = true;
+    try { await action(); } catch (error) { toast(error.message, true); } finally { node.disabled = false; }
   });
-  return b;
+  return node;
 }
 
-function showDetails(profile) {
-  $('details-title').textContent = profile.name;
-  $('details-body').textContent = JSON.stringify(profile, null, 2);
-  $('details').showModal();
+// --- Views -----------------------------------------------------------------------------
+function show(view) {
+  for (const name of ['profiles', 'devices', 'settings']) $('view-' + name).hidden = name !== view;
+  for (const item of document.querySelectorAll('.rail nav button')) item.classList.toggle('here', item.dataset.view === view);
+  if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
+}
+for (const item of document.querySelectorAll('.rail nav button')) item.addEventListener('click', () => show(item.dataset.view));
+
+// --- Profiles --------------------------------------------------------------------------
+let profiles = [];
+let openMenu = null;
+document.addEventListener('click', () => { if (openMenu) { openMenu.remove(); openMenu = null; } });
+
+function profileCard(p, index) {
+  const running = p.status.state === 'running';
+  const card = el('article', 'profile' + (running ? ' running' : ''));
+  card.style.setProperty('--delay', `${Math.min(index, 12) * 35}ms`);
+
+  const top = el('div', 'top');
+  const badge = el('div', 'badge');
+  badge.innerHTML = ICONS[p.os] || ICONS.host;
+  const names = el('div', 'names');
+  names.append(el('h3', '', p.name), el('div', 'system', SYSTEM_NAMES[p.os] || p.os));
+  top.append(badge, names, el('span', 'pill' + (running ? ' on' : ''), running ? 'Running' : 'Stopped'));
+
+  const facts = el('dl', 'facts');
+  const fact = (name, value) => { const dd = el('dd', '', value); dd.title = value; facts.append(el('dt', '', name), dd); };
+  fact('Screen', `${p.screen.width} × ${p.screen.height}`);
+  fact('Graphics', (p.webgl.renderer || 'this computer’s').replace(/^ANGLE \((.*)\)$/, '$1'));
+  fact('Time zone', p.timezone || 'this computer’s');
+  fact('Proxy', p.proxy ? `${p.proxy.type}://${p.proxy.host}:${p.proxy.port}` : 'none');
+
+  const actions = el('div', 'actions');
+  if (running) {
+    actions.append(button('Stop', async () => {
+      await api('POST', `/api/profiles/${p.id}/stop`);
+      toast(`Stopped “${p.name}”.`);
+      await loadProfiles();
+    }));
+  } else {
+    actions.append(button('Start', async () => {
+      await api('POST', `/api/profiles/${p.id}/start`);
+      toast(`“${p.name}” is running.`);
+      await loadProfiles();
+    }, 'button small primary'));
+  }
+  const more = el('div', 'more');
+  const toggle = el('button', 'button small', '•••');
+  toggle.type = 'button';
+  toggle.setAttribute('aria-label', 'More');
+  toggle.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (openMenu) { const same = openMenu.parentElement === more; openMenu.remove(); openMenu = null; if (same) return; }
+    const menu = el('div', 'menu');
+    const item = (label, action, className, disabled) => {
+      const node = button(label, async () => { menu.remove(); openMenu = null; await action(); }, className || '');
+      node.disabled = Boolean(disabled);
+      menu.append(node);
+    };
+    item('Details', async () => {
+      $('details-title').textContent = p.name;
+      $('details-body').textContent = JSON.stringify(await api('GET', `/api/profiles/${p.id}`), null, 2);
+      $('details').showModal();
+    });
+    item('Copy DevTools address', async () => {
+      await navigator.clipboard.writeText(p.status.debuggerUrl);
+      toast('Copied ' + p.status.debuggerUrl);
+    }, '', !running || !p.status.debuggerUrl);
+    item('New identity', async () => {
+      if (!confirm(`Give “${p.name}” a new device identity? Sites will see it as a different device.`)) return;
+      await api('POST', `/api/profiles/${p.id}/regenerate`);
+      toast(`“${p.name}” has a new identity.`);
+      await loadProfiles();
+    }, '', running);
+    item('Delete', async () => {
+      if (!confirm(`Delete “${p.name}” and all of its browser data? This cannot be undone.`)) return;
+      await api('DELETE', `/api/profiles/${p.id}`);
+      toast(`Deleted “${p.name}”.`);
+      await loadProfiles();
+    }, 'danger', running);
+    more.append(menu);
+    openMenu = menu;
+  });
+  more.append(toggle);
+  actions.append(more);
+
+  card.append(top, facts, actions);
+  return card;
 }
 
+function renderProfiles() {
+  const wanted = $('filter').value.trim().toLowerCase();
+  const shown = profiles.filter((p) => !wanted || `${p.name} ${p.os} ${p.timezone}`.toLowerCase().includes(wanted));
+  $('profiles').replaceChildren(...shown.map(profileCard));
+  $('no-profiles').hidden = shown.length > 0;
+  $('empty-title').textContent = profiles.length ? 'Nothing matches' : 'Every profile is its own device';
+  $('empty-text').textContent = profiles.length ? 'No profile has that in its name, system or time zone.'
+      : 'A profile has its own cookies and its own identity: screen, graphics card, fonts, time zone, fingerprints. Make your first one.';
+  $('new-profile-empty').hidden = profiles.length > 0;
+  const running = profiles.filter((p) => p.status.state === 'running').length;
+  $('count-profiles').textContent = running ? `${running}/${profiles.length}` : String(profiles.length);
+}
+
+let lastSnapshot = '';
 async function loadProfiles() {
-  const profiles = await api('GET', '/api/profiles');
-  const body = $('profiles');
-  body.replaceChildren();
-  $('empty').hidden = profiles.length > 0;
-  for (const p of profiles) {
-    const running = p.status.state === 'running';
-    const row = document.createElement('tr');
-    row.append(
-      cell(p.name),
-      cell(p.os),
-      cell(`${p.screen.width}×${p.screen.height}`),
-      cell(p.timezone || 'this computer', p.timezone ? '' : 'muted'),
-      cell(p.proxy ? `${p.proxy.type}://${p.proxy.host}:${p.proxy.port}` : 'none', p.proxy ? '' : 'muted'),
-      cell(running ? 'Running' : 'Stopped', 'state' + (running ? ' running' : '')),
-    );
-    const actions = document.createElement('td');
-    actions.className = 'actions';
-    if (running) {
-      actions.append(button('Stop', async () => {
-        await api('POST', `/api/profiles/${p.id}/stop`);
-        say(`Stopped "${p.name}".`, true);
-        await loadProfiles();
-      }));
-    } else {
-      actions.append(button('Start', async () => {
-        await api('POST', `/api/profiles/${p.id}/start`);
-        say(`Started "${p.name}".`, true);
-        await loadProfiles();
-      }, 'primary'));
-    }
-    actions.append(button('Details', async () => showDetails(await api('GET', `/api/profiles/${p.id}`))));
-    if (!running) {
-      actions.append(button('New identity', async () => {
-        if (!confirm(`Give "${p.name}" a new device identity? Sites will see it as a different device.`)) return;
-        await api('POST', `/api/profiles/${p.id}/regenerate`);
-        say(`"${p.name}" has a new identity.`, true);
-        await loadProfiles();
-      }));
-      actions.append(button('Delete', async () => {
-        if (!confirm(`Delete "${p.name}" and all of its browser data? This cannot be undone.`)) return;
-        await api('DELETE', `/api/profiles/${p.id}`);
-        say(`Deleted "${p.name}".`, true);
-        await loadProfiles();
-      }, 'danger'));
-    }
-    row.append(actions);
-    body.append(row);
-  }
+  const next = await api('GET', '/api/profiles');
+  // Redrawing only on a change keeps an open menu, and the entrance animation, as they are.
+  const snapshot = JSON.stringify(next);
+  if (snapshot === lastSnapshot) return;
+  lastSnapshot = snapshot;
+  profiles = next;
+  openMenu = null;
+  renderProfiles();
 }
+$('filter').addEventListener('input', renderProfiles);
 
-async function loadFingerprints() {
-  const fingerprints = await api('GET', '/api/fingerprints');
-  const body = $('fingerprints');
-  body.replaceChildren();
-  $('no-fingerprints').hidden = fingerprints.length > 0;
-  const select = $('create').fingerprintId;
-  const chosen = select.value;
-  select.replaceChildren(select.options[0]);
-  for (const f of fingerprints) {
-    const name = f.label || f.device;
-    const row = document.createElement('tr');
-    row.append(cell(name), cell(f.os), cell(f.device), cell(f.screen), cell(f.gpu || '—', f.gpu ? '' : 'muted'));
-    const actions = document.createElement('td');
-    actions.className = 'actions';
-    actions.append(button('Delete', async () => {
-      if (!confirm(`Remove the fingerprint "${name}"? Profiles already made from it stay as they are.`)) return;
-      await api('DELETE', `/api/fingerprints/${f.id}`);
-      await loadFingerprints();
-    }, 'danger'));
-    row.append(actions);
-    body.append(row);
-    const option = document.createElement('option');
-    option.value = f.id;
-    option.textContent = `${name} (${f.os}, ${f.screen})`;
-    select.append(option);
-  }
-  select.value = [...select.options].some((o) => o.value === chosen) ? chosen : '';
+// --- New profile -----------------------------------------------------------------------
+function drawer(open) {
+  $('drawer').classList.toggle('open', open);
+  $('scrim').classList.toggle('open', open);
+  $('drawer').setAttribute('aria-hidden', String(!open));
+  if (open) $('create').name.focus();
 }
+$('new-profile').addEventListener('click', () => drawer(true));
+$('new-profile-empty').addEventListener('click', () => drawer(true));
+$('drawer-cancel').addEventListener('click', () => drawer(false));
+$('scrim').addEventListener('click', () => drawer(false));
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape') drawer(false); });
 
-$('collect-here').addEventListener('click', () => window.open('/collect', '_blank'));
-$('import-button').addEventListener('click', () => $('import-file').click());
-$('import-file').addEventListener('change', async (event) => {
-  let added = 0;
-  for (const file of event.target.files) {
-    try {
-      await api('POST', '/api/fingerprints', JSON.parse(await file.text()));
-      added++;
-    } catch (error) {
-      say(`${file.name}: ${error.message}`);
-    }
-  }
-  event.target.value = '';
-  if (added > 0) say(`Imported ${added} fingerprint${added === 1 ? '' : 's'}.`, true);
-  await loadFingerprints();
-});
-
-async function loadSettings() {
-  const settings = await api('GET', '/api/settings');
-  const form = $('settings');
-  form.kernelPath.value = settings.kernelPath;
-  form.kernelVersion.value = settings.kernelVersion;
-  form.extraArgs.value = settings.extraArgs.join(' ');
+for (const [value, label] of [['', 'This computer’s'], ['windows', 'Windows'], ['macos', 'macOS'], ['linux', 'Linux'], ['android', 'Android'], ['ios', 'iPhone']]) {
+  const wrap = el('label');
+  const input = el('input');
+  input.type = 'radio'; input.name = 'os'; input.value = value; input.checked = value === '';
+  const face = el('span');
+  face.innerHTML = ICONS[value || 'host'];
+  face.append(label);
+  wrap.append(input, face);
+  $('systems').append(wrap);
 }
 
 $('create').addEventListener('submit', async (event) => {
@@ -315,7 +535,7 @@ $('create').addEventListener('submit', async (event) => {
   const f = event.target;
   const input = { name: f.name.value.trim(), webrtc: f.webrtc.value };
   if (f.webrtcPublicIp.value.trim()) input.webrtcPublicIp = f.webrtcPublicIp.value.trim();
-  // A device fingerprint brings its own system; the system choice is then ignored.
+  // A device that was read brings its own system; the system choice is then ignored.
   if (f.fingerprintId.value) input.fingerprintId = f.fingerprintId.value;
   else if (f.os.value) input.os = f.os.value;
   const languages = f.languages.value.split(',').map((s) => s.trim()).filter(Boolean);
@@ -332,14 +552,70 @@ $('create').addEventListener('submit', async (event) => {
   }
   try {
     const profile = await api('POST', '/api/profiles', input);
-    say(`Created "${profile.name}".`, true);
+    toast(`Created “${profile.name}”.`);
     f.reset();
+    drawer(false);
     await loadProfiles();
   } catch (error) {
-    say(error.message);
+    toast(error.message, true);
   }
 });
 
+// --- Devices ---------------------------------------------------------------------------
+async function loadFingerprints() {
+  const fingerprints = await api('GET', '/api/fingerprints');
+  $('count-devices').textContent = String(fingerprints.length);
+  $('no-fingerprints').hidden = fingerprints.length > 0;
+  const select = $('create').fingerprintId;
+  const chosen = select.value;
+  select.replaceChildren(select.options[0]);
+  $('fingerprints').replaceChildren(...fingerprints.map((f) => {
+    const name = f.label || f.device;
+    const row = el('tr');
+    const graphics = el('td', 'wide', f.gpu || '—');
+    graphics.title = f.gpu || '';
+    const actions = el('td');
+    actions.append(button('Remove', async () => {
+      if (!confirm(`Remove “${name}”? Profiles already made from it stay as they are.`)) return;
+      await api('DELETE', `/api/fingerprints/${f.id}`);
+      await loadFingerprints();
+    }, 'button small danger'));
+    row.append(el('td', '', name), el('td', '', SYSTEM_NAMES[f.os] || f.os), el('td', '', f.device), el('td', '', f.screen), graphics, actions);
+    const option = el('option', '', `${name} — ${SYSTEM_NAMES[f.os] || f.os}, ${f.screen}`);
+    option.value = f.id;
+    select.append(option);
+    return row;
+  }));
+  select.value = [...select.options].some((o) => o.value === chosen) ? chosen : '';
+}
+$('collect-here').addEventListener('click', () => window.open('/collect', '_blank'));
+$('import-button').addEventListener('click', () => $('import-file').click());
+$('import-file').addEventListener('change', async (event) => {
+  let added = 0;
+  for (const file of event.target.files) {
+    try {
+      await api('POST', '/api/fingerprints', JSON.parse(await file.text()));
+      added++;
+    } catch (error) {
+      toast(`${file.name}: ${error.message}`, true);
+    }
+  }
+  event.target.value = '';
+  if (added > 0) toast(`Imported ${added} device${added === 1 ? '' : 's'}.`);
+  await loadFingerprints();
+});
+
+// --- Settings --------------------------------------------------------------------------
+async function loadSettings() {
+  const settings = await api('GET', '/api/settings');
+  const form = $('settings');
+  form.kernelPath.value = settings.kernelPath;
+  form.kernelVersion.value = settings.kernelVersion;
+  form.extraArgs.value = settings.extraArgs.join(' ');
+  const state = $('kernel-state');
+  state.textContent = settings.kernelPath ? `version ${settings.kernelVersion}` : 'not set — see Settings';
+  state.classList.toggle('warn', !settings.kernelPath);
+}
 $('settings').addEventListener('submit', async (event) => {
   event.preventDefault();
   const f = event.target;
@@ -349,18 +625,21 @@ $('settings').addEventListener('submit', async (event) => {
       kernelVersion: f.kernelVersion.value.trim(),
       extraArgs: f.extraArgs.value.split(' ').map((s) => s.trim()).filter(Boolean),
     });
-    say('Kernel settings saved.', true);
+    toast('Settings saved.');
+    await loadSettings();
   } catch (error) {
-    say(error.message);
+    toast(error.message, true);
   }
 });
+$('api-address').textContent = location.origin + '/api';
+$('mcp-address').textContent = location.origin + '/mcp';
 
-$('refresh').addEventListener('click', () => loadProfiles().catch((error) => say(error.message)));
 $('details-close').addEventListener('click', () => $('details').close());
 
-Promise.all([loadProfiles(), loadSettings(), loadFingerprints()]).catch((error) => say(error.message));
-setInterval(() => loadProfiles().catch(() => {}), 5000);
-// A fingerprint saved from the collector page in another tab shows up on return.
+show(['profiles', 'devices', 'settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'profiles');
+Promise.all([loadProfiles(), loadSettings(), loadFingerprints()]).catch((error) => toast(error.message, true));
+setInterval(() => loadProfiles().catch(() => {}), 4000);
+// A device saved from the collector page in another tab shows up on return.
 window.addEventListener('focus', () => loadFingerprints().catch(() => {}));
 </script>
 </body>

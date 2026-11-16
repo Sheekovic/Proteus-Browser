@@ -11,15 +11,30 @@
 //   GET    /api/fingerprints/:id         DELETE /api/fingerprints/:id
 //   GET    /collect                      the page that reads a device's fingerprint
 //   GET    /                             the web UI
+//
+// Driving a running profile's browser (browserControl.ts):
+//   GET    /api/profiles/:id/tabs                      POST /api/profiles/:id/tabs  {url}
+//   DELETE /api/profiles/:id/tabs/:tab
+//   POST   /api/profiles/:id/tabs/:tab/navigate  {url}
+//   POST   /api/profiles/:id/tabs/:tab/evaluate  {expression}
+//   GET    /api/profiles/:id/tabs/:tab/text
+//   GET    /api/profiles/:id/tabs/:tab/screenshot      a PNG; ?full=1 for the whole page
+//   GET    /api/profiles/:id/cookies                   PUT /api/profiles/:id/cookies  [cookie, ...]
+//
+//   GET    /api                          this list, as JSON
+//   POST   /mcp                          the same abilities as Model Context Protocol tools (mcp.ts)
 
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 
+import * as browser from './browserControl.ts';
 import { describeCollected } from './collected.ts';
 import { generateIdentity } from './fingerprint.ts';
 import { LaunchError, type Launcher } from './launcher.ts';
-import { type ProfileInput, ValidationError } from './profile.ts';
+import { handleMcp } from './mcp.ts';
+import { ValidationError } from './profile.ts';
+import { toProfileInput } from './profileInput.ts';
 import { NotFoundError, type Store, type StoredFingerprint } from './store.ts';
 
 class HttpError extends Error {
@@ -30,24 +45,21 @@ class HttpError extends Error {
   }
 }
 
-const MAX_BODY_BYTES = 256 * 1024;
+/** Large enough for a profile's cookies or a long script. */
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
-const PROFILE_INPUT_KEYS = [
-  'name', 'notes', 'seed', 'os', 'userAgent', 'platform', 'uaData', 'hardwareConcurrency',
-  'deviceMemory', 'screen', 'mobile', 'languages', 'timezone', 'webgl', 'webglCaps', 'webgpu', 'noise', 'voices', 'fonts', 'webrtc', 'webrtcPublicIp', 'geolocation', 'proxy', 'matchProxy', 'startUrl',
-] as const;
-
-/** Keeps only the fields a client may set, so unknown keys never reach a stored profile. */
-function toProfileInput(body: unknown): ProfileInput {
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    throw new ValidationError('the request body must be a JSON object');
-  }
-  const input: Record<string, unknown> = {};
-  for (const key of PROFILE_INPUT_KEYS) {
-    if (key in body) input[key] = (body as Record<string, unknown>)[key];
-  }
-  return input as ProfileInput;
-}
+/** What the API offers, for GET /api. */
+const ROUTES = [
+  'GET /api/health', 'GET /api/settings', 'PUT /api/settings',
+  'GET /api/profiles', 'POST /api/profiles', 'GET /api/profiles/:id', 'PATCH /api/profiles/:id', 'DELETE /api/profiles/:id',
+  'GET /api/profiles/:id/status', 'POST /api/profiles/:id/start', 'POST /api/profiles/:id/stop', 'POST /api/profiles/:id/regenerate',
+  'GET /api/profiles/:id/tabs', 'POST /api/profiles/:id/tabs', 'DELETE /api/profiles/:id/tabs/:tab',
+  'POST /api/profiles/:id/tabs/:tab/navigate', 'POST /api/profiles/:id/tabs/:tab/evaluate',
+  'GET /api/profiles/:id/tabs/:tab/text', 'GET /api/profiles/:id/tabs/:tab/screenshot',
+  'GET /api/profiles/:id/cookies', 'PUT /api/profiles/:id/cookies',
+  'GET /api/fingerprints', 'POST /api/fingerprints', 'GET /api/fingerprints/:id', 'DELETE /api/fingerprints/:id',
+  'POST /mcp',
+];
 
 /** A stored fingerprint as lists show it: what device it is, not every value read. */
 function fingerprintSummary(stored: StoredFingerprint) {
@@ -134,6 +146,18 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
       response.end(html);
       return;
     }
+    if (method === 'GET' && path === '/api') {
+      return sendJson(response, 200, { name: 'proteus-manager', routes: ROUTES, mcp: '/mcp' });
+    }
+    if (path === '/mcp') {
+      if (method !== 'POST') throw new HttpError(405, 'the MCP endpoint takes POST requests');
+      const reply = await handleMcp(await readJsonBody(request), { store, launcher });
+      if (reply === undefined) {
+        response.writeHead(202).end();
+        return;
+      }
+      return sendJson(response, 200, reply);
+    }
     if (method === 'GET' && path === '/api/health') {
       return sendJson(response, 200, { ok: true, name: 'proteus-manager' });
     }
@@ -187,6 +211,44 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
       throw new HttpError(405, `${method} is not supported on ${path}`);
     }
 
+    // A running profile's browser.
+    const control = /^\/api\/profiles\/([^/]+)\/(tabs|cookies)(?:\/([^/]+)(?:\/(navigate|evaluate|text|screenshot))?)?$/.exec(path);
+    if (control) {
+      const [, id, what, tab, action] = control;
+      await store.getProfile(id);
+      const status = launcher.status(id);
+      if (status.state !== 'running' || !status.debuggerUrl) throw new HttpError(409, 'start the profile first');
+      const address = status.debuggerUrl;
+      const field = async (name: string) => ((await readJsonBody(request)) as Record<string, unknown> | null)?.[name];
+      if (what === 'cookies' && tab === undefined) {
+        if (method === 'GET') return sendJson(response, 200, await browser.getCookies(address));
+        if (method === 'PUT') return sendJson(response, 200, { added: await browser.setCookies(address, await readJsonBody(request)) });
+      } else if (what === 'tabs' && tab === undefined) {
+        if (method === 'GET') return sendJson(response, 200, await browser.listTabs(address));
+        if (method === 'POST') return sendJson(response, 201, await browser.openTab(address, (await field('url')) ?? 'about:blank'));
+      } else if (what === 'tabs' && tab !== undefined && action === undefined) {
+        if (method === 'DELETE') {
+          await browser.closeTab(address, tab);
+          response.writeHead(204).end();
+          return;
+        }
+      } else if (what === 'tabs' && tab !== undefined) {
+        if (action === 'navigate' && method === 'POST') return sendJson(response, 200, await browser.navigate(address, tab, await field('url')));
+        if (action === 'evaluate' && method === 'POST') {
+          return sendJson(response, 200, { value: (await browser.evaluate(address, tab, await field('expression'))) ?? null });
+        }
+        if (action === 'text' && method === 'GET') return sendJson(response, 200, await browser.pageText(address, tab));
+        if (action === 'screenshot' && method === 'GET') {
+          const full = new URL(request.url ?? '/', 'http://localhost').searchParams.get('full') === '1';
+          const png = await browser.screenshot(address, tab, full);
+          response.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length, 'Cache-Control': 'no-store' });
+          response.end(png);
+          return;
+        }
+      }
+      throw new HttpError(405, `${method} is not supported on ${path}`);
+    }
+
     const match = /^\/api\/profiles\/([^/]+)(?:\/(status|start|stop|regenerate))?$/.exec(path);
     if (match) {
       const [, id, action] = match;
@@ -230,6 +292,7 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
       else if (error instanceof ValidationError) status = 400;
       else if (error instanceof NotFoundError) status = 404;
       else if (error instanceof LaunchError) status = 502;
+      else if (error instanceof browser.BrowserError) status = 422;
       const message = error instanceof Error ? error.message : String(error);
       if (status === 500) console.error(error);
       if (response.headersSent) response.end();

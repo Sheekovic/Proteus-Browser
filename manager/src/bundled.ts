@@ -19,6 +19,20 @@ export function findKernel(managerDir: string, env: NodeJS.ProcessEnv = process.
   return candidates.find((path): path is string => typeof path === 'string' && path !== '' && existsSync(path));
 }
 
+/**
+ * Arguments that make the kernel show `url` as an application window of its own: no
+ * tabs or address bar, the Proteus icon in the taskbar. It runs as an unmodified
+ * browser (no profile), with data of its own under `dataDir`, and is told to fetch
+ * nothing by itself.
+ */
+export function appWindowArguments(url: string, dataDir: string): string[] {
+  return [
+    `--app=${url}`, `--user-data-dir=${join(dataDir, 'manager-window')}`, '--window-size=1180,800',
+    '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-component-update',
+    '--disable-sync', '--disable-default-apps', '--no-pings',
+  ];
+}
+
 /** The command that opens `url` in the user's own browser, as [program, ...arguments]. */
 export function openCommand(url: string, platform: NodeJS.Platform = process.platform): string[] {
   if (platform === 'win32') return ['cmd', '/c', 'start', '', url];

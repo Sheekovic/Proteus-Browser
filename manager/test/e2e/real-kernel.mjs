@@ -206,6 +206,26 @@ try {
 
   check('the start page loads in the first tab', await firstTabLoaded(status.debuggerUrl), true);
 
+  // Driving the browser through the manager's own API and its MCP endpoint.
+  const tab = await api('POST', `/api/profiles/${profile.id}/tabs`, { url: `${pagesUrl}/canvas.html` });
+  await delay(1500);
+  const seen = await api('GET', `/api/profiles/${profile.id}/tabs/${tab.id}/text`);
+  check('API: a tab opened through the API shows the page', seen.text.startsWith('RESULT'), true);
+  const answer = await api('POST', `/api/profiles/${profile.id}/tabs/${tab.id}/evaluate`, { expression: 'navigator.userAgent' });
+  check('API: a script runs in the page and sees the profile', answer.value, profile.userAgent);
+  const picture = await fetch(`${base}/api/profiles/${profile.id}/tabs/${tab.id}/screenshot`);
+  const pictureBytes = new Uint8Array(await picture.arrayBuffer());
+  check('API: a screenshot is a PNG', picture.headers.get('content-type') === 'image/png' && pictureBytes.length > 1000 &&
+        String.fromCharCode(...pictureBytes.slice(1, 4)) === 'PNG', true);
+  await api('PUT', `/api/profiles/${profile.id}/cookies`,
+            [{ name: 'e2e', value: 'kept', domain: '127.0.0.1', path: '/' }]);
+  const cookies = await api('GET', `/api/profiles/${profile.id}/cookies`);
+  check('API: a cookie that was set is there', cookies.some((c) => c.name === 'e2e' && c.value === 'kept'), true);
+  const viaMcp = await api('POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/call',
+                                             params: { name: 'page_text', arguments: { id: profile.id, tabId: tab.id } } });
+  check('MCP: page_text reads the same tab', JSON.parse(viaMcp.result.content[0].text).text.startsWith('RESULT'), true);
+  await fetch(`${base}/api/profiles/${profile.id}/tabs/${tab.id}`, { method: 'DELETE' });
+
   const identity = await readPage(status.debuggerUrl, `${pagesUrl}/identity.html`);
   check('navigator.userAgent', identity.ua, profile.userAgent);
   check('navigator.platform', identity.platform, profile.platform);

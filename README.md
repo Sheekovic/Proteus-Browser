@@ -85,9 +85,15 @@ Without a profile the kernel behaves like the Chromium it is built from.
 - Identity generators for Windows, macOS, Linux, Android and iPhone.
 - Proxies per profile (HTTP and SOCKS5, with or without a login).
 - Optional matching of time zone, WebRTC address and location to the proxy's exit.
-- A local web UI and a JSON API, bound to `127.0.0.1` only.
-- Every started profile exposes a DevTools endpoint, so Puppeteer, Playwright or
-  Selenium can drive it.
+- A light interface in a window of its own, drawn by the kernel itself, so nothing
+  heavier than a web page is running.
+- Everything it does can be done by a program: a JSON API, and the same abilities as
+  [Model Context Protocol](https://modelcontextprotocol.io) tools for AI assistants.
+  Both are bound to `127.0.0.1` only.
+- Driving the browser, not only starting it: open tabs, go to a page, read its text,
+  run a script in it, take a picture of it, read and set cookies.
+- Every started profile also exposes a DevTools endpoint, so Puppeteer, Playwright or
+  Selenium can drive it directly.
 - No dependencies: Node's standard library only.
 
 ## How it works
@@ -113,15 +119,19 @@ kernel (see [Building the kernel](#building-the-kernel)).
 
 ```bash
 cd manager
-node src/main.ts
+PROTEUS_KERNEL=/path/to/chrome node src/main.ts --open
 ```
 
-Then open <http://127.0.0.1:5310>, and under **Kernel** enter the path to the built
-`chrome` / `chrome.exe`. Create a profile and press **Start**.
+The Proteus window opens. Create a profile and press **Start**.
 
-Use `--port <n>` or `PROTEUS_PORT` for another port, and `PROTEUS_HOME` for another
-data directory (the default is `%APPDATA%\Proteus` on Windows and `~/.proteus`
-elsewhere).
+- `--open` shows the manager in a window of its own; closing it ends Proteus, unless
+  profiles are still running. `--open-browser` uses your usual browser instead, and
+  without either the manager only serves <http://127.0.0.1:5310>.
+- `PROTEUS_KERNEL` names the kernel the first time; after that it is remembered (and
+  can be changed under **Settings**). A kernel in a `kernel` folder next to `manager`
+  is found by itself.
+- `--port <n>` or `PROTEUS_PORT` choose another port, and `PROTEUS_HOME` another data
+  directory (the default is `%APPDATA%\Proteus` on Windows and `~/.proteus` elsewhere).
 
 ### API
 
@@ -134,11 +144,48 @@ curl -X POST http://127.0.0.1:5310/api/profiles \
 # Start it; the reply carries a DevTools endpoint ("debuggerUrl")
 curl -X POST http://127.0.0.1:5310/api/profiles/<id>/start \
      -H 'Content-Type: application/json' -d '{}'
+
+# Open a page in it, read what it shows, take a picture
+curl -X POST http://127.0.0.1:5310/api/profiles/<id>/tabs \
+     -H 'Content-Type: application/json' -d '{"url": "https://example.com/"}'
+curl http://127.0.0.1:5310/api/profiles/<id>/tabs/<tab>/text
+curl -o page.png http://127.0.0.1:5310/api/profiles/<id>/tabs/<tab>/screenshot
+
+# Run a script in the page
+curl -X POST http://127.0.0.1:5310/api/profiles/<id>/tabs/<tab>/evaluate \
+     -H 'Content-Type: application/json' -d '{"expression": "document.title"}'
+
+# Move a session in: set cookies exported from another browser
+curl -X PUT http://127.0.0.1:5310/api/profiles/<id>/cookies \
+     -H 'Content-Type: application/json' \
+     -d '[{"name": "sid", "value": "…", "domain": ".example.com", "path": "/", "secure": true}]'
 ```
 
-The full list of routes is at the top of [`manager/src/server.ts`](manager/src/server.ts).
-The API has no login. It answers only requests addressed to localhost and refuses
-requests from other websites' pages.
+`GET /api` lists every route; they are described at the top of
+[`manager/src/server.ts`](manager/src/server.ts).
+
+### MCP (for AI assistants)
+
+The manager is also a [Model Context Protocol](https://modelcontextprotocol.io)
+server, so an assistant can create profiles, start them and work in them. It offers
+21 tools: profiles (`list_profiles`, `create_profile`, `update_profile`,
+`delete_profile`, `start_profile`, `stop_profile`, `new_identity`), devices and
+settings, and the browser itself (`list_tabs`, `open_tab`, `navigate`, `page_text`,
+`evaluate`, `screenshot`, `close_tab`, `get_cookies`, `set_cookies`).
+
+- Assistants that connect over HTTP use `http://127.0.0.1:5310/mcp` while the manager
+  runs.
+- Assistants that start a program and talk to it use the bridge, which forwards to
+  the running manager:
+
+  ```json
+  { "mcpServers": { "proteus": { "command": "node", "args": ["/path/to/manager/src/mcp-stdio.ts"] } } }
+  ```
+
+The API and the MCP endpoint have no login. They answer only requests addressed to
+localhost and refuse requests from other websites' pages. Whoever can reach them can
+run scripts in your profiles' pages and read their cookies, which is the point of
+them — so do not put the manager's port behind a proxy that others can reach.
 
 ## Device fingerprints from real devices
 

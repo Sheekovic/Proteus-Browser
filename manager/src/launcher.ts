@@ -94,6 +94,11 @@ export class Launcher {
     return this.running.has(id);
   }
 
+  /** How many profiles are running now. */
+  runningCount(): number {
+    return this.running.size;
+  }
+
   async start(stored: Profile): Promise<ProfileStatus> {
     if (this.running.has(stored.id)) return this.status(stored.id);
 

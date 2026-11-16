@@ -1,15 +1,17 @@
-// Entry point: `node src/main.ts [--port 5310] [--open]`
-//   --open   also opens the web UI in the user's own browser
+// Entry point: `node src/main.ts [--port 5310] [--open | --open-browser]`
+//   --open           also shows the manager in a window of its own
+//   --open-browser   also opens the manager in the user's usual browser
 
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { findKernel, openCommand } from './bundled.ts';
+import { appWindowArguments, findKernel, openCommand } from './bundled.ts';
 import { Launcher } from './launcher.ts';
 import { createApiServer } from './server.ts';
 import { Store } from './store.ts';
+import { allowSandboxToReadKernel } from './winSandbox.ts';
 
 const DEFAULT_PORT = 5310;
 
@@ -48,12 +50,36 @@ server.listen(parsePort(argv), '127.0.0.1', () => {
   const url = `http://127.0.0.1:${port}`;
   console.log(`Proteus manager listening on ${url}`);
   console.log(`Data directory: ${store.dataDir}`);
-  if (argv.includes('--open')) {
-    const [program, ...args] = openCommand(url);
-    // Best effort: without a desktop there is nothing to open, and the address is printed above.
-    spawn(program, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
-  }
+  if (argv.includes('--open')) void openWindow(url);
+  else if (argv.includes('--open-browser')) openInBrowser(url);
 });
+
+function openInBrowser(url: string): void {
+  const [program, ...args] = openCommand(url);
+  // Best effort: without a desktop there is nothing to open, and the address is printed above.
+  spawn(program, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+}
+
+/**
+ * Shows the manager in a window of its own, drawn by the kernel, so that Proteus
+ * looks and behaves like an application. Falls back to the user's browser when there
+ * is no kernel yet.
+ */
+async function openWindow(url: string): Promise<void> {
+  const { kernelPath } = await store.getSettings();
+  if (kernelPath === '' || !existsSync(kernelPath)) return openInBrowser(url);
+  await allowSandboxToReadKernel(kernelPath);
+  const child = spawn(kernelPath, appWindowArguments(url, store.dataDir), { stdio: 'ignore' });
+  child.once('error', () => openInBrowser(url));
+  // Closing the window ends Proteus, unless profiles are still running: those are
+  // the user's work, and stay until this program itself is stopped.
+  child.once('exit', () => {
+    if (shuttingDown) return;
+    const running = launcher.runningCount();
+    if (running === 0) void shutdown();
+    else console.log(`The Proteus window was closed; ${running} profile(s) keep running. Press Ctrl+C here to stop them.`);
+  });
+}
 
 let shuttingDown = false;
 async function shutdown(): Promise<void> {

@@ -1,6 +1,6 @@
 #!/bin/sh
-# Starts the Proteus manager and opens it in your browser.
-# Keep this terminal open while you use Proteus; Ctrl+C stops the running profiles.
+# Starts Proteus and shows its window.
+# This terminal stays busy while Proteus runs; Ctrl+C stops the running profiles.
 here=$(cd "$(dirname "$0")" && pwd)
 if ! "$here/linux-sandbox.sh" --check; then
   echo "Before profiles can start, this system needs one change so that the browser"

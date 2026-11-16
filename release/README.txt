@@ -10,11 +10,15 @@ START
   Windows   double-click "Start Proteus.cmd"
   Linux     ./start-proteus.sh
 
-A page opens in your usual browser at http://127.0.0.1:5310. Create a profile
-there and press Start: a Proteus window opens for that profile.
+The Proteus window opens. Create a profile there and press Start: a browser
+window opens for that profile.
 
-Keep the Proteus window (the black one on Windows, the terminal on Linux) open
-while you work. Closing it stops the running profiles.
+Closing the Proteus window ends Proteus. If profiles are still running they are
+kept, and end when you close the small console window (Windows) or press Ctrl+C
+in the terminal (Linux).
+
+For programs and AI assistants: the same things can be done through the API at
+http://127.0.0.1:5310/api and the MCP endpoint at http://127.0.0.1:5310/mcp.
 
 
 WHAT IS IN THIS FOLDER
