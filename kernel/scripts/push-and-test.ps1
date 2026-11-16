@@ -4,7 +4,10 @@
 # usage: push-and-test.ps1 <test-name> [jobs]
 param([Parameter(Mandatory)][string]$Name, [int]$Jobs = 4)
 $ErrorActionPreference = 'Stop'
-$h = 'user@build-host'
+# The build server, as user@host, from the environment: it is not something to keep
+# in a repository.
+$h = $env:PROTEUS_BUILD_HOST
+if (-not $h) { throw 'Set PROTEUS_BUILD_HOST to the build server (user@host).' }
 $kernel = (Resolve-Path "$PSScriptRoot\..").Path
 $ssh = '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20'
 

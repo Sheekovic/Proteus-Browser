@@ -2,7 +2,10 @@
 # end-to-end run there. Returns immediately; the run writes /opt/proteus/e2e.log and,
 # when finished, /opt/proteus/e2e.done.
 $ErrorActionPreference = 'Stop'
-$h = 'user@build-host'
+# The build server, as user@host, from the environment: it is not something to keep
+# in a repository.
+$h = $env:PROTEUS_BUILD_HOST
+if (-not $h) { throw 'Set PROTEUS_BUILD_HOST to the build server (user@host).' }
 $repo = (Resolve-Path "$PSScriptRoot\..\..\..").Path
 $ssh = '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20'
 
