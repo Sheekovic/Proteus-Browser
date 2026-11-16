@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proteus — a browser for keeping identities separate</title>
+<meta name="description" content="Proteus is an open-source browser, built on Chromium, in which every profile is its own device: its own screen, graphics card, fonts, time zone and fingerprints.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M9 20c3-9 11-9 14 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="16" cy="12" r="2.6" fill="currentColor"/></svg>
+      Proteus
+    </a>
+    <nav>
+      <a href="#capabilities">Capabilities</a>
+      <a href="test.html">Test your browser</a>
+      <a href="https://github.com/Sheekovic/Proteus-Browser">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero wrap">
+    <h1>Every profile is its own device.</h1>
+    <p>Proteus is an open-source browser built on Chromium. Each profile has its own cookies and
+       its own device identity — screen, graphics card, fonts, time zone, fingerprints — and
+       looks like the same device every time it starts.</p>
+    <div class="actions">
+      <a class="button primary" href="test.html">Test your browser</a>
+      <a class="button" href="https://github.com/Sheekovic/Proteus-Browser">View the source</a>
+    </div>
+    <div class="status">Early release · build from source · Windows and Linux</div>
+  </div>
+
+  <section class="block" id="capabilities">
+    <div class="wrap">
+      <h2>What a profile controls</h2>
+      <p class="lead">The values are changed inside the browser engine, where Chromium computes them.
+         Nothing is injected into pages, so the page, its frames and its workers all agree, and the
+         browser's functions still look like the browser's own.</p>
+      <div class="cards">
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.500 2 8 6"/></svg></div>
+          <h3>Identity</h3>
+          <p>User agent, platform and vendor, with client hints in script and in request headers built the way that Chrome version builds them.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+          <h3>Hardware</h3>
+          <p>Screen and available area, processor count, device memory.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg></div>
+          <h3>Graphics</h3>
+          <p>WebGL vendor and renderer, with that card's limits, extensions and shader precision; WebGPU adapter information.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c3-6 6-6 9 0s6 6 9 0"/></svg></div>
+          <h3>Fingerprints</h3>
+          <p>Canvas, WebGL and audio carry a small noise derived from the profile's seed: stable for a profile, different between profiles.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20l5-14h4l5 14M8 14h8"/></svg></div>
+          <h3>Fonts and voices</h3>
+          <p>An allow-list of installed fonts with stand-ins for claimed ones the machine lacks, and the list of speech voices.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.500 3 14.500 0 18M12 3c-3 3.500-3 14.500 0 18"/></svg></div>
+          <h3>Place and language</h3>
+          <p>Languages, time zone and the position reported to sites — optionally matched to the proxy's exit automatically.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.500 8-8 9-4.500-1-8-4-8-9V6l8-3z"/></svg></div>
+          <h3>Network</h3>
+          <p>A proxy per profile, and WebRTC that never reveals the machine's own address — it shows the one you choose.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.500" width="10" height="19" rx="2.500"/><path d="M11 18.500h2"/></svg></div>
+          <h3>Phones</h3>
+          <p>Android (Chrome) and iPhone (Safari) profiles: phone screen and page area, touch, pixel ratio and mobile layout.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Noise that survives being checked</h2>
+      <p class="lead">The usual way to defeat fingerprinting is to add random noise to everything a page
+         reads back. The usual way to catch that is simple: draw a known colour and read it. Proteus
+         is built around not failing that test.</p>
+      <div class="two">
+        <ul class="plain">
+          <li><strong>Only what already differs.</strong> Noise goes on text, curves and gradients — content that varies between real devices — never on flat fills or on pixels the page wrote itself.</li>
+          <li><strong>The same answer twice.</strong> Reading a canvas again, reading part of it, copying it or exporting it all agree.</li>
+          <li><strong>No dependence on position.</strong> The same drawing moved across the canvas is the same drawing.</li>
+          <li><strong>Real cost.</strong> A spoofed graphics card name takes as long to ask for as a real one; sites time that.</li>
+        </ul>
+        <div class="card">
+          <h3>See it for yourself</h3>
+          <p style="margin-bottom:14px">The test page runs the checks detection scripts commonly use, in your browser, and sends nothing.
+             Try it in an ordinary browser, then in a Proteus profile, then in two.</p>
+          <a class="button primary" href="test.html">Run the test</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>How it works</h2>
+      <p class="lead">Two parts: a patched Chromium that takes its identity from a file, and a small
+         manager that writes that file.</p>
+      <div class="steps">
+        <div class="card"><h3>Create a profile</h3><p>The manager generates a coherent device — or uses a reading taken from a real one — and stores it as a plain JSON file.</p></div>
+        <div class="card"><h3>Start it</h3><p>The manager launches the kernel with that profile's configuration, proxy and its own data directory.</p></div>
+        <div class="card"><h3>Browse or automate</h3><p>Use the window, or drive it with Puppeteer, Playwright or Selenium through the DevTools endpoint each profile exposes.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Identities from real devices</h2>
+      <p class="lead">A collector page reads how a real device's browser describes itself, and Proteus
+         makes profiles from the reading: same model of device, each with a noise seed of its own.</p>
+      <div class="two">
+        <ul class="plain">
+          <li><strong>Reads</strong> the browser and system version, phone model, screen, processor count, memory class, graphics card and its limits, font names from a fixed list, speech voices.</li>
+          <li><strong>Does not read</strong> the IP address, location, language, time zone, cookies or history.</li>
+          <li><strong>One self-contained file.</strong> Nothing leaves the page until you press a button.</li>
+        </ul>
+        <pre># Start the manager, then open http://127.0.0.1:5310
+cd manager
+node src/main.ts</pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>What it does not do</h2>
+      <p class="lead">Better said here than discovered later.</p>
+      <ul class="plain">
+        <li><strong>It is Chromium underneath.</strong> An iPhone profile reports Safari's identity, but a site that probes engine behaviour or looks at the TLS handshake can tell it is not WebKit. There is no Firefox kernel.</li>
+        <li><strong>A limit is a claim.</strong> A page that really allocates beyond a claimed graphics limit succeeds if the hardware allows it.</li>
+        <li><strong>Phone profiles keep the machine's fonts.</strong></li>
+        <li><strong>No protection is complete.</strong> Sites combine many signals — address reputation, behaviour, account history — that no browser controls.</li>
+      </ul>
+      <p class="lead" style="margin-top:22px">Proteus is for separating identities you are entitled to have:
+         several accounts of your own, testing, research and privacy. Not for fraud, evading a ban,
+         or impersonating someone else.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Proteus · open source under the BSD 3-Clause licence · built on Chromium</span>
+    <span><a href="https://github.com/Sheekovic/Proteus-Browser">github.com/Sheekovic/Proteus-Browser</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

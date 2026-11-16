@@ -14,6 +14,8 @@ Proteus is two things that work together:
 Each profile has its own cookies and storage and looks like a different device. The
 same profile looks like the same device every time it starts.
 
+**Website and browser test:** <https://sheekovic.github.io/Proteus-Browser/>
+
 > **Status: early.** It works and is tested on Windows 11 and Linux, but there are no
 > prebuilt binaries and no installer yet. You build the kernel yourself.
 
@@ -210,6 +212,7 @@ kernel/
   src/               new source files, in Chromium's directory layout
   scripts/           build and test scripts; edits/ makes the in-place changes
   tests/             test pages and the scripts that check them
+docs/                the website (GitHub Pages), including the browser test page
 manager/
   src/               the manager (TypeScript, run directly by Node)
   ui/                the web UI and the fingerprint collector page
