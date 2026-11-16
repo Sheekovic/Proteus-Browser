@@ -3,12 +3,14 @@
 //   profiles/<id>/profile.json     the profile itself
 //   profiles/<id>/kernel.json      kernel config written at each launch
 //   profiles/<id>/browser/         Chromium user data (cookies, history, ...)
+//   fingerprints/<id>.json         a fingerprint read from a real device
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import { classify, type Collected, identityFromCollected, parseCollected } from './collected.ts';
 import { generateIdentity, hostOs } from './fingerprint.ts';
 import { OS_FAMILIES, type Profile, type ProfileInput, ValidationError, validateProfile } from './profile.ts';
 
@@ -30,6 +32,15 @@ export interface Settings {
 const DEFAULT_SETTINGS: Settings = {
   kernelPath: '', kernelVersion: '158.0.8127.37', extraArgs: [], exitLookupUrl: 'https://ipwho.is/',
 };
+
+/** A fingerprint read from a real device (see collected.ts), as kept on disk. */
+export interface StoredFingerprint {
+  id: string;
+  addedAt: string;
+  /** Of the device's values alone, so the same reading is not stored twice. */
+  hash: string;
+  collected: Collected;
+}
 
 export class NotFoundError extends Error {}
 
@@ -149,12 +160,78 @@ export class Store {
     return withDefaults(profile);
   }
 
-  /** Creates a profile with a freshly generated identity; `input` overrides any generated field. */
-  async createProfile(input: ProfileInput = {}): Promise<Profile> {
+  private get fingerprintsDir(): string {
+    return join(this.dataDir, 'fingerprints');
+  }
+
+  private fingerprintFile(id: string): string {
+    if (!ID_PATTERN.test(id)) throw new NotFoundError(`no fingerprint with id "${id}"`);
+    return join(this.fingerprintsDir, `${id}.json`);
+  }
+
+  /**
+   * Stores a fingerprint read by the collector page. `raw` is untrusted; it is
+   * checked, and refused if no profile could be made from it. Adding the same
+   * reading twice returns the stored one.
+   */
+  async addFingerprint(raw: unknown): Promise<StoredFingerprint> {
+    const collected = parseCollected(raw);
+    classify(collected);
+    const { collectedAt: _at, label: _label, ...device } = collected;
+    const hash = createHash('sha256').update(JSON.stringify(device)).digest('hex');
+    for (const existing of await this.listFingerprints()) {
+      if (existing.hash === hash) return existing;
+    }
+    const stored: StoredFingerprint = { id: randomUUID(), addedAt: new Date().toISOString(), hash, collected };
+    await mkdir(this.fingerprintsDir, { recursive: true });
+    await writeJson(this.fingerprintFile(stored.id), stored);
+    return stored;
+  }
+
+  async listFingerprints(): Promise<StoredFingerprint[]> {
+    let files: string[];
+    try {
+      files = await readdir(this.fingerprintsDir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    const fingerprints: StoredFingerprint[] = [];
+    for (const file of files) {
+      if (!file.endsWith('.json') || !ID_PATTERN.test(file.slice(0, -5))) continue;
+      const stored = await readJson<StoredFingerprint>(join(this.fingerprintsDir, file));
+      if (stored) fingerprints.push(stored);
+    }
+    return fingerprints.sort((a, b) => a.addedAt.localeCompare(b.addedAt));
+  }
+
+  async getFingerprint(id: string): Promise<StoredFingerprint> {
+    const stored = await readJson<StoredFingerprint>(this.fingerprintFile(id));
+    if (!stored) throw new NotFoundError(`no fingerprint with id "${id}"`);
+    return stored;
+  }
+
+  /** Removes a stored fingerprint. Profiles already made from it are not affected. */
+  async deleteFingerprint(id: string): Promise<void> {
+    await this.getFingerprint(id);
+    await rm(this.fingerprintFile(id), { force: true });
+  }
+
+  /**
+   * Creates a profile; `input` overrides any field of its identity. The identity is
+   * that of the stored fingerprint `fingerprintId` when one is given, and freshly
+   * generated otherwise.
+   */
+  async createProfile(input: ProfileInput = {}, fingerprintId?: string): Promise<Profile> {
     const settings = await this.getSettings();
-    const os = input.os ?? hostOs();
+    const fromDevice = fingerprintId === undefined ? undefined
+        : identityFromCollected((await this.getFingerprint(fingerprintId)).collected, settings.kernelVersion);
+    const os = input.os ?? fromDevice?.os ?? hostOs();
     if (!OS_FAMILIES.includes(os)) {
       throw new ValidationError(`os must be one of ${OS_FAMILIES.join(', ')}`);
+    }
+    if (fromDevice && fromDevice.os !== os) {
+      throw new ValidationError(`that fingerprint is of a ${fromDevice.os} device, not ${os}`);
     }
     const now = new Date().toISOString();
     const profile: Profile = {
@@ -168,7 +245,7 @@ export class Store {
       proxy: null,
       matchProxy: true,
       startUrl: '',
-      ...generateIdentity(os, settings.kernelVersion),
+      ...(fromDevice ?? generateIdentity(os, settings.kernelVersion)),
       ...input,
       id: randomUUID(),
       createdAt: now,

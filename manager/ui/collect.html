@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proteus fingerprint collector</title>
+<style>
+  :root { --bg: #f6f7f9; --panel: #fff; --text: #1c2330; --muted: #667085; --line: #e2e6ec;
+          --accent: #2f6fed; --accent-text: #fff; --danger: #c93c3c; --ok: #1f9d55; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #12151b; --panel: #1b2029; --text: #e7eaf0; --muted: #98a2b3; --line: #2b323e;
+            --accent: #5b8cf5; --accent-text: #0d1117; --danger: #ef6b6b; --ok: #4cc38a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+  h1 { font-size: 20px; margin: 4px 0; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  p, ul { margin: 6px 0; }
+  ul { padding-left: 20px; }
+  .muted { color: var(--muted); }
+  button { font: inherit; padding: 9px 14px; border-radius: 6px; border: 1px solid var(--line);
+           background: var(--panel); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button:disabled { opacity: .5; cursor: default; }
+  input { font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--line);
+          background: var(--bg); color: var(--text); width: 100%; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+  td:first-child { color: var(--muted); width: 38%; }
+  #status { min-height: 22px; }
+  #status.ok { color: var(--ok); }
+  #status.bad { color: var(--danger); }
+  textarea { width: 100%; height: 120px; font: 12px/1.4 ui-monospace, Consolas, monospace;
+             background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Proteus fingerprint collector</h1>
+
+  <section>
+    <h2>What this page does</h2>
+    <p>It reads how <em>this device's browser</em> describes itself to any website, so that a Proteus
+       profile can present itself as the same kind of device. Nothing leaves this page unless you
+       press a button below.</p>
+    <p><strong>Collected:</strong> browser and system name and version, device model (phones), screen
+       size and pixel ratio, processor count, memory class, graphics card name, installed font names
+       from a fixed list, speech voices, touch support.</p>
+    <p><strong>Not collected:</strong> IP address, location, language, time zone, cookies, history,
+       accounts, or anything typed or stored in this browser.</p>
+  </section>
+
+  <section>
+    <label class="muted">A name for this device (optional, for your own list)
+      <input id="label" maxlength="80" placeholder="Living-room laptop"></label>
+    <div class="row">
+      <button id="collect" class="primary">Read this device</button>
+    </div>
+    <p id="status" role="status"></p>
+  </section>
+
+  <section id="result" hidden>
+    <h2>What was read</h2>
+    <table><tbody id="summary"></tbody></table>
+    <div class="row">
+      <button id="save" class="primary" hidden>Save to Proteus on this computer</button>
+      <button id="download">Download fingerprint file</button>
+      <button id="copy">Copy as text</button>
+    </div>
+    <p class="muted">On another device: download or copy the result, bring it to the computer running
+       Proteus, and use “Import fingerprint” there.</p>
+    <textarea id="json" readonly></textarea>
+  </section>
+</main>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+
+// Font names looked for. Only these names are tested; the device's full font list is
+// never read. They are the fonts operating systems and common office suites install.
+const FONT_CANDIDATES = [
+  // Windows
+  'Arial', 'Arial Black', 'Bahnschrift', 'Calibri', 'Cambria', 'Cambria Math', 'Candara', 'Cascadia Code',
+  'Cascadia Mono', 'Comic Sans MS', 'Consolas', 'Constantia', 'Corbel', 'Courier New', 'Ebrima',
+  'Franklin Gothic Medium', 'Gabriola', 'Gadugi', 'Georgia', 'HoloLens MDL2 Assets', 'Impact', 'Ink Free',
+  'Javanese Text', 'Leelawadee UI', 'Lucida Console', 'Lucida Sans Unicode', 'Malgun Gothic', 'Marlett',
+  'Microsoft Himalaya', 'Microsoft JhengHei', 'Microsoft JhengHei UI', 'Microsoft New Tai Lue',
+  'Microsoft PhagsPa', 'Microsoft Sans Serif', 'Microsoft Tai Le', 'Microsoft YaHei', 'Microsoft YaHei UI',
+  'Microsoft Yi Baiti', 'MingLiU-ExtB', 'MingLiU_HKSCS-ExtB', 'Mongolian Baiti', 'MS Gothic', 'MS PGothic',
+  'MS UI Gothic', 'MV Boli', 'Myanmar Text', 'Nirmala UI', 'NSimSun', 'Palatino Linotype', 'PMingLiU-ExtB',
+  'Sans Serif Collection', 'Segoe Fluent Icons', 'Segoe MDL2 Assets', 'Segoe Print', 'Segoe Script',
+  'Segoe UI', 'Segoe UI Emoji', 'Segoe UI Historic', 'Segoe UI Symbol', 'Segoe UI Variable Display',
+  'Segoe UI Variable Small', 'Segoe UI Variable Text', 'SimSun', 'SimSun-ExtB', 'Sitka Banner',
+  'Sitka Display', 'Sitka Heading', 'Sitka Small', 'Sitka Subheading', 'Sitka Text', 'Sylfaen', 'Symbol',
+  'Tahoma', 'Times New Roman', 'Trebuchet MS', 'Verdana', 'Webdings', 'Wingdings', 'Yu Gothic', 'Yu Gothic UI',
+  // Office and other common additions on Windows
+  'Agency FB', 'Algerian', 'Aptos', 'Aptos Display', 'Arial Narrow', 'Arial Rounded MT Bold', 'Baskerville Old Face',
+  'Bell MT', 'Berlin Sans FB', 'Bodoni MT', 'Book Antiqua', 'Bookman Old Style', 'Bradley Hand ITC',
+  'Britannic Bold', 'Broadway', 'Brush Script MT', 'Californian FB', 'Calisto MT', 'Castellar', 'Centaur',
+  'Century', 'Century Gothic', 'Century Schoolbook', 'Colonna MT', 'Cooper Black', 'Copperplate Gothic Bold',
+  'Curlz MT', 'Dubai', 'Elephant', 'Engravers MT', 'Eras ITC', 'Felix Titling', 'Footlight MT Light', 'Forte',
+  'Franklin Gothic Book', 'Freestyle Script', 'French Script MT', 'Garamond', 'Gigi', 'Gill Sans MT',
+  'Gloucester MT Extra Condensed', 'Goudy Old Style', 'Haettenschweiler', 'Harrington', 'High Tower Text',
+  'Imprint MT Shadow', 'Informal Roman', 'Jokerman', 'Juice ITC', 'Kristen ITC', 'Kunstler Script',
+  'Lucida Bright', 'Lucida Calligraphy', 'Lucida Fax', 'Lucida Handwriting', 'Lucida Sans',
+  'Lucida Sans Typewriter', 'Magneto', 'Maiandra GD', 'Matura MT Script Capitals', 'Mistral',
+  'Modern No. 20', 'Monotype Corsiva', 'MS Outlook', 'MS Reference Sans Serif', 'MT Extra', 'Niagara Engraved',
+  'OCR A Extended', 'Old English Text MT', 'Onyx', 'Palace Script MT', 'Papyrus', 'Parchment', 'Perpetua',
+  'Playbill', 'Poor Richard', 'Pristina', 'Rage Italic', 'Ravie', 'Rockwell', 'Script MT Bold',
+  'Segoe UI Light', 'Segoe UI Semibold', 'Showcard Gothic', 'Snap ITC', 'Stencil', 'Tempus Sans ITC',
+  'Tw Cen MT', 'Viner Hand ITC', 'Vivaldi', 'Vladimir Script', 'Wide Latin', 'Wingdings 2', 'Wingdings 3',
+  // macOS
+  'American Typewriter', 'Andale Mono', 'Apple Chancery', 'Apple Color Emoji', 'Apple SD Gothic Neo',
+  'Arial Unicode MS', 'Avenir', 'Avenir Next', 'Avenir Next Condensed', 'Baskerville', 'Big Caslon',
+  'Bodoni 72', 'Bradley Hand', 'Chalkboard', 'Chalkboard SE', 'Chalkduster', 'Charter', 'Cochin',
+  'Copperplate', 'Courier', 'Didot', 'Futura', 'Geneva', 'Gill Sans', 'Helvetica', 'Helvetica Neue',
+  'Herculanum', 'Hiragino Sans', 'Hoefler Text', 'Lucida Grande', 'Luminari', 'Marker Felt', 'Menlo',
+  'Monaco', 'Noteworthy', 'Optima', 'Palatino', 'Phosphate', 'PingFang SC', 'PT Sans', 'PT Serif',
+  'Savoye LET', 'SF Pro', 'SignPainter', 'Skia', 'Snell Roundhand', 'Times', 'Trattatello', 'Zapfino',
+  // Linux
+  'Cantarell', 'C059', 'D050000L', 'DejaVu Sans', 'DejaVu Sans Mono', 'DejaVu Serif', 'Droid Sans',
+  'FreeMono', 'FreeSans', 'FreeSerif', 'Liberation Mono', 'Liberation Sans', 'Liberation Sans Narrow',
+  'Liberation Serif', 'Nimbus Mono PS', 'Nimbus Roman', 'Nimbus Sans', 'Nimbus Sans Narrow',
+  'Noto Color Emoji', 'Noto Mono', 'Noto Sans', 'Noto Sans CJK JP', 'Noto Sans Mono', 'Noto Serif',
+  'Noto Serif CJK JP', 'P052', 'Standard Symbols PS', 'Ubuntu', 'Ubuntu Condensed', 'Ubuntu Mono',
+  'URW Bookman', 'URW Gothic', 'Z003',
+  // Android and others
+  'Roboto', 'Open Sans', 'Source Code Pro', 'Fira Sans', 'Fira Code', 'Inter',
+];
+
+/** Names from FONT_CANDIDATES that this device draws with a font of its own. */
+function detectFonts() {
+  const context = document.createElement('canvas').getContext('2d');
+  if (!context) return [];
+  const sample = 'mmMwWLliI0O&1@#$% abcdefghijklmnopqrstuvwxyz';
+  const bases = ['monospace', 'sans-serif', 'serif'];
+  const width = (family) => { context.font = `72px ${family}`; return context.measureText(sample).width; };
+  const baseWidths = bases.map(width);
+  return FONT_CANDIDATES.filter((name) =>
+    bases.some((base, i) => width(`"${name}", ${base}`) !== baseWidths[i]));
+}
+
+function readWebgl() {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    const info = gl && gl.getExtension('WEBGL_debug_renderer_info');
+    if (!info) return null;
+    return { vendor: String(gl.getParameter(info.UNMASKED_VENDOR_WEBGL)),
+             renderer: String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) };
+  } catch { return null; }
+}
+
+async function readWebgpu() {
+  try {
+    if (!navigator.gpu) return null;
+    const adapter = await navigator.gpu.requestAdapter();
+    const info = adapter && adapter.info;
+    return info ? { vendor: String(info.vendor || ''), architecture: String(info.architecture || '') } : null;
+  } catch { return null; }
+}
+
+async function readUaData() {
+  const data = navigator.userAgentData;
+  if (!data) return null;
+  try {
+    const high = await data.getHighEntropyValues(
+        ['architecture', 'bitness', 'model', 'platformVersion', 'uaFullVersion', 'fullVersionList', 'wow64']);
+    const brands = (list) => (list || []).map((b) => ({ brand: String(b.brand), version: String(b.version) }));
+    return {
+      brands: brands(data.brands), fullVersionList: brands(high.fullVersionList),
+      mobile: Boolean(data.mobile), platform: String(data.platform || ''),
+      platformVersion: String(high.platformVersion || ''), architecture: String(high.architecture || ''),
+      bitness: String(high.bitness || ''), model: String(high.model || ''),
+      uaFullVersion: String(high.uaFullVersion || ''), wow64: Boolean(high.wow64),
+    };
+  } catch { return null; }
+}
+
+function readVoices() {
+  return new Promise((resolve) => {
+    if (!('speechSynthesis' in window)) return resolve([]);
+    const list = () => speechSynthesis.getVoices().map((v) =>
+        ({ name: String(v.name), lang: String(v.lang), local: Boolean(v.localService), default: Boolean(v.default) }));
+    const now = list();
+    if (now.length > 0) return resolve(now);
+    // Some browsers fill the list only after this event.
+    const done = () => resolve(list());
+    speechSynthesis.addEventListener('voiceschanged', done, { once: true });
+    setTimeout(done, 2000);
+  });
+}
+
+async function collect() {
+  const s = window.screen;
+  return {
+    format: 'proteus-fingerprint',
+    version: 1,
+    collectedAt: new Date().toISOString(),
+    label: $('label').value.trim(),
+    secureContext: window.isSecureContext === true,
+    userAgent: navigator.userAgent,
+    platform: navigator.platform,
+    vendor: navigator.vendor,
+    uaData: await readUaData(),
+    hardwareConcurrency: navigator.hardwareConcurrency || 0,
+    deviceMemory: typeof navigator.deviceMemory === 'number' ? navigator.deviceMemory : null,
+    maxTouchPoints: navigator.maxTouchPoints || 0,
+    screen: { width: s.width, height: s.height, availWidth: s.availWidth, availHeight: s.availHeight,
+              colorDepth: s.colorDepth },
+    devicePixelRatio: window.devicePixelRatio || 1,
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    webgl: readWebgl(),
+    webgpu: await readWebgpu(),
+    voices: await readVoices(),
+    fonts: detectFonts(),
+  };
+}
+
+function show(fingerprint) {
+  const rows = [
+    ['Browser', fingerprint.userAgent],
+    ['System', fingerprint.uaData
+        ? `${fingerprint.uaData.platform} ${fingerprint.uaData.platformVersion}`.trim() : fingerprint.platform],
+    ['Model', fingerprint.uaData && fingerprint.uaData.model ? fingerprint.uaData.model : '—'],
+    ['Screen', `${fingerprint.screen.width} × ${fingerprint.screen.height} at ${fingerprint.devicePixelRatio}×`],
+    ['Processors / memory', `${fingerprint.hardwareConcurrency} / ${fingerprint.deviceMemory ?? '—'} GB`],
+    ['Graphics', fingerprint.webgl ? fingerprint.webgl.renderer : '—'],
+    ['Fonts found', String(fingerprint.fonts.length)],
+    ['Voices', String(fingerprint.voices.length)],
+    ['Touch points', String(fingerprint.maxTouchPoints)],
+  ];
+  $('summary').replaceChildren(...rows.map(([name, value]) => {
+    const tr = document.createElement('tr');
+    for (const text of [name, value]) { const td = document.createElement('td'); td.textContent = text; tr.append(td); }
+    return tr;
+  }));
+  $('json').value = JSON.stringify(fingerprint);
+  $('result').hidden = false;
+}
+
+function say(text, kind = '') {
+  $('status').textContent = text;
+  $('status').className = kind;
+}
+
+// Served by the Proteus manager itself: it can take the result directly.
+const servedByManager = location.pathname === '/collect' && /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
+let current = null;
+
+$('collect').addEventListener('click', async () => {
+  $('collect').disabled = true;
+  say('Reading…');
+  try {
+    current = await collect();
+    show(current);
+    $('save').hidden = !servedByManager;
+    const missing = !current.secureContext && !current.uaData
+        ? ' Opened without HTTPS, so the browser withheld its version details and device model.' : '';
+    say('Done.' + missing, missing ? 'bad' : 'ok');
+  } catch (error) {
+    say('Could not read this device: ' + error.message, 'bad');
+  } finally {
+    $('collect').disabled = false;
+  }
+});
+
+$('download').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(current, null, 2)], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'proteus-fingerprint-' + current.collectedAt.replace(/[^0-9]/g, '').slice(0, 14) + '.json';
+  link.click();
+  URL.revokeObjectURL(link.href);
+});
+
+$('copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('json').value);
+    say('Copied.', 'ok');
+  } catch {
+    $('json').select();
+    say('Select the text below and copy it.', 'bad');
+  }
+});
+
+$('save').addEventListener('click', async () => {
+  try {
+    const response = await fetch('/api/fingerprints', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(current),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+    say('Saved to Proteus. You can close this page.', 'ok');
+  } catch (error) {
+    say(error.message, 'bad');
+  }
+});
+</script>
+</body>
+</html>

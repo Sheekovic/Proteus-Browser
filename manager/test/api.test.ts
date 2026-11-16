@@ -180,3 +180,50 @@ test('other websites cannot drive the API', async () => {
 
   assert.equal((await store.listProfiles()).length, before, 'no blocked request created a profile');
 });
+
+test('device fingerprints are imported, listed, used for a profile and removed over the API', async () => {
+  const page = await fetch(base + '/collect');
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /Proteus fingerprint collector/);
+
+  const reading = {
+    format: 'proteus-fingerprint', version: 1, collectedAt: '2026-11-16T12:00:00.000Z', label: 'Test phone',
+    secureContext: true,
+    userAgent: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36',
+    platform: 'Linux armv81', vendor: 'Google Inc.',
+    uaData: { brands: [{ brand: 'Chromium', version: '141' }], fullVersionList: [], mobile: true, platform: 'Android',
+              platformVersion: '16.0.0', architecture: '', bitness: '', model: 'Pixel 9', uaFullVersion: '141.0.7390.70', wow64: false },
+    hardwareConcurrency: 8, deviceMemory: 8, maxTouchPoints: 5,
+    screen: { width: 412, height: 923, availWidth: 412, availHeight: 923, colorDepth: 24 },
+    devicePixelRatio: 2.625, innerWidth: 412, innerHeight: 785,
+    webgl: { vendor: 'Google Inc. (ARM)', renderer: 'ANGLE (ARM, Mali-G715, OpenGL ES 3.2)' },
+    webgpu: null, voices: [], fonts: [],
+  };
+  const added = await api('POST', '/api/fingerprints', reading);
+  assert.equal(added.status, 201);
+  assert.equal(added.body.os, 'android');
+  assert.equal(added.body.label, 'Test phone');
+  assert.match(added.body.device, /Pixel 9/);
+
+  const listed = await api('GET', '/api/fingerprints');
+  assert.equal(listed.body.length, 1);
+  assert.ok(!('collected' in listed.body[0]), 'lists carry a summary, not every value');
+  assert.equal((await api('GET', `/api/fingerprints/${added.body.id}`)).body.collected.uaData.model, 'Pixel 9');
+
+  const profile = await api('POST', '/api/profiles', { name: 'From a real phone', fingerprintId: added.body.id });
+  assert.equal(profile.status, 201);
+  assert.equal(profile.body.uaData.model, 'Pixel 9');
+  assert.equal(profile.body.mobile.viewHeight, 785);
+  assert.ok(!('fingerprintId' in profile.body));
+
+  assert.equal((await api('POST', '/api/fingerprints', { format: 'nope' })).status, 400);
+  assert.equal((await api('POST', '/api/profiles', { fingerprintId: 7 })).status, 400);
+  assert.equal((await api('POST', '/api/profiles', { fingerprintId: '00000000-0000-4000-8000-000000000000' })).status, 404);
+  // Another site's page cannot plant a fingerprint.
+  assert.equal(await raw('POST', '/api/fingerprints',
+      { Host: `127.0.0.1:${port}`, Origin: 'https://evil.example', 'Content-Type': 'application/json' }, JSON.stringify(reading)), 403);
+
+  assert.equal((await api('DELETE', `/api/fingerprints/${added.body.id}`)).status, 204);
+  assert.equal((await api('GET', '/api/fingerprints')).body.length, 0);
+  await api('DELETE', `/api/profiles/${profile.body.id}`);
+});

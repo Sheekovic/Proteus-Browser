@@ -7,16 +7,20 @@
 //   POST   /api/profiles/:id/regenerate  new identity, same name/proxy/browser data
 //   GET    /api/profiles/:id/status
 //   POST   /api/profiles/:id/start       POST /api/profiles/:id/stop
+//   GET    /api/fingerprints             POST /api/fingerprints       a fingerprint read from a real device
+//   GET    /api/fingerprints/:id         DELETE /api/fingerprints/:id
+//   GET    /collect                      the page that reads a device's fingerprint
 //   GET    /                             the web UI
 
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 
+import { describeCollected } from './collected.ts';
 import { generateIdentity } from './fingerprint.ts';
 import { LaunchError, type Launcher } from './launcher.ts';
 import { type ProfileInput, ValidationError } from './profile.ts';
-import { NotFoundError, type Store } from './store.ts';
+import { NotFoundError, type Store, type StoredFingerprint } from './store.ts';
 
 class HttpError extends Error {
   readonly status: number;
@@ -43,6 +47,18 @@ function toProfileInput(body: unknown): ProfileInput {
     if (key in body) input[key] = (body as Record<string, unknown>)[key];
   }
   return input as ProfileInput;
+}
+
+/** A stored fingerprint as lists show it: what device it is, not every value read. */
+function fingerprintSummary(stored: StoredFingerprint) {
+  return {
+    id: stored.id,
+    addedAt: stored.addedAt,
+    label: stored.collected.label,
+    ...describeCollected(stored.collected),
+    fonts: stored.collected.fonts.length,
+    voices: stored.collected.voices.length,
+  };
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -135,9 +151,40 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
         return sendJson(response, 200, profiles.map((p) => ({ ...p, status: launcher.status(p.id) })));
       }
       if (method === 'POST') {
-        const profile = await store.createProfile(toProfileInput(await readJsonBody(request)));
+        const body = await readJsonBody(request);
+        // "fingerprintId" names a stored device fingerprint to take the identity from.
+        const fingerprintId = (body as Record<string, unknown> | null)?.fingerprintId;
+        if (fingerprintId !== undefined && typeof fingerprintId !== 'string') {
+          throw new ValidationError('fingerprintId must be a string');
+        }
+        const profile = await store.createProfile(toProfileInput(body), fingerprintId);
         return sendJson(response, 201, { ...profile, status: launcher.status(profile.id) });
       }
+    }
+
+    if (method === 'GET' && path === '/collect') {
+      const html = await readFile(join(uiDir, 'collect.html'));
+      response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      response.end(html);
+      return;
+    }
+    if (path === '/api/fingerprints') {
+      if (method === 'GET') {
+        return sendJson(response, 200, (await store.listFingerprints()).map(fingerprintSummary));
+      }
+      if (method === 'POST') {
+        return sendJson(response, 201, fingerprintSummary(await store.addFingerprint(await readJsonBody(request))));
+      }
+    }
+    const fingerprint = /^\/api\/fingerprints\/([^/]+)$/.exec(path);
+    if (fingerprint) {
+      if (method === 'GET') return sendJson(response, 200, await store.getFingerprint(fingerprint[1]));
+      if (method === 'DELETE') {
+        await store.deleteFingerprint(fingerprint[1]);
+        response.writeHead(204).end();
+        return;
+      }
+      throw new HttpError(405, `${method} is not supported on ${path}`);
     }
 
     const match = /^\/api\/profiles\/([^/]+)(?:\/(status|start|stop|regenerate))?$/.exec(path);

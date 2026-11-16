@@ -84,6 +84,11 @@
             <option value="ios">iPhone (Safari)</option>
           </select>
         </label>
+        <label>Device identity
+          <select name="fingerprintId">
+            <option value="">Generated for the chosen system</option>
+          </select>
+        </label>
         <label>Languages (comma separated, optional) <input name="languages" placeholder="en-US, en"></label>
         <label>Time zone (optional) <input name="timezone" placeholder="Europe/Berlin"></label>
         <label>WebRTC
@@ -111,6 +116,27 @@
       <div class="row"><button class="primary" type="submit">Create profile</button>
         <span class="muted">A device identity (browser, screen, GPU, noise seed) is generated automatically.</span></div>
     </form>
+  </section>
+
+  <section>
+    <h2>Device fingerprints</h2>
+    <p class="muted">Identities read from real devices. A profile made from one presents itself as that
+       model of device (its screen, graphics card, fonts and voices) with a noise seed of its own.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>System</th><th>Device</th><th>Screen</th><th>Graphics</th><th></th></tr></thead>
+        <tbody id="fingerprints"></tbody>
+      </table>
+    </div>
+    <p id="no-fingerprints" class="muted" hidden>None yet.</p>
+    <div class="row">
+      <button type="button" id="collect-here">Read this computer's browser</button>
+      <button type="button" id="import-button">Import fingerprint file…</button>
+      <input id="import-file" type="file" accept=".json,application/json" multiple hidden>
+    </div>
+    <p class="muted">For another device, open the collector page on it (send it the file
+       <code>collect.html</code> from the manager's <code>ui</code> folder, or host that file on any
+       HTTPS site), then import the file it gives you here. Open it in Chrome, or in Safari on an iPhone.</p>
   </section>
 
   <section>
@@ -228,6 +254,52 @@ async function loadProfiles() {
   }
 }
 
+async function loadFingerprints() {
+  const fingerprints = await api('GET', '/api/fingerprints');
+  const body = $('fingerprints');
+  body.replaceChildren();
+  $('no-fingerprints').hidden = fingerprints.length > 0;
+  const select = $('create').fingerprintId;
+  const chosen = select.value;
+  select.replaceChildren(select.options[0]);
+  for (const f of fingerprints) {
+    const name = f.label || f.device;
+    const row = document.createElement('tr');
+    row.append(cell(name), cell(f.os), cell(f.device), cell(f.screen), cell(f.gpu || '—', f.gpu ? '' : 'muted'));
+    const actions = document.createElement('td');
+    actions.className = 'actions';
+    actions.append(button('Delete', async () => {
+      if (!confirm(`Remove the fingerprint "${name}"? Profiles already made from it stay as they are.`)) return;
+      await api('DELETE', `/api/fingerprints/${f.id}`);
+      await loadFingerprints();
+    }, 'danger'));
+    row.append(actions);
+    body.append(row);
+    const option = document.createElement('option');
+    option.value = f.id;
+    option.textContent = `${name} (${f.os}, ${f.screen})`;
+    select.append(option);
+  }
+  select.value = [...select.options].some((o) => o.value === chosen) ? chosen : '';
+}
+
+$('collect-here').addEventListener('click', () => window.open('/collect', '_blank'));
+$('import-button').addEventListener('click', () => $('import-file').click());
+$('import-file').addEventListener('change', async (event) => {
+  let added = 0;
+  for (const file of event.target.files) {
+    try {
+      await api('POST', '/api/fingerprints', JSON.parse(await file.text()));
+      added++;
+    } catch (error) {
+      say(`${file.name}: ${error.message}`);
+    }
+  }
+  event.target.value = '';
+  if (added > 0) say(`Imported ${added} fingerprint${added === 1 ? '' : 's'}.`, true);
+  await loadFingerprints();
+});
+
 async function loadSettings() {
   const settings = await api('GET', '/api/settings');
   const form = $('settings');
@@ -241,7 +313,9 @@ $('create').addEventListener('submit', async (event) => {
   const f = event.target;
   const input = { name: f.name.value.trim(), webrtc: f.webrtc.value };
   if (f.webrtcPublicIp.value.trim()) input.webrtcPublicIp = f.webrtcPublicIp.value.trim();
-  if (f.os.value) input.os = f.os.value;
+  // A device fingerprint brings its own system; the system choice is then ignored.
+  if (f.fingerprintId.value) input.fingerprintId = f.fingerprintId.value;
+  else if (f.os.value) input.os = f.os.value;
   const languages = f.languages.value.split(',').map((s) => s.trim()).filter(Boolean);
   if (languages.length) input.languages = languages;
   if (f.timezone.value.trim()) input.timezone = f.timezone.value.trim();
@@ -282,8 +356,10 @@ $('settings').addEventListener('submit', async (event) => {
 $('refresh').addEventListener('click', () => loadProfiles().catch((error) => say(error.message)));
 $('details-close').addEventListener('click', () => $('details').close());
 
-Promise.all([loadProfiles(), loadSettings()]).catch((error) => say(error.message));
+Promise.all([loadProfiles(), loadSettings(), loadFingerprints()]).catch((error) => say(error.message));
 setInterval(() => loadProfiles().catch(() => {}), 5000);
+// A fingerprint saved from the collector page in another tab shows up on return.
+window.addEventListener('focus', () => loadFingerprints().catch(() => {}));
 </script>
 </body>
 </html>
