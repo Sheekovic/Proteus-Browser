@@ -38,4 +38,5 @@ check  "worker UTC offsets"                 "$(field "$DE" workerOffsets)" "300/
 
 echo "-- earlier patches still hold"
 ID=$(run identity.html --proteus-config="$WORK/de.json")
-check  "identity untouched by this profile" "$(field "$ID" platform)" "Linux%20x86_64"
+check  "identity untouched by this profile" "$(field "$ID" platform)" \
+       "$(field "$(run identity.html)" platform)"

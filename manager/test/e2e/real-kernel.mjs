@@ -29,8 +29,10 @@ const base = `http://127.0.0.1:${PORT}`;
 const PUBLIC_IP = '203.0.113.7';
 const STUN = '192.0.2.1:3478';
 // Software WebGPU adapter, for machines without a GPU.
-const WEBGPU_ARGS = ['--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader', '--use-angle=swiftshader',
-                     '--enable-unsafe-swiftshader', '--enable-features=Vulkan'];
+// On Windows the machine's own GPU is used instead.
+const WEBGPU_ARGS = process.platform === 'win32' ? ['--enable-unsafe-webgpu'] :
+    ['--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader', '--use-angle=swiftshader',
+     '--enable-unsafe-swiftshader', '--enable-features=Vulkan'];
 
 let failures = 0;
 function check(name, actual, expected) {
@@ -74,8 +76,24 @@ async function readPage(debuggerUrl, url) {
       else if (Date.now() - started > 15000) { clearInterval(timer); reject(new Error('no RESULT: ' + text)); }
     }, 100);
   })`;
+  let lastReply;
+  const send = (id, method, params) => new Promise((resolve) => {
+    const onMessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.id !== id) return;
+      socket.removeEventListener('message', onMessage);
+      resolve(message);
+    };
+    socket.addEventListener('message', onMessage);
+    socket.send(JSON.stringify({ id, method, params }));
+  });
   try {
-    for (let attempt = 0; attempt < 5; attempt++) {
+    // A tab opened in the first moments after the kernel starts can lose its
+    // navigation and stay blank (seen on Windows, with or without a profile).
+    await delay(1000);
+    const where = await send(100, 'Runtime.evaluate', { expression: 'location.href', returnByValue: true });
+    if (where.result?.result?.value === 'about:blank') await send(101, 'Page.navigate', { url });
+    for (let attempt = 0; attempt < 10; attempt++) {
       const reply = await new Promise((resolve) => {
         socket.addEventListener('message', (event) => resolve(JSON.parse(event.data)), { once: true });
         socket.send(JSON.stringify({
@@ -83,6 +101,7 @@ async function readPage(debuggerUrl, url) {
           params: { expression, awaitPromise: true, returnByValue: true },
         }));
       });
+      lastReply = reply;
       const value = reply.result?.result?.value;
       if (typeof value === 'string') {
         const fields = {};
@@ -94,7 +113,7 @@ async function readPage(debuggerUrl, url) {
       }
       await delay(500);  // The page was still navigating; ask again.
     }
-    throw new Error(`could not read ${url}`);
+    throw new Error(`could not read ${url}: ${JSON.stringify(lastReply).slice(0, 400)}`);
   } finally {
     socket.close();
     await fetch(`${debuggerUrl}/json/close/${tab.id}`).catch(() => {});

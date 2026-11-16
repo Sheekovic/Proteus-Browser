@@ -26,7 +26,8 @@ echo "profile voices: $(field "$PROF" voices)  $(decode "$(field "$PROF" voiceNa
 echo "profile detail: $(decode "$(field "$PROF" voiceDetail)")"
 
 check  "profile without these settings changes the voice count nothing" "$(field "$BARE" voices)" "$(field "$PLAIN" voices)"
-differ "control: the machine does not already have three voices"         "$(field "$PLAIN" voices)" "3"
+differ "control: the machine's own voices are not the profile's"         "$(decode "$(field "$PLAIN" voiceNames)")" \
+       "Microsoft David - English (United States)|Microsoft Zira - English (United States)|Google Deutsch*"
 
 check  "the profile's three voices are reported"   "$(field "$PROF" voices)" "3"
 check  "names, in order, with remote voices marked" "$(decode "$(field "$PROF" voiceNames)")" \
