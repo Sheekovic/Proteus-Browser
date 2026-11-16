@@ -1,7 +1,7 @@
 From 400a91ab6fa61919dc79f8e899e5689f46b84804 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 03:19:26 +0000
-Subject: [PATCH 18/24] proteus: a spoofed WebGL vendor or renderer costs what
+Subject: [PATCH 18/25] proteus: a spoofed WebGL vendor or renderer costs what
  a real one does
 
 ---

@@ -1,7 +1,7 @@
 From aabc9e2466e3e0ee506a8789ec24baf2c6d8c2c2 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 15:00:45 +0000
-Subject: [PATCH 23/24] proteus: WebGL reports the capabilities of the
+Subject: [PATCH 23/25] proteus: WebGL reports the capabilities of the
  profile's graphics card
 
 ---

@@ -1,0 +1,51 @@
+From c479771fdc1c2caf96c91151decb2ce2324343d4 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Mon, 16 Nov 2026 19:12:44 +0000
+Subject: [PATCH 25/25] proteus: the browser calls itself Proteus
+
+---
+ chrome/app/theme/chromium/BRANDING | 4 ++--
+ tools/grit/grit/node/message.py    | 6 ++++++
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/chrome/app/theme/chromium/BRANDING b/chrome/app/theme/chromium/BRANDING
+index f8363d5b29..3e5229dd95 100644
+--- a/chrome/app/theme/chromium/BRANDING
++++ b/chrome/app/theme/chromium/BRANDING
+@@ -1,7 +1,7 @@
+ COMPANY_FULLNAME=The Chromium Authors
+ COMPANY_SHORTNAME=The Chromium Authors
+-PRODUCT_FULLNAME=Chromium
+-PRODUCT_SHORTNAME=Chromium
++PRODUCT_FULLNAME=Proteus
++PRODUCT_SHORTNAME=Proteus
+ PRODUCT_INSTALLER_FULLNAME=Chromium Installer
+ PRODUCT_INSTALLER_SHORTNAME=Chromium Installer
+ COPYRIGHT=Copyright @LASTCHANGE_YEAR@ The Chromium Authors. All rights reserved.
+diff --git a/tools/grit/grit/node/message.py b/tools/grit/grit/node/message.py
+index 74413e10aa..b725b60122 100644
+--- a/tools/grit/grit/node/message.py
++++ b/tools/grit/grit/node/message.py
+@@ -55,6 +55,11 @@ _HTMLTOKEN = re.compile(r'<[/]?[a-z][a-z0-9]*[^>]*>', re.I)
+ _HTMLENTITY = re.compile(r'&[^\s]*;')
+ 
+ 
++# Proteus: see GetDataPackValue().
++_PROTEUS_PRODUCT_NAME = re.compile(
++    r'Chromium(?!OS| OS| Authors|\.org| open source|</a> open source)')
++
++
+ class MessageNode(base.ContentNode):
+   '''A <message> element.'''
+ 
+@@ -304,6 +309,7 @@ class MessageNode(base.ContentNode):
+   def GetDataPackValue(self, lang, gender, encoding):
+     '''Returns a str represenation for a data_pack entry.'''
+     message = self.ws_at_start + self.Translate(lang, gender) + self.ws_at_end
++    message = _PROTEUS_PRODUCT_NAME.sub('Proteus', message)
+     return util.Encode(message, encoding)
+ 
+   def IsResourceMapSource(self):
+-- 
+2.43.0
+
