@@ -26,8 +26,20 @@ same profile looks like the same device every time it starts.
 
 **Website and browser test:** <https://sheekovic.github.io/Proteus-Browser/>
 
-> **Status: early.** It works and is tested on Windows 11 and Linux, but there are no
-> prebuilt binaries and no installer yet. You build the kernel yourself.
+> **Status: early.** It works and is tested on Windows 11 and Linux. There are preview
+> builds to try; there is no installer and nothing is code-signed yet.
+
+## Download
+
+Preview builds for Windows and Linux (x64) are on the
+[releases page](https://github.com/Sheekovic/Proteus-Browser/releases). Each is one
+folder holding the kernel, the manager and the Node.js runtime it needs: unpack it and
+run `Start Proteus.cmd` (Windows) or `./start-proteus.sh` (Linux). Check the download
+against `SHA256SUMS.txt`.
+
+They are previews: unsigned, so Windows warns before running them, and not optimised
+"official" builds. On Linux the browser's sandbox needs unprivileged user namespaces,
+which Ubuntu 24.04 and later restrict by default.
 
 ## Contents
 
@@ -94,8 +106,9 @@ functions still look native.
 
 ## Getting started
 
-You need [Node.js](https://nodejs.org) 24 or newer and a built kernel
-(see [Building the kernel](#building-the-kernel)).
+With a [preview build](#download) there is nothing to set up. To run from this
+repository instead you need [Node.js](https://nodejs.org) 24 or newer and a built
+kernel (see [Building the kernel](#building-the-kernel)).
 
 ```bash
 cd manager
@@ -223,6 +236,7 @@ kernel/
   scripts/           build and test scripts; edits/ makes the in-place changes
   tests/             test pages and the scripts that check them
 docs/                the website (GitHub Pages), including the browser test page
+release/             what a release bundle adds, and the script that assembles one
 manager/
   src/               the manager (TypeScript, run directly by Node)
   ui/                the web UI and the fingerprint collector page

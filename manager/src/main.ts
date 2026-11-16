@@ -1,8 +1,12 @@
-// Entry point: `node src/main.ts [--port 5310]`
+// Entry point: `node src/main.ts [--port 5310] [--open]`
+//   --open   also opens the web UI in the user's own browser
 
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { findKernel, openCommand } from './bundled.ts';
 import { Launcher } from './launcher.ts';
 import { createApiServer } from './server.ts';
 import { Store } from './store.ts';
@@ -20,17 +24,35 @@ function parsePort(argv: readonly string[]): number {
   return port;
 }
 
+const argv = process.argv.slice(2);
+const managerDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const store = new Store();
 const launcher = new Launcher(store);
-const uiDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'ui');
-const server = createApiServer({ store, launcher, uiDir });
+const server = createApiServer({ store, launcher, uiDir: join(managerDir, 'ui') });
+
+// With no kernel chosen yet, or one that is no longer there (the folder was moved),
+// use the one shipped next to the manager.
+const settings = await store.getSettings();
+if (settings.kernelPath === '' || !existsSync(settings.kernelPath)) {
+  const kernel = findKernel(managerDir);
+  if (kernel !== undefined) {
+    await store.updateSettings({ kernelPath: kernel });
+    console.log(`Kernel: ${kernel}`);
+  }
+}
 
 // Loopback only: the API has no login and must not be reachable from the network.
-server.listen(parsePort(process.argv.slice(2)), '127.0.0.1', () => {
+server.listen(parsePort(argv), '127.0.0.1', () => {
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : DEFAULT_PORT;
-  console.log(`Proteus manager listening on http://127.0.0.1:${port}`);
+  const url = `http://127.0.0.1:${port}`;
+  console.log(`Proteus manager listening on ${url}`);
   console.log(`Data directory: ${store.dataDir}`);
+  if (argv.includes('--open')) {
+    const [program, ...args] = openCommand(url);
+    // Best effort: without a desktop there is nothing to open, and the address is printed above.
+    spawn(program, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+  }
 });
 
 let shuttingDown = false;
