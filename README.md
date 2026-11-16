@@ -28,6 +28,7 @@ same profile looks like the same device every time it starts.
 - [Repository layout](#repository-layout)
 - [Limitations](#limitations)
 - [Responsible use](#responsible-use)
+- [License](#license)
 
 ## What it does
 
@@ -248,8 +249,11 @@ use it for fraud, to evade a ban, or to impersonate someone else.
 The patches are original work written for this project. Proteus is not affiliated
 with, and contains no code or data from, any commercial anti-detect browser.
 
-## Acknowledgements
+## License
 
-Built on [Chromium](https://www.chromium.org/), whose source the kernel patches
-modify. Chromium is the work of The Chromium Authors and is distributed under its own
-licences.
+Proteus is released under the [BSD 3-Clause License](LICENSE).
+
+The kernel patches modify [Chromium](https://www.chromium.org/), which is the work of
+The Chromium Authors and is distributed under its own licences (BSD 3-Clause for
+Chromium itself, others for the third-party code it includes). Those continue to
+apply to the code the patches are applied to.
