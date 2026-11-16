@@ -1,7 +1,7 @@
 From 781d1e49e534adea9962eef91bab416140db4d81 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 06:32:07 +0000
-Subject: [PATCH 21/23] proteus: phone profiles through built-in device
+Subject: [PATCH 21/24] proteus: phone profiles through built-in device
  emulation
 
 ---

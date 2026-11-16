@@ -1,7 +1,7 @@
 From 7baf94cf4a7dbfd8c76e995c91e41bea8a5327ea Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 13:41:08 +0000
-Subject: [PATCH 05/23] proteus: user agent, client hints and
+Subject: [PATCH 05/24] proteus: user agent, client hints and
  navigator.platform overrides
 
 ---

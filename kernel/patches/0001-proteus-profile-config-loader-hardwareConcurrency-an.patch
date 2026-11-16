@@ -1,7 +1,7 @@
 From b847df1440c6f6f4914281fc659a5f9add90d715 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 11:38:58 +0000
-Subject: [PATCH 01/23] proteus: profile config loader, hardwareConcurrency and
+Subject: [PATCH 01/24] proteus: profile config loader, hardwareConcurrency and
  deviceMemory overrides
 
 ---

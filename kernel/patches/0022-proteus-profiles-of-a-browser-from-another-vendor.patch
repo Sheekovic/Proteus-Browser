@@ -1,7 +1,7 @@
 From eb2e4606b4cfb6a24e7d040055f1c28e2b58b82a Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 10:47:13 +0000
-Subject: [PATCH 22/23] proteus: profiles of a browser from another vendor
+Subject: [PATCH 22/24] proteus: profiles of a browser from another vendor
 
 ---
  base/proteus/proteus_config.cc                | 22 ++++++++++

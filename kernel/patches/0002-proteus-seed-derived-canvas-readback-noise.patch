@@ -1,7 +1,7 @@
 From b033d5b7d563a2dfeb2b1d2d2aa74b09036414ba Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 11:50:25 +0000
-Subject: [PATCH 02/23] proteus: seed-derived canvas readback noise
+Subject: [PATCH 02/24] proteus: seed-derived canvas readback noise
 
 ---
  base/proteus/proteus_config.cc                |   1 +

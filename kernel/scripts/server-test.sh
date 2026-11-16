@@ -18,7 +18,9 @@ export PATH="$ROOT/depot_tools:$PATH"
 export DEPOT_TOOLS_UPDATE=0
 
 echo "== apply sources"
-find "$STAGE" -type f -exec sed -i 's/\r$//' {} +
+# Line endings are fixed in text files only (grep -I matches nothing in a binary
+# one): doing it to a picture corrupts it.
+find "$STAGE" -type f -exec grep -Iq . {} \; -exec sed -i 's/\r$//' {} +
 cp -r "$STAGE/src/." "$SRC/"
 # Edit scripts build on one another (a later patch rewrites lines an earlier one
 # added), so a script cannot be re-run once its successors have been applied.

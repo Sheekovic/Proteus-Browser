@@ -1,7 +1,7 @@
 From 4b688081b44e43187fb7ca46958a414a64e8f0db Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 17:20:47 +0000
-Subject: [PATCH 12/23] proteus: speech synthesis voices and WebGPU adapter
+Subject: [PATCH 12/24] proteus: speech synthesis voices and WebGPU adapter
  info from the profile
 
 ---

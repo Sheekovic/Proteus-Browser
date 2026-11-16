@@ -1,7 +1,7 @@
 From f568e492be9b84c30f9f6c33e3347bf37835fcd6 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 16:48:57 +0000
-Subject: [PATCH 10/23] proteus: generate client hint brand lists from a brand
+Subject: [PATCH 10/24] proteus: generate client hint brand lists from a brand
  name
 
 ---
