@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 300" role="img" aria-label="Proteus">
+  <!-- The icon with the name. The letters are drawn, not set in a font, so the logo
+       looks the same everywhere. This version is for light backgrounds. -->
+  <defs>
+    <linearGradient id="sea" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#0b2559"/>
+      <stop offset="0.55" stop-color="#1857c9"/>
+      <stop offset="1" stop-color="#22c1c9"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(20 20) scale(0.5078)">
+    <rect width="512" height="512" rx="116" fill="url(#sea)"/>
+    <path d="M148 404 V196 C148 132 198 104 252 104 C324 104 368 152 368 212 C368 276 320 318 262 318 C218 318 192 290 192 256 C192 228 214 208 240 208 C262 208 276 224 276 242"
+          fill="none" stroke="#fff" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(356 222)" fill="none" stroke="#0f1f3d" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M0 0 V-150 H46 a43 43 0 0 1 0 86 H0"/>
+    <path transform="translate(140 0)" d="M0 0 V-100 M0 -50 a50 50 0 0 1 50 -50"/>
+    <circle cx="274" cy="-50" r="50"/>
+    <path transform="translate(388 0)" d="M0 -150 V-36 a36 36 0 0 0 36 36 M-30 -100 H40"/>
+    <path transform="translate(464 0)" d="M2 -50 H100 A50 50 0 1 0 85.400 -14.600"/>
+    <path transform="translate(604 0)" d="M0 -100 V-45 a45 45 0 0 0 90 0 V-100 M90 -100 V0"/>
+    <path transform="translate(728 0)" d="M70 -82 C56 -100 18 -104 12 -76 C6 -46 74 -54 70 -24 C66 4 22 0 6 -18"/>
+  </g>
+</svg>

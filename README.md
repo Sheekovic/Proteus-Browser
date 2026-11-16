@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="branding/proteus-logo-dark.svg">
+    <img src="branding/proteus-logo.svg" alt="Proteus" width="420">
+  </picture>
+</p>
+
 # Proteus
 
 [![Manager tests](https://github.com/Sheekovic/Proteus-Browser/actions/workflows/manager-tests.yml/badge.svg)](https://github.com/Sheekovic/Proteus-Browser/actions/workflows/manager-tests.yml)

@@ -33,7 +33,7 @@ code { font: 0.9em var(--mono); background: var(--code); padding: 0.1em 0.35em; 
 .top .wrap { display: flex; align-items: center; gap: 18px; height: 58px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; color: var(--text); }
 .brand:hover { text-decoration: none; }
-.brand svg { width: 26px; height: 26px; }
+.brand img { width: 28px; height: 28px; border-radius: 7px; display: block; }
 .top nav { margin-left: auto; display: flex; gap: 18px; font-size: 15px; }
 .top nav a { color: var(--muted); }
 .top nav a:hover, .top nav a.here { color: var(--text); text-decoration: none; }
