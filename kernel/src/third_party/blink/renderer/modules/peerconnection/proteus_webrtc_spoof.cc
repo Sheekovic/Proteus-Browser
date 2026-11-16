@@ -66,7 +66,7 @@ struct Candidates {
 Candidates Build(const std::string& sdp, bool has_stun_or_turn_server) {
   Candidates result;
   const base::proteus::Config& config = base::proteus::GetConfig();
-  if (!config.webrtc_proxy_only || config.webrtc_public_ip.empty() ||
+  if (!config.webrtc_proxy_only ||
       sdp.find("a=candidate:") != std::string::npos) {
     return result;
   }
@@ -91,7 +91,9 @@ Candidates Build(const std::string& sdp, bool has_stun_or_turn_server) {
       "candidate:%u 1 udp 2113937151 %s %d typ host generation 0 ufrag %s "
       "network-cost 999",
       host_foundation, MdnsHostname().c_str(), port, ufrag));
-  if (has_stun_or_turn_server) {
+  // The public candidate needs an address to show; the host candidate does not,
+  // and a browser that reports no candidate at all leaves pages waiting forever.
+  if (has_stun_or_turn_server && !config.webrtc_public_ip.empty()) {
     result.lines.push_back(base::StringPrintf(
         "candidate:%u 1 udp 1677729535 %s %d typ srflx raddr 0.0.0.0 rport 0 "
         "generation 0 ufrag %s network-cost 999",

@@ -32,8 +32,13 @@ class StaticBitmapImage;
 
 // Returns |image| with noise applied to a private copy of its pixels, or
 // |image| itself when noise is disabled or the pixel format is unsupported.
+// |device_dependent| says whether the canvas holds anything whose pixels vary
+// between devices (text, curves, ...). A canvas that only holds pixels the page
+// already knows exactly, such as putImageData() or plain rectangles, is left
+// alone: there is no fingerprint in it, and changing it would be detectable.
 PLATFORM_EXPORT scoped_refptr<StaticBitmapImage> ProteusNoisedCanvasImage(
-    scoped_refptr<StaticBitmapImage> image);
+    scoped_refptr<StaticBitmapImage> image,
+    bool device_dependent = true);
 
 // Reads the rectangle of |image| whose top-left corner is (sx, sy) and whose
 // size is that of |dst| into |dst|, with noise applied. Returns false, leaving

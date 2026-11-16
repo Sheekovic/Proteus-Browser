@@ -8,7 +8,9 @@
 VT_FLAGS=""   # ICE gathering needs real time.
 
 STUN_IP=$(ip -4 -o addr show docker0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
-[ -z "$STUN_IP" ] && STUN_IP=$(hostname -I | awk '{print $1}')
+[ -z "$STUN_IP" ] && STUN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+# Elsewhere (Windows): the address of the default route, found without sending anything.
+[ -z "$STUN_IP" ] && STUN_IP=$(python3 -c "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('192.0.2.1', 9)); print(s.getsockname()[0])")
 STUN_PORT=3479
 COUNT_FILE="$WORK/stun-count"
 python3 "$STAGE/tests/stun.py" "$STUN_IP" $STUN_PORT "$COUNT_FILE" &

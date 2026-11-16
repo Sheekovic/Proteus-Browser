@@ -1,0 +1,35 @@
+From 1926d0cb8b318dbd189dc6ec22f84f16b97858ae Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Mon, 16 Nov 2026 02:34:14 +0000
+Subject: [PATCH 17/22] proteus: a profile position does not need the system
+ location switch
+
+---
+ .../cpp/geolocation/geolocation_system_permission_manager.cc  | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/services/device/public/cpp/geolocation/geolocation_system_permission_manager.cc b/services/device/public/cpp/geolocation/geolocation_system_permission_manager.cc
+index 1539da0e61..c640583006 100644
+--- a/services/device/public/cpp/geolocation/geolocation_system_permission_manager.cc
++++ b/services/device/public/cpp/geolocation/geolocation_system_permission_manager.cc
+@@ -6,6 +6,7 @@
+ 
+ #include "base/check_op.h"
+ #include "base/no_destructor.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/sequence_checker.h"
+ #include "services/device/public/cpp/device_features.h"
+ 
+@@ -94,6 +95,9 @@ GeolocationSystemPermissionManager::SystemGeolocationSourceForTest() {
+ LocationSystemPermissionStatus
+ GeolocationSystemPermissionManager::GetSystemPermission() const {
+   CHECK(features::IsOsLevelGeolocationPermissionSupportEnabled());
++  if (base::proteus::GetConfig().has_geolocation) {
++    return LocationSystemPermissionStatus::kAllowed;
++  }
+   return permission_cache_;
+ }
+ 
+-- 
+2.43.0
+

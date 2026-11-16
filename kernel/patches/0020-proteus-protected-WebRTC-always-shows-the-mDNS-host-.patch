@@ -1,0 +1,60 @@
+From fd85edced71e349b195952f7799f442e6634a83e Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Mon, 16 Nov 2026 04:05:32 +0000
+Subject: [PATCH 20/22] proteus: protected WebRTC always shows the mDNS host
+ candidate
+
+---
+ .../modules/peerconnection/proteus_webrtc_spoof.cc    |  6 ++++--
+ .../modules/peerconnection/proteus_webrtc_spoof.h     | 11 ++++++-----
+ 2 files changed, 10 insertions(+), 7 deletions(-)
+
+diff --git a/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.cc b/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.cc
+index f6619244db..b038ac9601 100644
+--- a/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.cc
++++ b/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.cc
+@@ -66,7 +66,7 @@ struct Candidates {
+ Candidates Build(const std::string& sdp, bool has_stun_or_turn_server) {
+   Candidates result;
+   const base::proteus::Config& config = base::proteus::GetConfig();
+-  if (!config.webrtc_proxy_only || config.webrtc_public_ip.empty() ||
++  if (!config.webrtc_proxy_only ||
+       sdp.find("a=candidate:") != std::string::npos) {
+     return result;
+   }
+@@ -91,7 +91,9 @@ Candidates Build(const std::string& sdp, bool has_stun_or_turn_server) {
+       "candidate:%u 1 udp 2113937151 %s %d typ host generation 0 ufrag %s "
+       "network-cost 999",
+       host_foundation, MdnsHostname().c_str(), port, ufrag));
+-  if (has_stun_or_turn_server) {
++  // The public candidate needs an address to show; the host candidate does not,
++  // and a browser that reports no candidate at all leaves pages waiting forever.
++  if (has_stun_or_turn_server && !config.webrtc_public_ip.empty()) {
+     result.lines.push_back(base::StringPrintf(
+         "candidate:%u 1 udp 1677729535 %s %d typ srflx raddr 0.0.0.0 rport 0 "
+         "generation 0 ufrag %s network-cost 999",
+diff --git a/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.h b/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.h
+index 9ee1c58fd3..bdc0a104f5 100644
+--- a/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.h
++++ b/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.h
+@@ -13,11 +13,12 @@ namespace blink {
+ // Presentational ICE candidates.
+ //
+ // A profile in WebRTC "proxy only" mode sends no direct UDP, so ICE gathering
+-// yields nothing - which is safe, but an empty candidate list is itself unusual.
+-// When the profile also names the public address to show, the page is given the
+-// candidates a normal browser behind that address would report: a host candidate
+-// hidden behind an mDNS name and, if the page configured a STUN or TURN server,
+-// a server-reflexive candidate carrying the public address.
++// yields nothing - which is safe, but no browser reports an empty candidate
++// list, and pages that wait for a candidate would wait forever. So the page is
++// given what a normal browser reports: a host candidate hidden behind an mDNS
++// name and, when the profile names the public address to show and the page
++// configured a STUN or TURN server, a server-reflexive candidate carrying that
++// address.
+ //
+ // These candidates are for display only. Nothing listens on them and no packet
+ // is sent for them; the machine's real addresses never appear.
+-- 
+2.43.0
+

@@ -22,11 +22,13 @@ namespace {
 // One changing sample in this many is perturbed.
 constexpr uint64_t kSampleSelectionRate = 4;
 
-uint64_t Mix(uint64_t seed, uint64_t channel, uint64_t index, uint32_t bits) {
+// The decision for a sample depends only on the seed, the sample and the one
+// before it, not on its position or channel: one source feeding two channels
+// must still give two identical channels.
+uint64_t Mix(uint64_t seed, uint32_t bits, uint32_t previous_bits) {
   uint64_t h = seed;
-  h ^= (channel + 1) * 0x9E3779B97F4A7C15ull;
-  h ^= index * 0xC2B2AE3D27D4EB4Full;
-  h ^= static_cast<uint64_t>(bits) * 0x165667B19E3779F9ull;
+  h ^= static_cast<uint64_t>(bits) * 0x9E3779B97F4A7C15ull;
+  h ^= static_cast<uint64_t>(previous_bits) * 0xC2B2AE3D27D4EB4Full;
   h ^= h >> 30;
   h *= 0xBF58476D1CE4E5B9ull;
   h ^= h >> 27;
@@ -35,7 +37,7 @@ uint64_t Mix(uint64_t seed, uint64_t channel, uint64_t index, uint32_t bits) {
   return h;
 }
 
-void ApplyNoise(base::span<float> samples, uint64_t channel, uint64_t seed) {
+void ApplyNoise(base::span<float> samples, uint64_t seed) {
   if (samples.empty()) {
     return;
   }
@@ -43,7 +45,8 @@ void ApplyNoise(base::span<float> samples, uint64_t channel, uint64_t seed) {
   for (size_t i = 1; i < samples.size(); ++i) {
     const float current = samples[i];
     if (current != previous && current != 0.0f && std::isfinite(current)) {
-      const uint64_t h = Mix(seed, channel, i, base::bit_cast<uint32_t>(current));
+      const uint64_t h = Mix(seed, base::bit_cast<uint32_t>(current),
+                             base::bit_cast<uint32_t>(previous));
       if (h % kSampleSelectionRate == 0) {
         const float toward = (h >> 8) & 1
                                  ? std::numeric_limits<float>::infinity()
@@ -70,7 +73,7 @@ void ProteusApplyAudioNoise(AudioBuffer* buffer) {
     if (!data.Get()) {
       continue;
     }
-    ApplyNoise(data->AsSpan(), channel, config.seed);
+    ApplyNoise(data->AsSpan(), config.seed);
   }
 }
 

@@ -173,6 +173,41 @@ struct BASE_EXPORT Config {
   // Empty means "report this machine's voices".
   std::vector<Voice> voices;
 
+  // The position navigator.geolocation reports once a site is allowed to ask,
+  // in degrees and metres. When set, the machine's own location services are
+  // never consulted. Unset means stock behaviour.
+  // Phone profile. When set, every page is laid out and reported as on a phone
+  // of this size: mobile viewport rules, touch input with |max_touch_points|
+  // fingers, the screen from |screen|, a view of |mobile_view_*| CSS pixels at
+  // |mobile_device_scale_factor| device pixels each, no plugins.
+  bool mobile = false;
+  int mobile_max_touch_points = 5;
+  double mobile_device_scale_factor = 2.0;
+  int mobile_view_width = 0;
+  int mobile_view_height = 0;
+  // Phones other than Android ones keep the built-in PDF viewer plugins.
+  bool mobile_pdf_viewer = false;
+
+  // Identity of a browser from another vendor. |vendor| replaces
+  // navigator.vendor when not empty. |hidden_members| lists, per interface
+  // name ("Navigator", "WorkerNavigator", ...), members that browser does not
+  // have; they are removed from the interface in every script context.
+  // |client_hints| false sends no client hint request headers at all and
+  // |chrome_object| false leaves pages without window.chrome.
+  struct HiddenMembers {
+    std::string interface_name;
+    std::vector<std::string> members;
+  };
+  std::string vendor;
+  std::vector<HiddenMembers> hidden_members;
+  bool client_hints = true;
+  bool chrome_object = true;
+
+  bool has_geolocation = false;
+  double geolocation_latitude = 0;
+  double geolocation_longitude = 0;
+  double geolocation_accuracy = 0;
+
   // Base64 form of the source JSON, forwarded to child processes.
   std::string serialized;
 };

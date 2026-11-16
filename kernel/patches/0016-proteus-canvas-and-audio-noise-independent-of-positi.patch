@@ -1,0 +1,173 @@
+From 55bfd40aef4b454153a3067f90f91bdcb6a8625a Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Mon, 16 Nov 2026 02:16:33 +0000
+Subject: [PATCH 16/22] proteus: canvas and audio noise independent of position
+ and channel
+
+---
+ .../modules/webaudio/proteus_audio_noise.cc   | 17 ++++----
+ .../platform/graphics/proteus_canvas_noise.cc | 40 +++++++++----------
+ 2 files changed, 29 insertions(+), 28 deletions(-)
+
+diff --git a/third_party/blink/renderer/modules/webaudio/proteus_audio_noise.cc b/third_party/blink/renderer/modules/webaudio/proteus_audio_noise.cc
+index ace5a591ef..4127a333d6 100644
+--- a/third_party/blink/renderer/modules/webaudio/proteus_audio_noise.cc
++++ b/third_party/blink/renderer/modules/webaudio/proteus_audio_noise.cc
+@@ -22,11 +22,13 @@ namespace {
+ // One changing sample in this many is perturbed.
+ constexpr uint64_t kSampleSelectionRate = 4;
+ 
+-uint64_t Mix(uint64_t seed, uint64_t channel, uint64_t index, uint32_t bits) {
++// The decision for a sample depends only on the seed, the sample and the one
++// before it, not on its position or channel: one source feeding two channels
++// must still give two identical channels.
++uint64_t Mix(uint64_t seed, uint32_t bits, uint32_t previous_bits) {
+   uint64_t h = seed;
+-  h ^= (channel + 1) * 0x9E3779B97F4A7C15ull;
+-  h ^= index * 0xC2B2AE3D27D4EB4Full;
+-  h ^= static_cast<uint64_t>(bits) * 0x165667B19E3779F9ull;
++  h ^= static_cast<uint64_t>(bits) * 0x9E3779B97F4A7C15ull;
++  h ^= static_cast<uint64_t>(previous_bits) * 0xC2B2AE3D27D4EB4Full;
+   h ^= h >> 30;
+   h *= 0xBF58476D1CE4E5B9ull;
+   h ^= h >> 27;
+@@ -35,7 +37,7 @@ uint64_t Mix(uint64_t seed, uint64_t channel, uint64_t index, uint32_t bits) {
+   return h;
+ }
+ 
+-void ApplyNoise(base::span<float> samples, uint64_t channel, uint64_t seed) {
++void ApplyNoise(base::span<float> samples, uint64_t seed) {
+   if (samples.empty()) {
+     return;
+   }
+@@ -43,7 +45,8 @@ void ApplyNoise(base::span<float> samples, uint64_t channel, uint64_t seed) {
+   for (size_t i = 1; i < samples.size(); ++i) {
+     const float current = samples[i];
+     if (current != previous && current != 0.0f && std::isfinite(current)) {
+-      const uint64_t h = Mix(seed, channel, i, base::bit_cast<uint32_t>(current));
++      const uint64_t h = Mix(seed, base::bit_cast<uint32_t>(current),
++                             base::bit_cast<uint32_t>(previous));
+       if (h % kSampleSelectionRate == 0) {
+         const float toward = (h >> 8) & 1
+                                  ? std::numeric_limits<float>::infinity()
+@@ -70,7 +73,7 @@ void ProteusApplyAudioNoise(AudioBuffer* buffer) {
+     if (!data.Get()) {
+       continue;
+     }
+-    ApplyNoise(data->AsSpan(), channel, config.seed);
++    ApplyNoise(data->AsSpan(), config.seed);
+   }
+ }
+ 
+diff --git a/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc b/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc
+index d73a9cfb49..b9de10b575 100644
+--- a/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc
++++ b/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc
+@@ -39,11 +39,14 @@ bool IsSupported(SkColorType color_type) {
+          color_type == kBGRA_8888_SkColorType;
+ }
+ 
+-uint64_t Mix(uint64_t seed, int64_t x, int64_t y, uint32_t rgb) {
++// The decision for a pixel depends only on the seed, the pixel and its left
++// neighbour, not on where on the canvas they are: real rendering gives the same
++// picture wherever it is drawn, and a page can check that by drawing the same
++// thing twice at different offsets.
++uint64_t Mix(uint64_t seed, uint32_t rgb, uint32_t left_rgb) {
+   uint64_t h = seed;
+-  h ^= static_cast<uint64_t>(x) * 0x9E3779B97F4A7C15ull;
+-  h ^= static_cast<uint64_t>(y) * 0xC2B2AE3D27D4EB4Full;
+-  h ^= static_cast<uint64_t>(rgb) * 0x165667B19E3779F9ull;
++  h ^= static_cast<uint64_t>(rgb) * 0x9E3779B97F4A7C15ull;
++  h ^= static_cast<uint64_t>(left_rgb) * 0xC2B2AE3D27D4EB4Full;
+   h ^= h >> 30;
+   h *= 0xBF58476D1CE4E5B9ull;
+   h ^= h >> 27;
+@@ -53,24 +56,19 @@ uint64_t Mix(uint64_t seed, int64_t x, int64_t y, uint32_t rgb) {
+ }
+ 
+ // Perturbs |height| rows of |width| 4-byte pixels in place, the rows being
+-// |row_bytes| apart starting at |first_row|. Row r, column c is canvas position
+-// (origin_x + c, origin_y + r * y_step). Column 0 only ever serves as
++// |row_bytes| apart starting at |first_row|. Column 0 only ever serves as
+ // left-neighbour context and is never modified.
+ void ApplyNoiseRows(uint8_t* first_row,
+                     size_t row_bytes,
+                     int width,
+                     int height,
+                     bool is_bgra,
+-                    int64_t origin_x,
+-                    int64_t origin_y,
+-                    int y_step,
+                     uint64_t seed) {
+   // Byte offsets of the colour channels in canonical R, G, B order.
+   const int channel_offset[3] = {is_bgra ? 2 : 0, 1, is_bgra ? 0 : 2};
+ 
+   for (int y = 0; y < height; ++y) {
+     uint8_t* row = first_row + row_bytes * static_cast<size_t>(y);
+-    const int64_t canvas_y = origin_y + static_cast<int64_t>(y) * y_step;
+     uint8_t left[4];
+     memcpy(left, row, 4);  // Original value of the pixel to the left.
+ 
+@@ -87,7 +85,10 @@ void ApplyNoiseRows(uint8_t* first_row,
+         const uint32_t rgb = ((current[channel_offset[0]] & 0xFE) << 16) |
+                              ((current[channel_offset[1]] & 0xFE) << 8) |
+                              (current[channel_offset[2]] & 0xFE);
+-        const uint64_t h = Mix(seed, origin_x + x, canvas_y, rgb);
++        const uint32_t left_rgb = ((left[channel_offset[0]] & 0xFE) << 16) |
++                                  ((left[channel_offset[1]] & 0xFE) << 8) |
++                                  (left[channel_offset[2]] & 0xFE);
++        const uint64_t h = Mix(seed, rgb, left_rgb);
+         if (h % kEdgeSelectionRate == 0) {
+           uint8_t& channel = pixel[channel_offset[(h >> 8) % 3]];
+           channel = static_cast<uint8_t>((channel & 0xFE) | ((h >> 16) & 1));
+@@ -98,14 +99,10 @@ void ApplyNoiseRows(uint8_t* first_row,
+   }
+ }
+ 
+-void ApplyNoise(const SkPixmap& pixmap,
+-                int64_t origin_x,
+-                int64_t origin_y,
+-                uint64_t seed) {
++void ApplyNoise(const SkPixmap& pixmap, uint64_t seed) {
+   ApplyNoiseRows(static_cast<uint8_t*>(pixmap.writable_addr()),
+                  pixmap.rowBytes(), pixmap.width(), pixmap.height(),
+-                 pixmap.colorType() == kBGRA_8888_SkColorType, origin_x,
+-                 origin_y, 1, seed);
++                 pixmap.colorType() == kBGRA_8888_SkColorType, seed);
+ }
+ 
+ }  // namespace
+@@ -128,9 +125,10 @@ void ProteusNoiseAndCopyRgba(base::span<uint8_t> scratch,
+   const size_t dst_row = scratch_row - 4;
+   CHECK_GE(scratch.size(), scratch_row * static_cast<size_t>(height));
+ 
++  // The position arguments are no longer used: the noise is the same wherever
++  // the pixels are, which also makes it independent of the row order.
+   ApplyNoiseRows(scratch.data(), scratch_row, width_with_context, height,
+-                 /*is_bgra=*/false, origin_x, origin_y, y_step,
+-                 base::proteus::GetConfig().seed);
++                 /*is_bgra=*/false, base::proteus::GetConfig().seed);
+   for (int y = 0; y < height; ++y) {
+     memcpy(dst + dst_row * static_cast<size_t>(y),
+            scratch.data() + scratch_row * static_cast<size_t>(y) + 4, dst_row);
+@@ -159,7 +157,7 @@ scoped_refptr<StaticBitmapImage> ProteusNoisedCanvasImage(
+       !source->readPixels(copy.pixmap(), 0, 0)) {
+     return image;
+   }
+-  ApplyNoise(copy.pixmap(), 0, 0, config.seed);
++  ApplyNoise(copy.pixmap(), config.seed);
+   copy.setImmutable();
+   return UnacceleratedStaticBitmapImage::Create(copy.asImage());
+ }
+@@ -189,7 +187,7 @@ bool ProteusReadNoisedCanvasPixels(const cc::PaintImage& image,
+     return false;
+   }
+ 
+-  ApplyNoise(scratch.pixmap(), static_cast<int64_t>(sx) - 1, sy, config.seed);
++  ApplyNoise(scratch.pixmap(), config.seed);
+ 
+   const size_t row_bytes = static_cast<size_t>(dst.width()) * 4;
+   for (int y = 0; y < dst.height(); ++y) {
+-- 
+2.43.0
+

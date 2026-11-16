@@ -1,0 +1,53 @@
+<!doctype html>
+<body>
+<img src="/slow?ms=5000" alt="">
+<script>
+// Emits one line of key=value pairs with everything a page can learn about the GPU
+// through WebGL 1, WebGL 2, a worker and WebGPU, to see whether they tell one story.
+const enc = v => encodeURIComponent(String(v));
+function fnv(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0');
+}
+function describe(gl) {
+  if (!gl) return 'none';
+  const info = gl.getExtension('WEBGL_debug_renderer_info');
+  const range = p => Array.from(gl.getParameter(p) || []).join('-');
+  const extensions = gl.getSupportedExtensions() || [];
+  return [
+    info ? gl.getParameter(info.UNMASKED_VENDOR_WEBGL) : 'no-info',
+    info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : 'no-info',
+    gl.getParameter(gl.VENDOR), gl.getParameter(gl.RENDERER),
+    'tex' + gl.getParameter(gl.MAX_TEXTURE_SIZE), 'view' + range(gl.MAX_VIEWPORT_DIMS),
+    'line' + range(gl.ALIASED_LINE_WIDTH_RANGE), 'point' + range(gl.ALIASED_POINT_SIZE_RANGE),
+    'ext' + extensions.length + ':' + fnv(extensions.join(',')),
+  ].join('~');
+}
+const within = (promise, ms, fallback) =>
+    Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(fallback), ms))]);
+
+(async () => {
+  const gl1 = describe(document.createElement('canvas').getContext('webgl'));
+  const gl2 = describe(document.createElement('canvas').getContext('webgl2'));
+  const code = `${fnv.toString()}; ${describe.toString()};
+    postMessage(describe(new OffscreenCanvas(8, 8).getContext('webgl')))`;
+  const worker = new Worker(URL.createObjectURL(new Blob([code])));
+  const inWorker = await within(new Promise(r => { worker.onmessage = e => r(e.data); }), 3000, 'timeout');
+  let gpu = 'unsupported';
+  if (navigator.gpu) {
+    const adapter = await within(navigator.gpu.requestAdapter(), 3000, null);
+    if (!adapter) gpu = 'no-adapter';
+    else {
+      const i = adapter.info || {};
+      gpu = [i.vendor, i.architecture, i.device, i.description, 'fallback' + (i.isFallbackAdapter ?? adapter.isFallbackAdapter),
+             'tex' + adapter.limits.maxTextureDimension2D, 'feat' + adapter.features.size + ':' + fnv([...adapter.features].sort().join(','))].join('~');
+    }
+  }
+  document.body.innerText = 'RESULT ' + [
+    'webgl1=' + enc(gl1), 'webgl2=' + enc(gl2), 'worker=' + enc(inWorker), 'webgpu=' + enc(gpu),
+    'sameInWorker=' + (inWorker === gl1),
+  ].join(' ');
+})();
+</script>
+</body>

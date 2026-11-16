@@ -1,0 +1,122 @@
+From 1d222a0005a8937a5fc10318a3ed0da61be0b390 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Mon, 16 Nov 2026 01:50:09 +0000
+Subject: [PATCH 14/22] proteus: generic font families resolve to the system
+ font under a font list
+
+---
+ .../renderer/core/css/css_font_selector.cc    |  4 ++++
+ .../core/css/offscreen_font_selector.cc       |  4 ++++
+ .../platform/fonts/proteus_font_filter.cc     | 19 ++++++++++++++++++-
+ .../platform/fonts/proteus_font_filter.h      | 18 ++++++++++++++++++
+ 4 files changed, 44 insertions(+), 1 deletion(-)
+
+diff --git a/third_party/blink/renderer/core/css/css_font_selector.cc b/third_party/blink/renderer/core/css/css_font_selector.cc
+index d185bb02fe..9f0c25a370 100644
+--- a/third_party/blink/renderer/core/css/css_font_selector.cc
++++ b/third_party/blink/renderer/core/css/css_font_selector.cc
+@@ -26,6 +26,8 @@
+ 
+ #include "third_party/blink/renderer/core/css/css_font_selector.h"
+ 
++#include "third_party/blink/renderer/platform/fonts/proteus_font_filter.h"
++
+ #include "build/build_config.h"
+ #include "third_party/blink/renderer/core/animation/interpolable_color.h"
+ #include "third_party/blink/renderer/core/css/css_segmented_font_face.h"
+@@ -252,6 +254,8 @@ const FontData* CSSFontSelector::GetFontData(
+     return nullptr;
+   }
+ 
++  ProteusGenericFontLookupScope proteus_generic_lookup(
++      font_family.FamilyIsGeneric());
+   const SimpleFontData* font_data =
+       FontCache::Get().GetFontData(request_description, settings_family_name);
+   if (font_data && request_description.HasSizeAdjust()) {
+diff --git a/third_party/blink/renderer/core/css/offscreen_font_selector.cc b/third_party/blink/renderer/core/css/offscreen_font_selector.cc
+index d47f7ddafd..497f316af7 100644
+--- a/third_party/blink/renderer/core/css/offscreen_font_selector.cc
++++ b/third_party/blink/renderer/core/css/offscreen_font_selector.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "third_party/blink/renderer/core/css/offscreen_font_selector.h"
+ 
++#include "third_party/blink/renderer/platform/fonts/proteus_font_filter.h"
++
+ #include "build/build_config.h"
+ #include "third_party/blink/renderer/core/frame/settings.h"
+ #include "third_party/blink/renderer/platform/fonts/font_cache.h"
+@@ -52,6 +54,8 @@ const FontData* OffscreenFontSelector::GetFontData(
+     return nullptr;
+   }
+ 
++  ProteusGenericFontLookupScope proteus_generic_lookup(
++      font_family.FamilyIsGeneric());
+   return FontCache::Get().GetFontData(font_description, settings_family_name);
+ }
+ 
+diff --git a/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc b/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc
+index a45b4006ed..e0065700d0 100644
+--- a/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc
++++ b/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc
+@@ -112,10 +112,27 @@ bool IsStyleSuffix(std::string_view rest) {
+   return true;
+ }
+ 
++// Number of live generic-family lookups on this thread.
++constinit thread_local int g_generic_lookup_depth = 0;
++
+ }  // namespace
+ 
++ProteusGenericFontLookupScope::ProteusGenericFontLookupScope(bool generic)
++    : generic_(generic) {
++  if (generic_) {
++    ++g_generic_lookup_depth;
++  }
++}
++
++ProteusGenericFontLookupScope::~ProteusGenericFontLookupScope() {
++  if (generic_) {
++    --g_generic_lookup_depth;
++  }
++}
++
+ bool ProteusIsFontFamilyHidden(const AtomicString& family) {
+-  if (AllowedFamilies().empty() || family.empty()) {
++  if (AllowedFamilies().empty() || family.empty() ||
++      g_generic_lookup_depth > 0) {
+     return false;
+   }
+   return !AllowedFamilySet().contains(base::ToLowerASCII(family.Utf8()));
+diff --git a/third_party/blink/renderer/platform/fonts/proteus_font_filter.h b/third_party/blink/renderer/platform/fonts/proteus_font_filter.h
+index e55c1b88ab..493725b256 100644
+--- a/third_party/blink/renderer/platform/fonts/proteus_font_filter.h
++++ b/third_party/blink/renderer/platform/fonts/proteus_font_filter.h
+@@ -49,6 +49,24 @@ PLATFORM_EXPORT Vector<AtomicString> ProteusFontFamilySubstitutes(
+ PLATFORM_EXPORT Vector<AtomicString> ProteusUniqueFontNameSubstitutes(
+     const AtomicString& name);
+ 
++// While one of these with |generic| true is alive on a thread, family lookups
++// are not filtered. Used while the browser resolves a CSS generic family
++// (serif, monospace, system-ui, ...) to the font the system uses for it: that
++// font is not on a profile's list when the list describes another system, yet
++// "monospace" must still be a monospace font. Asking for the same font by its
++// own name stays filtered.
++class PLATFORM_EXPORT ProteusGenericFontLookupScope {
++ public:
++  explicit ProteusGenericFontLookupScope(bool generic);
++  ProteusGenericFontLookupScope(const ProteusGenericFontLookupScope&) = delete;
++  ProteusGenericFontLookupScope& operator=(
++      const ProteusGenericFontLookupScope&) = delete;
++  ~ProteusGenericFontLookupScope();
++
++ private:
++  const bool generic_;
++};
++
+ }  // namespace blink
+ 
+ #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_PROTEUS_FONT_FILTER_H_
+-- 
+2.43.0
+

@@ -88,6 +88,17 @@ constexpr std::string_view kStyleWords[] = {
     "psmt",       "mt",         "ps",
 };
 
+// Weight and width words the browser strips from the end of a family name on
+// Windows before looking the family up (longer words before their suffixes).
+constexpr std::string_view kFamilySuffixWords[] = {
+    "ultracondensed", "extracondensed", "semicondensed", "condensed",
+    "semiexpanded",   "extraexpanded",  "ultraexpanded", "expanded",
+    "extralight",     "ultralight",     "semilight",     "light",
+    "extrabold",      "ultrabold",      "demibold",      "semibold",
+    "bold",           "thin",           "regular",       "medium",
+    "heavy",          "black",
+};
+
 // True when |rest|, the part of a font name after its family, consists only of
 // style words: "" or " bold italic" or "-boldoblique", but not " mono", which
 // would make it the separate family "DejaVu Sans Mono".
@@ -112,13 +123,55 @@ bool IsStyleSuffix(std::string_view rest) {
   return true;
 }
 
+// Number of live generic-family lookups on this thread.
+constinit thread_local int g_generic_lookup_depth = 0;
+
 }  // namespace
 
+ProteusGenericFontLookupScope::ProteusGenericFontLookupScope(bool generic)
+    : generic_(generic) {
+  if (generic_) {
+    ++g_generic_lookup_depth;
+  }
+}
+
+ProteusGenericFontLookupScope::~ProteusGenericFontLookupScope() {
+  if (generic_) {
+    --g_generic_lookup_depth;
+  }
+}
+
 bool ProteusIsFontFamilyHidden(const AtomicString& family) {
-  if (AllowedFamilies().empty() || family.empty()) {
+  if (AllowedFamilies().empty() || family.empty() ||
+      g_generic_lookup_depth > 0) {
     return false;
   }
-  return !AllowedFamilySet().contains(base::ToLowerASCII(family.Utf8()));
+  std::string name = base::ToLowerASCII(family.Utf8());
+  if (AllowedFamilySet().contains(name)) {
+    return false;
+  }
+  // The browser itself accepts a family name with a weight or width word on
+  // the end ("Corbel Light", "Bahnschrift SemiBold Condensed") by dropping the
+  // word and asking for that style of the family. Such a name must be as
+  // visible as its family, or measuring text would disagree with local().
+  for (int dropped = 0; dropped < 2; ++dropped) {
+    bool stripped = false;
+    for (std::string_view word : kFamilySuffixWords) {
+      if (name.size() > word.size() + 1 && name.ends_with(word) &&
+          name[name.size() - word.size() - 1] == ' ') {
+        name.resize(name.size() - word.size() - 1);
+        stripped = true;
+        break;
+      }
+    }
+    if (!stripped) {
+      break;
+    }
+    if (AllowedFamilySet().contains(name)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool ProteusIsUniqueFontNameHidden(const AtomicString& name) {

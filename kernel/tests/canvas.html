@@ -34,6 +34,10 @@ function flat() {
 
 const c = scene();
 const g = c.getContext('2d');
+// A first read moves a canvas drawn on the GPU into memory, and on some GPUs an
+// unmodified browser's pixels differ by one step before and after that move. Read
+// once so that everything below sees the canvas in its settled state.
+g.getImageData(0, 0, 1, 1);
 const full = g.getImageData(0, 0, c.width, c.height).data;
 
 // A sub-rectangle read must agree with the full read on every shared pixel.

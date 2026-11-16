@@ -49,6 +49,24 @@ PLATFORM_EXPORT Vector<AtomicString> ProteusFontFamilySubstitutes(
 PLATFORM_EXPORT Vector<AtomicString> ProteusUniqueFontNameSubstitutes(
     const AtomicString& name);
 
+// While one of these with |generic| true is alive on a thread, family lookups
+// are not filtered. Used while the browser resolves a CSS generic family
+// (serif, monospace, system-ui, ...) to the font the system uses for it: that
+// font is not on a profile's list when the list describes another system, yet
+// "monospace" must still be a monospace font. Asking for the same font by its
+// own name stays filtered.
+class PLATFORM_EXPORT ProteusGenericFontLookupScope {
+ public:
+  explicit ProteusGenericFontLookupScope(bool generic);
+  ProteusGenericFontLookupScope(const ProteusGenericFontLookupScope&) = delete;
+  ProteusGenericFontLookupScope& operator=(
+      const ProteusGenericFontLookupScope&) = delete;
+  ~ProteusGenericFontLookupScope();
+
+ private:
+  const bool generic_;
+};
+
 }  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_PROTEUS_FONT_FILTER_H_

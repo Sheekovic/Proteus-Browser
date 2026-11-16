@@ -1,0 +1,30 @@
+<!doctype html>
+<body>
+<img src="/slow?ms=5000" alt="">
+<script>
+// Reports whether navigator.geolocation gives the expected position. The position
+// itself is never printed, so running this on an unmodified browser reveals nothing.
+// usage: geo.html?expect=<latitude>,<longitude>
+const [lat, lon] = (new URLSearchParams(location.search).get('expect') || ',').split(',').map(Number);
+let finished = false;
+function finish(fields) {
+  if (finished) return;
+  finished = true;
+  document.body.innerText = 'RESULT ' + fields.join(' ');
+}
+navigator.permissions.query({ name: 'geolocation' }).then(status => {
+  navigator.geolocation.getCurrentPosition(
+    position => finish([
+      'permission=' + status.state,
+      'state=ok',
+      'matches=' + (position.coords.latitude === lat && position.coords.longitude === lon),
+      // Only meaningful, and only printed, for the expected position.
+      'accuracy=' + (position.coords.latitude === lat ? position.coords.accuracy : 'hidden'),
+      'fresh=' + (Math.abs(Date.now() - position.timestamp) < 30000),
+    ]),
+    error => finish(['permission=' + status.state, 'state=error' + error.code, 'matches=false']),
+    { timeout: 3500, maximumAge: 0 });
+});
+setTimeout(() => finish(['permission=unknown', 'state=timeout', 'matches=false']), 4500);
+</script>
+</body>

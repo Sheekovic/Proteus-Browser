@@ -1,0 +1,43 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<body>
+<!-- Holds the load event until the checks below have finished. -->
+<img src="/slow?ms=4000" alt="">
+<script>
+// Emits one line of key=value pairs with what tells Chrome from another vendor's browser.
+const NAMES = ['userAgentData', 'connection', 'getBattery', 'deviceMemory'];
+const present = (nav, proto) => NAMES.filter(
+    name => name in nav || Object.getOwnPropertyDescriptor(proto, name) !== undefined).join(',') || 'none';
+const workerSource = `
+  const NAMES = ${JSON.stringify(NAMES)};
+  postMessage(NAMES.filter(name => name in navigator ||
+      Object.getOwnPropertyDescriptor(WorkerNavigator.prototype, name) !== undefined).join(',') || 'none');`;
+(async () => {
+  const out = [];
+  out.push('vendor=' + encodeURIComponent(navigator.vendor));
+  out.push('members=' + present(navigator, Navigator.prototype));
+  out.push('chrome=' + typeof window.chrome);
+  out.push('chromeOwn=' + Object.prototype.hasOwnProperty.call(window, 'chrome'));
+  out.push('plugins=' + navigator.plugins.length);
+  out.push('pdf=' + navigator.pdfViewerEnabled);
+  out.push('keysHaveHidden=' + Object.getOwnPropertyNames(Navigator.prototype).some(k => NAMES.includes(k)));
+
+  const frame = document.createElement('iframe');
+  document.body.appendChild(frame);
+  out.push('frameMembers=' + present(frame.contentWindow.navigator, frame.contentWindow.Navigator.prototype));
+  out.push('frameChrome=' + typeof frame.contentWindow.chrome);
+
+  out.push('workerMembers=' + await new Promise(resolve => {
+    const worker = new Worker(URL.createObjectURL(new Blob([workerSource])));
+    worker.onmessage = event => resolve(event.data);
+    worker.onerror = () => resolve('error');
+  }));
+
+  const headers = await (await fetch('/headers')).json();
+  out.push('hintHeaders=' + (Object.keys(headers).filter(k => k.startsWith('sec-ch-')).sort().join(',') || 'none'));
+  const nav = await (await fetch('/headers', {headers: {'x-test': '1'}})).json();
+  out.push('ua=' + encodeURIComponent(nav['user-agent']));
+  document.body.innerText = 'RESULT ' + out.join(' ');
+})();
+</script>
+</body>

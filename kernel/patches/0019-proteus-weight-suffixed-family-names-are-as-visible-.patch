@@ -1,0 +1,69 @@
+From 74df2de618e4559fcb12366bc6ee456ea08dad06 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Mon, 16 Nov 2026 03:55:14 +0000
+Subject: [PATCH 19/22] proteus: weight-suffixed family names are as visible as
+ their family
+
+---
+ .../platform/fonts/proteus_font_filter.cc     | 38 ++++++++++++++++++-
+ 1 file changed, 37 insertions(+), 1 deletion(-)
+
+diff --git a/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc b/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc
+index e0065700d0..e5f4974b67 100644
+--- a/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc
++++ b/third_party/blink/renderer/platform/fonts/proteus_font_filter.cc
+@@ -88,6 +88,17 @@ constexpr std::string_view kStyleWords[] = {
+     "psmt",       "mt",         "ps",
+ };
+ 
++// Weight and width words the browser strips from the end of a family name on
++// Windows before looking the family up (longer words before their suffixes).
++constexpr std::string_view kFamilySuffixWords[] = {
++    "ultracondensed", "extracondensed", "semicondensed", "condensed",
++    "semiexpanded",   "extraexpanded",  "ultraexpanded", "expanded",
++    "extralight",     "ultralight",     "semilight",     "light",
++    "extrabold",      "ultrabold",      "demibold",      "semibold",
++    "bold",           "thin",           "regular",       "medium",
++    "heavy",          "black",
++};
++
+ // True when |rest|, the part of a font name after its family, consists only of
+ // style words: "" or " bold italic" or "-boldoblique", but not " mono", which
+ // would make it the separate family "DejaVu Sans Mono".
+@@ -135,7 +146,32 @@ bool ProteusIsFontFamilyHidden(const AtomicString& family) {
+       g_generic_lookup_depth > 0) {
+     return false;
+   }
+-  return !AllowedFamilySet().contains(base::ToLowerASCII(family.Utf8()));
++  std::string name = base::ToLowerASCII(family.Utf8());
++  if (AllowedFamilySet().contains(name)) {
++    return false;
++  }
++  // The browser itself accepts a family name with a weight or width word on
++  // the end ("Corbel Light", "Bahnschrift SemiBold Condensed") by dropping the
++  // word and asking for that style of the family. Such a name must be as
++  // visible as its family, or measuring text would disagree with local().
++  for (int dropped = 0; dropped < 2; ++dropped) {
++    bool stripped = false;
++    for (std::string_view word : kFamilySuffixWords) {
++      if (name.size() > word.size() + 1 && name.ends_with(word) &&
++          name[name.size() - word.size() - 1] == ' ') {
++        name.resize(name.size() - word.size() - 1);
++        stripped = true;
++        break;
++      }
++    }
++    if (!stripped) {
++      break;
++    }
++    if (AllowedFamilySet().contains(name)) {
++      return false;
++    }
++  }
++  return true;
+ }
+ 
+ bool ProteusIsUniqueFontNameHidden(const AtomicString& name) {
+-- 
+2.43.0
+

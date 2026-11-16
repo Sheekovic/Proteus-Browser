@@ -27,19 +27,26 @@ namespace blink {
 
 namespace {
 
-// One edge pixel in this many is perturbed.
-constexpr uint64_t kEdgeSelectionRate = 8;
+// One edge pixel in this many has the lowest bit of one channel chosen by the
+// seed. Everything that decides where and how (edges, hash input) ignores the
+// lowest bits, so applying the noise to already noised pixels changes nothing:
+// a page that decodes a PNG it got from a canvas, draws it and reads it back
+// sees the same pixels again, as it would without noise.
+constexpr uint64_t kEdgeSelectionRate = 4;
 
 bool IsSupported(SkColorType color_type) {
   return color_type == kRGBA_8888_SkColorType ||
          color_type == kBGRA_8888_SkColorType;
 }
 
-uint64_t Mix(uint64_t seed, int64_t x, int64_t y, uint32_t rgb) {
+// The decision for a pixel depends only on the seed, the pixel and its left
+// neighbour, not on where on the canvas they are: real rendering gives the same
+// picture wherever it is drawn, and a page can check that by drawing the same
+// thing twice at different offsets.
+uint64_t Mix(uint64_t seed, uint32_t rgb, uint32_t left_rgb) {
   uint64_t h = seed;
-  h ^= static_cast<uint64_t>(x) * 0x9E3779B97F4A7C15ull;
-  h ^= static_cast<uint64_t>(y) * 0xC2B2AE3D27D4EB4Full;
-  h ^= static_cast<uint64_t>(rgb) * 0x165667B19E3779F9ull;
+  h ^= static_cast<uint64_t>(rgb) * 0x9E3779B97F4A7C15ull;
+  h ^= static_cast<uint64_t>(left_rgb) * 0xC2B2AE3D27D4EB4Full;
   h ^= h >> 30;
   h *= 0xBF58476D1CE4E5B9ull;
   h ^= h >> 27;
@@ -49,24 +56,19 @@ uint64_t Mix(uint64_t seed, int64_t x, int64_t y, uint32_t rgb) {
 }
 
 // Perturbs |height| rows of |width| 4-byte pixels in place, the rows being
-// |row_bytes| apart starting at |first_row|. Row r, column c is canvas position
-// (origin_x + c, origin_y + r * y_step). Column 0 only ever serves as
+// |row_bytes| apart starting at |first_row|. Column 0 only ever serves as
 // left-neighbour context and is never modified.
 void ApplyNoiseRows(uint8_t* first_row,
                     size_t row_bytes,
                     int width,
                     int height,
                     bool is_bgra,
-                    int64_t origin_x,
-                    int64_t origin_y,
-                    int y_step,
                     uint64_t seed) {
   // Byte offsets of the colour channels in canonical R, G, B order.
   const int channel_offset[3] = {is_bgra ? 2 : 0, 1, is_bgra ? 0 : 2};
 
   for (int y = 0; y < height; ++y) {
     uint8_t* row = first_row + row_bytes * static_cast<size_t>(y);
-    const int64_t canvas_y = origin_y + static_cast<int64_t>(y) * y_step;
     uint8_t left[4];
     memcpy(left, row, 4);  // Original value of the pixel to the left.
 
@@ -77,23 +79,19 @@ void ApplyNoiseRows(uint8_t* first_row,
 
       const bool is_edge =
           current[3] == 0xFF && left[3] == 0xFF &&
-          (current[0] != left[0] || current[1] != left[1] ||
-           current[2] != left[2]);
+          ((current[0] ^ left[0]) | (current[1] ^ left[1]) |
+           (current[2] ^ left[2])) > 1;
       if (is_edge) {
-        const uint32_t rgb = (current[channel_offset[0]] << 16) |
-                             (current[channel_offset[1]] << 8) |
-                             current[channel_offset[2]];
-        const uint64_t h = Mix(seed, origin_x + x, canvas_y, rgb);
+        const uint32_t rgb = ((current[channel_offset[0]] & 0xFE) << 16) |
+                             ((current[channel_offset[1]] & 0xFE) << 8) |
+                             (current[channel_offset[2]] & 0xFE);
+        const uint32_t left_rgb = ((left[channel_offset[0]] & 0xFE) << 16) |
+                                  ((left[channel_offset[1]] & 0xFE) << 8) |
+                                  (left[channel_offset[2]] & 0xFE);
+        const uint64_t h = Mix(seed, rgb, left_rgb);
         if (h % kEdgeSelectionRate == 0) {
           uint8_t& channel = pixel[channel_offset[(h >> 8) % 3]];
-          const bool up = (h >> 16) & 1;
-          if (channel == 0xFF) {
-            --channel;
-          } else if (channel == 0x00) {
-            ++channel;
-          } else {
-            channel = up ? channel + 1 : channel - 1;
-          }
+          channel = static_cast<uint8_t>((channel & 0xFE) | ((h >> 16) & 1));
         }
       }
       memcpy(left, current, 4);
@@ -101,14 +99,10 @@ void ApplyNoiseRows(uint8_t* first_row,
   }
 }
 
-void ApplyNoise(const SkPixmap& pixmap,
-                int64_t origin_x,
-                int64_t origin_y,
-                uint64_t seed) {
+void ApplyNoise(const SkPixmap& pixmap, uint64_t seed) {
   ApplyNoiseRows(static_cast<uint8_t*>(pixmap.writable_addr()),
                  pixmap.rowBytes(), pixmap.width(), pixmap.height(),
-                 pixmap.colorType() == kBGRA_8888_SkColorType, origin_x,
-                 origin_y, 1, seed);
+                 pixmap.colorType() == kBGRA_8888_SkColorType, seed);
 }
 
 }  // namespace
@@ -131,9 +125,10 @@ void ProteusNoiseAndCopyRgba(base::span<uint8_t> scratch,
   const size_t dst_row = scratch_row - 4;
   CHECK_GE(scratch.size(), scratch_row * static_cast<size_t>(height));
 
+  // The position arguments are no longer used: the noise is the same wherever
+  // the pixels are, which also makes it independent of the row order.
   ApplyNoiseRows(scratch.data(), scratch_row, width_with_context, height,
-                 /*is_bgra=*/false, origin_x, origin_y, y_step,
-                 base::proteus::GetConfig().seed);
+                 /*is_bgra=*/false, base::proteus::GetConfig().seed);
   for (int y = 0; y < height; ++y) {
     memcpy(dst + dst_row * static_cast<size_t>(y),
            scratch.data() + scratch_row * static_cast<size_t>(y) + 4, dst_row);
@@ -141,9 +136,10 @@ void ProteusNoiseAndCopyRgba(base::span<uint8_t> scratch,
 }
 
 scoped_refptr<StaticBitmapImage> ProteusNoisedCanvasImage(
-    scoped_refptr<StaticBitmapImage> image) {
+    scoped_refptr<StaticBitmapImage> image,
+    bool device_dependent) {
   const base::proteus::Config& config = base::proteus::GetConfig();
-  if (!image || !config.canvas_noise) {
+  if (!image || !config.canvas_noise || !device_dependent) {
     return image;
   }
 
@@ -161,7 +157,7 @@ scoped_refptr<StaticBitmapImage> ProteusNoisedCanvasImage(
       !source->readPixels(copy.pixmap(), 0, 0)) {
     return image;
   }
-  ApplyNoise(copy.pixmap(), 0, 0, config.seed);
+  ApplyNoise(copy.pixmap(), config.seed);
   copy.setImmutable();
   return UnacceleratedStaticBitmapImage::Create(copy.asImage());
 }
@@ -191,7 +187,7 @@ bool ProteusReadNoisedCanvasPixels(const cc::PaintImage& image,
     return false;
   }
 
-  ApplyNoise(scratch.pixmap(), static_cast<int64_t>(sx) - 1, sy, config.seed);
+  ApplyNoise(scratch.pixmap(), config.seed);
 
   const size_t row_bytes = static_cast<size_t>(dst.width()) * 4;
   for (int y = 0; y < dst.height(); ++y) {

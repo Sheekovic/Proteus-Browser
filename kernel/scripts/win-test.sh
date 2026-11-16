@@ -10,7 +10,12 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 STAGE="$REPO/kernel"          # The tests refer to $STAGE/tests.
 WORK=$(cygpath -m "$(mktemp -d)")
 PORT=8790
-python3() { python "$@"; }
+# The tests call python3. A real executable of that name (not a shell function), so a
+# helper a test starts in the background can be stopped by its process id.
+SHIM=$(mktemp -d)
+printf '#!/bin/sh\nexec python "$@"\n' > "$SHIM/python3"
+chmod +x "$SHIM/python3"
+PATH="$SHIM:$PATH"
 
 cp "$STAGE"/tests/*.html "$WORK/"
 python "$(cygpath -m "$STAGE/tests/serve.py")" "$WORK" $PORT &

@@ -1,0 +1,93 @@
+<!doctype html>
+<body>
+<img src="/slow?ms=6000" alt="">
+<script>
+// Emits the GPU identity WebGL reports in every kind of context a page can create:
+// the page itself, same-origin and sandboxed frames, and each kind of worker. A
+// browser that changes the identity must change it in all of them.
+const enc = v => encodeURIComponent(String(v));
+const within = (promise, ms, fallback) =>
+    Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(fallback), ms))]);
+
+// Runs in each context; must be self-contained.
+function identity(canvas) {
+  function fnv(text) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return h.toString(16).padStart(8, '0');
+  }
+  const out = [];
+  for (const kind of ['webgl', 'webgl2']) {
+    const gl = (canvas(kind));
+    if (!gl) { out.push(kind + ':none'); continue; }
+    // Asking before the extension is enabled must fail, as in an unmodified browser.
+    const early = gl.getParameter(0x9246), earlyError = gl.getError();
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const all = [];
+    for (const name in gl) {
+      if (typeof gl[name] !== 'number' || name !== name.toUpperCase()) continue;
+      let value;
+      try { value = gl.getParameter(gl[name]); } catch (e) { value = 'throws'; }
+      gl.getError();
+      if (value && typeof value === 'object' && 'length' in value) value = Array.from(value).join(',');
+      else if (value && typeof value === 'object') value = Object.prototype.toString.call(value);
+      all.push(name + '=' + value);
+    }
+    out.push(kind + ':' + [
+      info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : 'no-info',
+      info ? gl.getParameter(info.UNMASKED_VENDOR_WEBGL) : 'no-info',
+      'early=' + early + '/' + earlyError,
+      'params=' + fnv(all.join('|')),
+      'ext=' + fnv((gl.getSupportedExtensions() || []).join(',')),
+    ].join('~'));
+  }
+  return out.join(' ## ');
+}
+const source = `(${identity.toString()})(kind => new OffscreenCanvas(8, 8).getContext(kind))`;
+const frameSource = `<script>parent.postMessage({ frame: (${identity.toString()})(kind => document.createElement('canvas').getContext(kind)) }, '*')<\/script>`;
+
+function fromFrame(setup) {
+  return within(new Promise(resolve => {
+    const frame = document.createElement('iframe');
+    frame.style.display = 'none';
+    const listener = event => {
+      if (event.source === frame.contentWindow && event.data && event.data.frame) {
+        removeEventListener('message', listener); resolve(event.data.frame);
+      }
+    };
+    addEventListener('message', listener);
+    setup(frame);
+    document.body.append(frame);
+  }), 4000, 'timeout');
+}
+
+(async () => {
+  const results = { page: identity(kind => document.createElement('canvas').getContext(kind)) };
+  results.frameSrcdoc = await fromFrame(f => { f.srcdoc = frameSource; });
+  results.frameSandbox = await fromFrame(f => { f.sandbox = 'allow-scripts'; f.srcdoc = frameSource; });
+  results.frameData = await fromFrame(f => { f.src = 'data:text/html,' + encodeURIComponent(frameSource); });
+  results.frameBlob = await fromFrame(f => { f.src = URL.createObjectURL(new Blob([frameSource], { type: 'text/html' })); });
+  const blob = URL.createObjectURL(new Blob([`postMessage(${source})`]));
+  results.worker = await within(new Promise(r => { new Worker(blob).onmessage = e => r(e.data); }), 4000, 'timeout');
+  const sharedBlob = URL.createObjectURL(new Blob([`onconnect = e => e.ports[0].postMessage(${source})`]));
+  results.sharedWorker = await within(new Promise((resolve, reject) => {
+    try { const w = new SharedWorker(sharedBlob); w.port.onmessage = e => resolve(e.data); w.port.start(); } catch (e) { resolve('error:' + e.name); }
+  }), 4000, 'timeout');
+  results.serviceWorker = await within((async () => {
+    try {
+      const registration = await navigator.serviceWorker.register('/gldump-sw.js');
+      const worker = registration.installing || registration.waiting || registration.active;
+      const channel = new MessageChannel();
+      const answer = new Promise(r => { channel.port1.onmessage = e => r(e.data); });
+      worker.postMessage('identity', [channel.port2]);
+      const value = await answer;
+      await registration.unregister();
+      return value;
+    } catch (e) { return 'error:' + e.name; }
+  })(), 5000, 'timeout');
+  const names = Object.keys(results);
+  document.body.innerText = 'RESULT ' + names.map(n => n + '=' + enc(results[n])).join(' ') +
+      ' allAgree=' + names.every(n => results[n] === results.page);
+})();
+</script>
+</body>

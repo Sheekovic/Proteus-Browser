@@ -1,0 +1,118 @@
+From 451be59e33708cc46812b9155f0bf64181281785 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Mon, 16 Nov 2026 02:11:58 +0000
+Subject: [PATCH 15/22] proteus: geolocation position from the profile
+
+---
+ base/proteus/proteus_config.cc                | 13 +++++++++++
+ base/proteus/proteus_config.h                 |  8 +++++++
+ .../geolocation/geolocation_provider_impl.cc  | 22 +++++++++++++++++++
+ 3 files changed, 43 insertions(+)
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index 23a1ebb838..363ea1690e 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "base/proteus/proteus_config.h"
+ 
++#include <optional>
+ #include <string_view>
+ #include <utility>
+ #include <vector>
+@@ -204,6 +205,18 @@ Config LoadConfig() {
+     config.webgpu_vendor = StringOrEmpty(*webgpu, "vendor");
+     config.webgpu_architecture = StringOrEmpty(*webgpu, "architecture");
+   }
++  if (const DictValue* geo = dict->FindDict("geolocation")) {
++    const std::optional<double> latitude = geo->FindDouble("latitude");
++    const std::optional<double> longitude = geo->FindDouble("longitude");
++    if (latitude && longitude && *latitude >= -90 && *latitude <= 90 &&
++        *longitude >= -180 && *longitude <= 180) {
++      config.has_geolocation = true;
++      config.geolocation_latitude = *latitude;
++      config.geolocation_longitude = *longitude;
++      const double accuracy = geo->FindDouble("accuracy").value_or(50.0);
++      config.geolocation_accuracy = accuracy > 0 ? accuracy : 50.0;
++    }
++  }
+   if (const ListValue* voices = dict->FindList("voices")) {
+     for (const Value& item : *voices) {
+       const DictValue* entry = item.GetIfDict();
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index ff0f1ea50e..9638cdbee4 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -173,6 +173,14 @@ struct BASE_EXPORT Config {
+   // Empty means "report this machine's voices".
+   std::vector<Voice> voices;
+ 
++  // The position navigator.geolocation reports once a site is allowed to ask,
++  // in degrees and metres. When set, the machine's own location services are
++  // never consulted. Unset means stock behaviour.
++  bool has_geolocation = false;
++  double geolocation_latitude = 0;
++  double geolocation_longitude = 0;
++  double geolocation_accuracy = 0;
++
+   // Base64 form of the source JSON, forwarded to child processes.
+   std::string serialized;
+ };
+diff --git a/services/device/geolocation/geolocation_provider_impl.cc b/services/device/geolocation/geolocation_provider_impl.cc
+index 7c9363dc73..caea6a5743 100644
+--- a/services/device/geolocation/geolocation_provider_impl.cc
++++ b/services/device/geolocation/geolocation_provider_impl.cc
+@@ -18,6 +18,7 @@
+ #include "base/memory/singleton.h"
+ #include "base/no_destructor.h"
+ #include "base/notreached.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/task/single_thread_task_runner.h"
+ #include "base/time/default_tick_clock.h"
+ #include "build/build_config.h"
+@@ -40,6 +41,20 @@ namespace device {
+ 
+ namespace {
+ 
++// The profile's position as a fresh fix, or null without one.
++mojom::GeopositionResultPtr ProteusForcedPosition() {
++  const base::proteus::Config& config = base::proteus::GetConfig();
++  if (!config.has_geolocation) {
++    return nullptr;
++  }
++  auto position = mojom::Geoposition::New();
++  position->latitude = config.geolocation_latitude;
++  position->longitude = config.geolocation_longitude;
++  position->accuracy = config.geolocation_accuracy;
++  position->timestamp = base::Time::Now();
++  return mojom::GeopositionResult::NewPosition(std::move(position));
++}
++
+ CustomLocationProviderCallback& GetCustomLocationProviderCallback() {
+   static base::NoDestructor<CustomLocationProviderCallback> callback;
+   return *callback;
+@@ -114,6 +129,10 @@ GeolocationProviderImpl::AddLocationUpdateCallback(
+     const LocationUpdateCallback& callback,
+     bool enable_high_accuracy) {
+   DCHECK(main_task_runner_->BelongsToCurrentThread());
++  if (mojom::GeopositionResultPtr forced = ProteusForcedPosition()) {
++    callback.Run(*forced);
++    return base::CallbackListSubscription();
++  }
+   base::CallbackListSubscription subscription;
+   if (enable_high_accuracy) {
+     subscription = high_accuracy_callbacks_.Add(callback);
+@@ -146,6 +165,9 @@ GeolocationProviderImpl::AddLocationUpdateCallback(
+ 
+ mojom::GeopositionResultPtr GeolocationProviderImpl::GetCachedPosition() {
+   DCHECK(main_task_runner_->BelongsToCurrentThread());
++  if (mojom::GeopositionResultPtr forced = ProteusForcedPosition()) {
++    return forced;
++  }
+   if (base::FeatureList::IsEnabled(
+           content_settings::features::kApproximateGeolocationPermission)) {
+     if (low_accuracy_result_) {
+-- 
+2.43.0
+

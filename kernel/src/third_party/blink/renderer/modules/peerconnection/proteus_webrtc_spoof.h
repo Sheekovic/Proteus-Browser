@@ -13,11 +13,12 @@ namespace blink {
 // Presentational ICE candidates.
 //
 // A profile in WebRTC "proxy only" mode sends no direct UDP, so ICE gathering
-// yields nothing - which is safe, but an empty candidate list is itself unusual.
-// When the profile also names the public address to show, the page is given the
-// candidates a normal browser behind that address would report: a host candidate
-// hidden behind an mDNS name and, if the page configured a STUN or TURN server,
-// a server-reflexive candidate carrying the public address.
+// yields nothing - which is safe, but no browser reports an empty candidate
+// list, and pages that wait for a candidate would wait forever. So the page is
+// given what a normal browser reports: a host candidate hidden behind an mDNS
+// name and, when the profile names the public address to show and the page
+// configured a STUN or TURN server, a server-reflexive candidate carrying that
+// address.
 //
 // These candidates are for display only. Nothing listens on them and no packet
 // is sent for them; the machine's real addresses never appear.

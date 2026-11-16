@@ -1,0 +1,28 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<body>
+<script>
+// Emits one line of key=value pairs with what tells a phone from a desktop.
+const mq = query => matchMedia(query).matches;
+document.body.innerText = 'RESULT ' + [
+  'screen=' + screen.width + 'x' + screen.height,
+  'inner=' + innerWidth + 'x' + innerHeight,
+  'outer=' + outerWidth + 'x' + outerHeight,
+  'dpr=' + devicePixelRatio,
+  'touchPoints=' + navigator.maxTouchPoints,
+  'touchEvents=' + ('ontouchstart' in window),
+  'coarse=' + mq('(pointer: coarse)'),
+  'anyFine=' + mq('(any-pointer: fine)'),
+  'hover=' + mq('(hover: hover)'),
+  'orientation=' + (screen.orientation ? screen.orientation.type : 'none'),
+  'portraitQuery=' + mq('(orientation: portrait)'),
+  'plugins=' + navigator.plugins.length,
+  'mimeTypes=' + navigator.mimeTypes.length,
+  'pdf=' + navigator.pdfViewerEnabled,
+  // A phone's scrollbars lie over the page and take no width.
+  'scrollbarWidth=' + (innerWidth - document.documentElement.clientWidth),
+  'mobileHint=' + (navigator.userAgentData ? navigator.userAgentData.mobile : 'none'),
+  'platform=' + encodeURIComponent(navigator.platform),
+].join(' ');
+</script>
+</body>

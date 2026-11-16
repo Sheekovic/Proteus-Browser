@@ -4,6 +4,7 @@
 
 #include "base/proteus/proteus_config.h"
 
+#include <optional>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -203,6 +204,54 @@ Config LoadConfig() {
   if (const DictValue* webgpu = dict->FindDict("webgpu")) {
     config.webgpu_vendor = StringOrEmpty(*webgpu, "vendor");
     config.webgpu_architecture = StringOrEmpty(*webgpu, "architecture");
+  }
+  if (const DictValue* mobile = dict->FindDict("mobile")) {
+    const int width = mobile->FindInt("viewWidth").value_or(0);
+    const int height = mobile->FindInt("viewHeight").value_or(0);
+    const double scale = mobile->FindDouble("deviceScaleFactor").value_or(2.0);
+    const int touch = mobile->FindInt("maxTouchPoints").value_or(5);
+    if (width >= 200 && width <= 2000 && height >= 200 && height <= 4000 &&
+        scale >= 1 && scale <= 5 && touch >= 1 && touch <= 10) {
+      config.mobile = true;
+      config.mobile_view_width = width;
+      config.mobile_view_height = height;
+      config.mobile_device_scale_factor = scale;
+      config.mobile_max_touch_points = touch;
+      config.mobile_pdf_viewer = mobile->FindBool("pdfViewer").value_or(false);
+    }
+  }
+  config.vendor = StringOrEmpty(*dict, "vendor");
+  config.client_hints = dict->FindBool("clientHints").value_or(true);
+  config.chrome_object = dict->FindBool("chromeObject").value_or(true);
+  if (const DictValue* hide = dict->FindDict("hide")) {
+    for (const auto [interface_name, value] : *hide) {
+      const ListValue* list = value.GetIfList();
+      if (interface_name.empty() || !list) {
+        continue;
+      }
+      Config::HiddenMembers hidden;
+      hidden.interface_name = interface_name;
+      for (const Value& member : *list) {
+        if (member.is_string() && !member.GetString().empty()) {
+          hidden.members.push_back(member.GetString());
+        }
+      }
+      if (!hidden.members.empty()) {
+        config.hidden_members.push_back(std::move(hidden));
+      }
+    }
+  }
+  if (const DictValue* geo = dict->FindDict("geolocation")) {
+    const std::optional<double> latitude = geo->FindDouble("latitude");
+    const std::optional<double> longitude = geo->FindDouble("longitude");
+    if (latitude && longitude && *latitude >= -90 && *latitude <= 90 &&
+        *longitude >= -180 && *longitude <= 180) {
+      config.has_geolocation = true;
+      config.geolocation_latitude = *latitude;
+      config.geolocation_longitude = *longitude;
+      const double accuracy = geo->FindDouble("accuracy").value_or(50.0);
+      config.geolocation_accuracy = accuracy > 0 ? accuracy : 50.0;
+    }
   }
   if (const ListValue* voices = dict->FindList("voices")) {
     for (const Value& item : *voices) {

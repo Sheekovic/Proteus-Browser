@@ -1,0 +1,31 @@
+<!doctype html>
+<body>
+<script>
+// Emits how long reading the unmasked GPU strings takes, relative to another string
+// the browser fetches from the GPU process the same way (VERSION). An unmodified
+// browser spends about the same on each; a spoofed value answered without asking the
+// GPU process is far cheaper, which detection sites measure by calling it in a loop.
+const gl = document.createElement('canvas').getContext('webgl2') || document.createElement('canvas').getContext('webgl');
+if (!gl) {
+  document.body.innerText = 'RESULT webgl=none';
+} else {
+  const info = gl.getExtension('WEBGL_debug_renderer_info');
+  const time = (param) => {
+    for (let i = 0; i < 50; i++) gl.getParameter(param);
+    const started = performance.now();
+    for (let i = 0; i < 3000; i++) gl.getParameter(param);
+    return (performance.now() - started) / 3000;
+  };
+  const version = time(gl.VERSION), renderer = time(info.UNMASKED_RENDERER_WEBGL), vendor = time(info.UNMASKED_VENDOR_WEBGL);
+  document.body.innerText = 'RESULT ' + [
+    'webgl=ok',
+    'renderer=' + encodeURIComponent(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)),
+    'versionMicros=' + (version * 1000).toFixed(1),
+    'rendererMicros=' + (renderer * 1000).toFixed(1),
+    // Within a factor of three of the reference call counts as "costs the same".
+    'rendererCostsLikeReal=' + (renderer > version / 3),
+    'vendorCostsLikeReal=' + (vendor > version / 3),
+  ].join(' ');
+}
+</script>
+</body>
