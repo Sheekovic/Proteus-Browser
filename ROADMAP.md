@@ -11,8 +11,8 @@ from tests.
 
 - [x] Survive a residential proxy: time limits, several lookup services, retries, IPv4 for WebRTC
 - [x] Check a proxy before using it: where it comes out, how fast, from the UI, the API and MCP
-- [ ] SOCKS5 against a real provider
-- [ ] A long session: what happens when the exit changes or goes away while browsing
+- [x] SOCKS5 against a real provider
+- [x] A long session: what happens when the exit changes or goes away while browsing
 
 ## 2. Managing many profiles
 

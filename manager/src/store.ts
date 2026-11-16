@@ -28,6 +28,12 @@ export interface Settings {
    * holding `ip` and `timezone` (or `timezone.id`). Empty turns the lookup off.
    */
   exitLookupUrl: string;
+  /**
+   * How often, in minutes, a running profile's proxy is asked again where it comes
+   * out, so that a changed or lost exit is noticed. Each look is one small request
+   * through the proxy. 0 turns it off.
+   */
+  exitWatchMinutes: number;
 }
 
 /** The lookup setting of versions that asked a single service. */
@@ -36,6 +42,7 @@ const SINGLE_LOOKUP_DEFAULT = 'https://ipwho.is/';
 const DEFAULT_SETTINGS: Settings = {
   kernelPath: '', kernelVersion: '158.0.8127.37', extraArgs: [],
   exitLookupUrl: 'https://ipwho.is/ https://api.ip.sb/geoip https://ipapi.co/json/ https://ipinfo.io/json',
+  exitWatchMinutes: 10,
 };
 
 /** A fingerprint read from a real device (see collected.ts), as kept on disk. */
@@ -141,6 +148,12 @@ export class Store {
         throw new ValidationError('exitLookupUrl must be http(s) URLs separated by spaces, or empty');
       }
       next.exitLookupUrl = patch.exitLookupUrl.trim();
+    }
+    if (patch.exitWatchMinutes !== undefined) {
+      if (typeof patch.exitWatchMinutes !== 'number' || !(patch.exitWatchMinutes >= 0 && patch.exitWatchMinutes <= 1440)) {
+        throw new ValidationError('exitWatchMinutes must be a number from 0 to 1440');
+      }
+      next.exitWatchMinutes = patch.exitWatchMinutes;
     }
     await mkdir(this.dataDir, { recursive: true });
     await writeJson(join(this.dataDir, 'settings.json'), next);

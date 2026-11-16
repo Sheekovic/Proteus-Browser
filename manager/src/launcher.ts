@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { buildKernelArgs, buildKernelConfig } from './kernelConfig.ts';
-import type { Profile } from './profile.ts';
+import type { Profile, ProxySettings } from './profile.ts';
 import { lookupOwnAddress, lookupProxyExit, type ProxyExit, withOwnAddress, withProxyExit } from './proxyExit.ts';
 import { needsRelay, startProxyRelay } from './proxyRelay.ts';
 import type { Store } from './store.ts';
@@ -22,6 +22,14 @@ export interface ProfileStatus {
   debuggerUrl?: string;
   /** Where the profile's proxy comes out, when it was looked up for this run. */
   proxyExit?: ProxyExit;
+  /**
+   * Where it comes out now, when that is no longer where it did at the start. The
+   * browser still shows the time zone and WebRTC address of the first exit, which no
+   * longer agree with the address sites see: the profile should be restarted.
+   */
+  exitNow?: ProxyExit & { since: string };
+  /** Why the proxy could not be reached at the last look, while that lasts. */
+  exitProblem?: string;
   /** Present on a stopped profile whose last run ended on its own. */
   lastExit?: { code: number | null; signal: string | null; at: string };
 }
@@ -31,6 +39,10 @@ interface Running {
   startedAt: string;
   debuggerUrl?: string;
   proxyExit?: ProxyExit;
+  exitNow?: ProxyExit & { since: string };
+  exitProblem?: string;
+  watch?: NodeJS.Timeout;
+  looking?: boolean;
 }
 
 /** How long to wait for the kernel to report its DevTools port. */
@@ -87,6 +99,8 @@ export class Launcher {
       startedAt: entry.startedAt,
       debuggerUrl: entry.debuggerUrl,
       ...(entry.proxyExit ? { proxyExit: entry.proxyExit } : {}),
+      ...(entry.exitNow ? { exitNow: entry.exitNow } : {}),
+      ...(entry.exitProblem ? { exitProblem: entry.exitProblem } : {}),
     };
   }
 
@@ -175,7 +189,17 @@ export class Launcher {
     const entry: Running = { child, startedAt: new Date().toISOString(), proxyExit };
     this.running.set(profile.id, entry);
     this.lastExit.delete(profile.id);
+    // A proxy's exit can change or go away while the profile runs, and the browser
+    // cannot be re-matched without a restart: look again now and then, and say so.
+    if (proxyExit && stored.proxy && settings.exitWatchMinutes > 0) {
+      const proxy = stored.proxy;
+      entry.watch = setInterval(() => {
+        void this.lookAgain(entry, proxy, settings.exitLookupUrl);
+      }, settings.exitWatchMinutes * 60_000);
+      entry.watch.unref();
+    }
     child.once('exit', (code, signal) => {
+      clearInterval(entry.watch);
       void relay?.close();
       if (this.running.get(profile.id) === entry) this.running.delete(profile.id);
       this.lastExit.set(profile.id, { code, signal, at: new Date().toISOString() });
@@ -188,6 +212,27 @@ export class Launcher {
       throw new LaunchError(`The kernel exited right after starting (exit code ${exit?.code ?? 'unknown'}).`);
     }
     return this.status(profile.id);
+  }
+
+  /** Asks once more where `proxy` comes out and records a change or a failure on `entry`. */
+  private async lookAgain(entry: Running, proxy: ProxySettings, lookupSetting: string): Promise<void> {
+    const address = (exit: ProxyExit): string => exit.ipv4 ?? exit.ip;
+    // A look at a proxy in trouble takes a while (it is retried); the next one waits for it.
+    if (entry.looking) return;
+    entry.looking = true;
+    try {
+      const now = await lookupProxyExit(proxy, lookupSetting);
+      entry.exitProblem = undefined;
+      if (!entry.proxyExit || address(now) === address(entry.proxyExit)) {
+        entry.exitNow = undefined;
+      } else if (!entry.exitNow || address(entry.exitNow) !== address(now)) {
+        entry.exitNow = { ...now, since: new Date().toISOString() };
+      }
+    } catch (error) {
+      entry.exitProblem = (error as Error).message;
+    } finally {
+      entry.looking = false;
+    }
   }
 
   /** The kernel writes "<port>\n<browser path>" to DevToolsActivePort once it listens. */
