@@ -5,6 +5,8 @@
 //   GET    /api/profiles                 POST /api/profiles
 //   GET    /api/profiles/:id             PATCH /api/profiles/:id      DELETE /api/profiles/:id
 //   POST   /api/profiles/:id/regenerate  new identity, same name/proxy/browser data
+//   POST   /api/profiles/:id/duplicate   a new profile with the same settings and an identity of its own
+//   POST   /api/profiles/bulk            many at once (bulk.ts): {count, name, common, proxies, ...}
 //   GET    /api/profiles/:id/status
 //   POST   /api/profiles/:id/start       POST /api/profiles/:id/stop
 //   GET    /api/fingerprints             POST /api/fingerprints       a fingerprint read from a real device
@@ -21,6 +23,7 @@
 //   GET    /api/profiles/:id/tabs/:tab/screenshot      a PNG; ?full=1 for the whole page
 //   GET    /api/profiles/:id/cookies                   PUT /api/profiles/:id/cookies  [cookie, ...]
 //
+//   POST   /api/proxy/check              {proxy} or {profileId}: where that proxy comes out, or why it fails
 //   GET    /api                          this list, as JSON
 //   POST   /mcp                          the same abilities as Model Context Protocol tools (mcp.ts)
 
@@ -29,12 +32,14 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { join } from 'node:path';
 
 import * as browser from './browserControl.ts';
+import { type BulkRequest, createProfiles } from './bulk.ts';
 import { describeCollected } from './collected.ts';
 import { generateIdentity } from './fingerprint.ts';
 import { LaunchError, type Launcher } from './launcher.ts';
 import { handleMcp } from './mcp.ts';
-import { ValidationError } from './profile.ts';
+import { validateProxy, ValidationError } from './profile.ts';
 import { toProfileInput } from './profileInput.ts';
+import { checkProxy } from './proxyExit.ts';
 import { NotFoundError, type Store, type StoredFingerprint } from './store.ts';
 
 class HttpError extends Error {
@@ -50,9 +55,9 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 /** What the API offers, for GET /api. */
 const ROUTES = [
-  'GET /api/health', 'GET /api/settings', 'PUT /api/settings',
+  'GET /api/health', 'GET /api/settings', 'PUT /api/settings', 'POST /api/proxy/check',
   'GET /api/profiles', 'POST /api/profiles', 'GET /api/profiles/:id', 'PATCH /api/profiles/:id', 'DELETE /api/profiles/:id',
-  'GET /api/profiles/:id/status', 'POST /api/profiles/:id/start', 'POST /api/profiles/:id/stop', 'POST /api/profiles/:id/regenerate',
+  'GET /api/profiles/:id/status', 'POST /api/profiles/:id/start', 'POST /api/profiles/:id/stop', 'POST /api/profiles/:id/regenerate', 'POST /api/profiles/:id/duplicate', 'POST /api/profiles/bulk',
   'GET /api/profiles/:id/tabs', 'POST /api/profiles/:id/tabs', 'DELETE /api/profiles/:id/tabs/:tab',
   'POST /api/profiles/:id/tabs/:tab/navigate', 'POST /api/profiles/:id/tabs/:tab/evaluate',
   'GET /api/profiles/:id/tabs/:tab/text', 'GET /api/profiles/:id/tabs/:tab/screenshot',
@@ -161,6 +166,23 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
     if (method === 'GET' && path === '/api/health') {
       return sendJson(response, 200, { ok: true, name: 'proteus-manager' });
     }
+    if (path === '/api/profiles/bulk' && method === 'POST') {
+      const made = await createProfiles(store, (await readJsonBody(request)) as BulkRequest);
+      return sendJson(response, 201, made.map((p) => ({ ...p, status: launcher.status(p.id) })));
+    }
+    if (path === '/api/proxy/check' && method === 'POST') {
+      // Either a proxy to try, or the id of a profile whose proxy to try.
+      const body = (await readJsonBody(request)) as Record<string, unknown> | null;
+      const proxy = typeof body?.profileId === 'string' ? (await store.getProfile(body.profileId)).proxy : body?.proxy;
+      if (proxy === null || proxy === undefined) throw new ValidationError('there is no proxy to check');
+      validateProxy(proxy);
+      try {
+        return sendJson(response, 200, await checkProxy(proxy, (await store.getSettings()).exitLookupUrl));
+      } catch (error) {
+        // The proxy's own failure is a result of the check, not a fault of the request.
+        return sendJson(response, 200, { error: (error as Error).message });
+      }
+    }
     if (path === '/api/settings') {
       if (method === 'GET') return sendJson(response, 200, await store.getSettings());
       if (method === 'PUT') {
@@ -222,7 +244,12 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
       const field = async (name: string) => ((await readJsonBody(request)) as Record<string, unknown> | null)?.[name];
       if (what === 'cookies' && tab === undefined) {
         if (method === 'GET') return sendJson(response, 200, await browser.getCookies(address));
-        if (method === 'PUT') return sendJson(response, 200, { added: await browser.setCookies(address, await readJsonBody(request)) });
+        if (method === 'PUT') {
+          // A list of cookies, or {text} holding an export file as it is.
+          const body = await readJsonBody(request);
+          const cookies = Array.isArray(body) ? body : browser.cookiesFromText((body as { text?: unknown } | null)?.text);
+          return sendJson(response, 200, { added: await browser.setCookies(address, cookies) });
+        }
       } else if (what === 'tabs' && tab === undefined) {
         if (method === 'GET') return sendJson(response, 200, await browser.listTabs(address));
         if (method === 'POST') return sendJson(response, 201, await browser.openTab(address, (await field('url')) ?? 'about:blank'));
@@ -249,7 +276,7 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
       throw new HttpError(405, `${method} is not supported on ${path}`);
     }
 
-    const match = /^\/api\/profiles\/([^/]+)(?:\/(status|start|stop|regenerate))?$/.exec(path);
+    const match = /^\/api\/profiles\/([^/]+)(?:\/(status|start|stop|regenerate|duplicate))?$/.exec(path);
     if (match) {
       const [, id, action] = match;
       if (!action) {
@@ -272,6 +299,9 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
       } else if (action === 'stop' && method === 'POST') {
         await store.getProfile(id);
         return sendJson(response, 200, await launcher.stop(id));
+      } else if (action === 'duplicate' && method === 'POST') {
+        const copy = await store.duplicateProfile(id);
+        return sendJson(response, 201, { ...copy, status: launcher.status(copy.id) });
       } else if (action === 'regenerate' && method === 'POST') {
         if (launcher.isRunning(id)) throw new HttpError(409, 'stop the profile before changing its identity');
         const current = await store.getProfile(id);

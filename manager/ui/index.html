@@ -133,6 +133,15 @@
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
   code { font: .92em var(--mono); background: var(--raised); padding: .1em .4em; border-radius: 6px; }
 
+  textarea { font: 13px/1.5 var(--mono); padding: 9px 11px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--raised);
+             color: var(--text); width: 100%; min-height: 96px; resize: vertical; }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  .tags { display: flex; gap: 5px; flex-wrap: wrap; }
+  .tag { font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+  .note { font-size: 13px; color: var(--muted); margin: 0; }
+  .note.ok { color: var(--ok); font-weight: 600; }
+  .note.bad { color: var(--danger); font-weight: 600; }
+
   /* Choosing a system */
   .systems { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
   .systems label { position: relative; display: block; cursor: pointer; }
@@ -232,6 +241,7 @@
       <button class="button" id="import-button">Import a reading…</button>
       <button class="button primary" id="collect-here">Read this computer</button>
       <input id="import-file" type="file" accept=".json,application/json" multiple hidden>
+      <input id="cookie-file" type="file" accept=".json,.txt,application/json,text/plain" hidden>
       <p class="sub">Identities read from real devices. A profile made from one presents itself as that model of device —
         its screen, graphics card and its limits, fonts and voices — with a noise seed of its own.</p>
     </div>
@@ -278,16 +288,21 @@
 <div class="scrim" id="scrim"></div>
 <aside class="drawer" id="drawer" aria-hidden="true">
   <header>
-    <h2>New profile</h2>
-    <p>A device identity is made for it: browser, screen, graphics card, noise seed.</p>
+    <h2 id="drawer-title">New profile</h2>
+    <p id="drawer-sub">A device identity is made for it: browser, screen, graphics card, noise seed.</p>
     <svg viewBox="0 0 1440 26" preserveAspectRatio="none" aria-hidden="true"><path d="M0 14 q90 -18 180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 t180 0 V26 H0 Z"/></svg>
   </header>
   <form id="create">
     <fieldset>
       <legend>Who</legend>
-      <label>Name<input name="name" required maxlength="200" placeholder="Shop account 1"></label>
+      <div class="fields">
+        <label>Name<input name="name" required maxlength="180" placeholder="Shop account"></label>
+        <label id="count-field">How many<input name="count" type="number" min="1" max="200" value="1"></label>
+      </div>
+      <label>Tags (comma separated)<input name="tags" placeholder="shop, client A"></label>
+      <p class="note" id="count-note" hidden>They are named “Name 1”, “Name 2”, … and each gets a device identity of its own.</p>
     </fieldset>
-    <fieldset>
+    <fieldset id="device-fields">
       <legend>Device</legend>
       <div class="systems" id="systems"></div>
       <label>Or take the identity of a device you have read
@@ -312,6 +327,13 @@
         <label>User name<input name="proxyUser" autocomplete="off"></label>
         <label>Password<input name="proxyPass" type="password" autocomplete="new-password"></label>
       </div>
+      <label id="proxy-list-field" hidden>One proxy per profile, one per line
+        <textarea name="proxyList" placeholder="host:port:user:password&#10;user:password@host:port&#10;socks5://host:port" spellcheck="false"></textarea>
+      </label>
+      <div class="row" style="margin-top:0">
+        <button class="button small" type="button" id="check-proxy">Check the proxy</button>
+        <p class="note" id="proxy-note"></p>
+      </div>
       <label class="check"><input name="matchProxy" type="checkbox" checked>Match time zone, location and WebRTC address to where the proxy comes out</label>
       <div class="fields">
         <label>WebRTC
@@ -327,7 +349,7 @@
   </form>
   <footer>
     <button class="button" id="drawer-cancel" type="button">Cancel</button>
-    <button class="button primary" type="submit" form="create">Create profile</button>
+    <button class="button primary" type="submit" form="create" id="drawer-submit">Create profile</button>
   </footer>
 </aside>
 
@@ -413,6 +435,8 @@ function profileCard(p, index) {
   badge.innerHTML = ICONS[p.os] || ICONS.host;
   const names = el('div', 'names');
   names.append(el('h3', '', p.name), el('div', 'system', SYSTEM_NAMES[p.os] || p.os));
+  const tags = el('div', 'tags');
+  for (const tag of p.tags || []) tags.append(el('span', 'tag', tag));
   top.append(badge, names, el('span', 'pill' + (running ? ' on' : ''), running ? 'Running' : 'Stopped'));
 
   const facts = el('dl', 'facts');
@@ -454,6 +478,38 @@ function profileCard(p, index) {
       $('details-body').textContent = JSON.stringify(await api('GET', `/api/profiles/${p.id}`), null, 2);
       $('details').showModal();
     });
+    item('Edit', async () => drawer(true, p), '', running);
+    item('Duplicate', async () => {
+      const copy = await api('POST', `/api/profiles/${p.id}/duplicate`);
+      toast(`Made “${copy.name}” with an identity of its own.`);
+      await loadProfiles();
+    });
+    item('Check the proxy', async () => {
+      toast('Checking the proxy…');
+      toast(describeCheck(await api('POST', '/api/proxy/check', { profileId: p.id })));
+    }, '', !p.proxy);
+    item('Export cookies', async () => {
+      const cookies = await api('GET', `/api/profiles/${p.id}/cookies`);
+      const link = el('a');
+      link.href = URL.createObjectURL(new Blob([JSON.stringify(cookies, null, 2)], { type: 'application/json' }));
+      link.download = p.name.replace(/[^A-Za-z0-9_.-]+/g, '_') + '-cookies.json';
+      link.click();
+      URL.revokeObjectURL(link.href);
+      toast(`Exported ${cookies.length} cookies.`);
+    }, '', !running);
+    item('Import cookies…', async () => {
+      const input = $('cookie-file');
+      input.onchange = async () => {
+        const file = input.files[0];
+        input.value = '';
+        if (!file) return;
+        try {
+          const result = await api('PUT', `/api/profiles/${p.id}/cookies`, { text: await file.text() });
+          toast(`Added ${result.added} cookies to “${p.name}”.`);
+        } catch (error) { toast(error.message, true); }
+      };
+      input.click();
+    }, '', !running);
     item('Copy DevTools address', async () => {
       await navigator.clipboard.writeText(p.status.debuggerUrl);
       toast('Copied ' + p.status.debuggerUrl);
@@ -476,17 +532,17 @@ function profileCard(p, index) {
   more.append(toggle);
   actions.append(more);
 
-  card.append(top, facts, actions);
+  card.append(top, ...(p.tags && p.tags.length ? [tags] : []), facts, actions);
   return card;
 }
 
 function renderProfiles() {
   const wanted = $('filter').value.trim().toLowerCase();
-  const shown = profiles.filter((p) => !wanted || `${p.name} ${p.os} ${p.timezone}`.toLowerCase().includes(wanted));
+  const shown = profiles.filter((p) => !wanted || `${p.name} ${p.os} ${p.timezone} ${(p.tags || []).join(' ')}`.toLowerCase().includes(wanted));
   $('profiles').replaceChildren(...shown.map(profileCard));
   $('no-profiles').hidden = shown.length > 0;
   $('empty-title').textContent = profiles.length ? 'Nothing matches' : 'Every profile is its own device';
-  $('empty-text').textContent = profiles.length ? 'No profile has that in its name, system or time zone.'
+  $('empty-text').textContent = profiles.length ? 'No profile has that in its name, tags, system or time zone.'
       : 'A profile has its own cookies and its own identity: screen, graphics card, fonts, time zone, fingerprints. Make your first one.';
   $('new-profile-empty').hidden = profiles.length > 0;
   const running = profiles.filter((p) => p.status.state === 'running').length;
@@ -507,12 +563,88 @@ async function loadProfiles() {
 $('filter').addEventListener('input', renderProfiles);
 
 // --- New profile -----------------------------------------------------------------------
-function drawer(open) {
+/** What a proxy check found, in a sentence. */
+function describeCheck(check) {
+  if (check.error) return 'The proxy failed: ' + check.error;
+  const shown = check.ipv4 || check.ip;
+  return `The proxy works: it comes out at ${shown}${check.timezone ? ' (' + check.timezone + ')' : ''}, in ${(check.ms / 1000).toFixed(1)} s.`;
+}
+
+let editing = null;   // The profile the drawer is changing, or null while it makes new ones.
+function drawer(open, profile = null) {
+  const f = $('create');
+  if (open) {
+    editing = profile;
+    f.reset();
+    $('proxy-note').textContent = '';
+    $('drawer-title').textContent = profile ? `Edit “${profile.name}”` : 'New profile';
+    $('drawer-sub').textContent = profile ? 'Changes take effect the next time the profile starts. Its device identity stays.'
+        : 'A device identity is made for it: browser, screen, graphics card, noise seed.';
+    $('drawer-submit').textContent = profile ? 'Save' : 'Create profile';
+    $('device-fields').hidden = Boolean(profile);
+    $('count-field').hidden = Boolean(profile);
+    if (profile) {
+      f.name.value = profile.name;
+      f.tags.value = (profile.tags || []).join(', ');
+      f.languages.value = profile.languages.join(', ');
+      f.timezone.value = profile.timezone;
+      f.startUrl.value = profile.startUrl;
+      f.webrtc.value = profile.webrtc;
+      f.webrtcPublicIp.value = profile.webrtcPublicIp;
+      f.matchProxy.checked = profile.matchProxy;
+      if (profile.proxy) {
+        f.proxyType.value = profile.proxy.type;
+        f.proxyHost.value = profile.proxy.host;
+        f.proxyPort.value = profile.proxy.port;
+        f.proxyUser.value = profile.proxy.username || '';
+        f.proxyPass.value = profile.proxy.password || '';
+      }
+    }
+    showCount();
+  }
   $('drawer').classList.toggle('open', open);
   $('scrim').classList.toggle('open', open);
   $('drawer').setAttribute('aria-hidden', String(!open));
-  if (open) $('create').name.focus();
+  if (open) f.name.focus();
 }
+
+/** Making several: each needs a proxy of its own, so the single proxy fields give way to a list. */
+function showCount() {
+  const many = !editing && Number($('create').count.value) > 1;
+  $('count-note').hidden = !many;
+  $('proxy-list-field').hidden = !many;
+  for (const name of ['proxyHost', 'proxyPort', 'proxyUser', 'proxyPass']) $('create')[name].closest('label').hidden = many;
+  $('check-proxy').hidden = many;
+}
+$('create').count.addEventListener('input', showCount);
+
+/** The single proxy of the form, or null. */
+function formProxy(f) {
+  if (!f.proxyType.value) return null;
+  const proxy = { type: f.proxyType.value, host: f.proxyHost.value.trim(), port: Number(f.proxyPort.value) };
+  if (f.proxyUser.value) {
+    proxy.username = f.proxyUser.value;
+    proxy.password = f.proxyPass.value;
+  }
+  return proxy;
+}
+
+$('check-proxy').addEventListener('click', async () => {
+  const note = $('proxy-note');
+  const proxy = formProxy($('create'));
+  if (!proxy) { note.className = 'note bad'; note.textContent = 'Choose a kind of proxy first.'; return; }
+  note.className = 'note';
+  note.textContent = 'Checking…';
+  try {
+    const check = await api('POST', '/api/proxy/check', { proxy });
+    note.className = 'note ' + (check.error ? 'bad' : 'ok');
+    note.textContent = describeCheck(check);
+  } catch (error) {
+    note.className = 'note bad';
+    note.textContent = error.message;
+  }
+});
+
 $('new-profile').addEventListener('click', () => drawer(true));
 $('new-profile-empty').addEventListener('click', () => drawer(true));
 $('drawer-cancel').addEventListener('click', () => drawer(false));
@@ -533,27 +665,38 @@ for (const [value, label] of [['', 'This computer’s'], ['windows', 'Windows'],
 $('create').addEventListener('submit', async (event) => {
   event.preventDefault();
   const f = event.target;
-  const input = { name: f.name.value.trim(), webrtc: f.webrtc.value };
-  if (f.webrtcPublicIp.value.trim()) input.webrtcPublicIp = f.webrtcPublicIp.value.trim();
-  // A device that was read brings its own system; the system choice is then ignored.
-  if (f.fingerprintId.value) input.fingerprintId = f.fingerprintId.value;
-  else if (f.os.value) input.os = f.os.value;
-  const languages = f.languages.value.split(',').map((s) => s.trim()).filter(Boolean);
-  if (languages.length) input.languages = languages;
-  if (f.timezone.value.trim()) input.timezone = f.timezone.value.trim();
-  if (f.startUrl.value.trim()) input.startUrl = f.startUrl.value.trim();
-  if (f.proxyType.value) {
-    input.matchProxy = f.matchProxy.checked;
-    input.proxy = { type: f.proxyType.value, host: f.proxyHost.value.trim(), port: Number(f.proxyPort.value) };
-    if (f.proxyUser.value) {
-      input.proxy.username = f.proxyUser.value;
-      input.proxy.password = f.proxyPass.value;
-    }
-  }
+  const fields = {
+    webrtc: f.webrtc.value,
+    webrtcPublicIp: f.webrtcPublicIp.value.trim(),
+    languages: f.languages.value.split(',').map((s) => s.trim()).filter(Boolean),
+    timezone: f.timezone.value.trim(),
+    startUrl: f.startUrl.value.trim(),
+    tags: f.tags.value.split(',').map((s) => s.trim()).filter(Boolean),
+    matchProxy: f.matchProxy.checked,
+  };
+  const count = editing ? 1 : Math.max(1, Number(f.count.value) || 1);
   try {
-    const profile = await api('POST', '/api/profiles', input);
-    toast(`Created “${profile.name}”.`);
-    f.reset();
+    if (editing) {
+      await api('PATCH', `/api/profiles/${editing.id}`, { ...fields, name: f.name.value.trim(), proxy: formProxy(f) });
+      toast(`Saved “${f.name.value.trim()}”.`);
+    } else if (count === 1) {
+      const input = { ...fields, name: f.name.value.trim(), proxy: formProxy(f) };
+      // A device that was read brings its own system; the system choice is then ignored.
+      if (f.fingerprintId.value) input.fingerprintId = f.fingerprintId.value;
+      else if (f.os.value) input.os = f.os.value;
+      const profile = await api('POST', '/api/profiles', input);
+      toast(`Created “${profile.name}”.`);
+    } else {
+      const request = { count, name: f.name.value.trim(), common: { ...fields } };
+      if (f.fingerprintId.value) request.fingerprintId = f.fingerprintId.value;
+      else if (f.os.value) request.common.os = f.os.value;
+      if (f.proxyList.value.trim()) {
+        request.proxies = f.proxyList.value;
+        request.proxyType = f.proxyType.value || 'http';
+      }
+      const made = await api('POST', '/api/profiles/bulk', request);
+      toast(`Created ${made.length} profiles.`);
+    }
     drawer(false);
     await loadProfiles();
   } catch (error) {

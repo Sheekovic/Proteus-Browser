@@ -5,10 +5,13 @@
 // output, src/mcp-stdio.ts forwards to this endpoint.
 
 import * as browser from './browserControl.ts';
+import { type BulkRequest, createProfiles } from './bulk.ts';
 import { describeCollected } from './collected.ts';
 import { generateIdentity } from './fingerprint.ts';
 import type { Launcher } from './launcher.ts';
+import { validateProxy } from './profile.ts';
 import { toProfileInput } from './profileInput.ts';
+import { checkProxy } from './proxyExit.ts';
 import type { Store } from './store.ts';
 
 export interface McpContext {
@@ -44,6 +47,7 @@ const TAB_ID = text('Id of the tab (from list_tabs or open_tab).');
 const PROFILE_FIELDS: Json = {
   name: text('Name shown in the manager.'),
   notes: text('Free notes.'),
+  tags: { type: 'array', items: { type: 'string' }, description: 'Labels for finding the profile, e.g. ["shop", "client A"].' },
   os: { type: 'string', enum: ['windows', 'macos', 'linux', 'android', 'ios'],
         description: 'System the profile presents itself as. android is Chrome on a phone; ios is Safari on an iPhone.' },
   languages: { type: 'array', items: { type: 'string' }, description: 'Language tags, most preferred first, e.g. ["de-DE","de","en"].' },
@@ -75,7 +79,7 @@ async function profileWithStatus(context: McpContext, id: string) {
 /** A profile as lists show it: enough to pick one, without its whole identity. */
 function summary(profile: Awaited<ReturnType<typeof profileWithStatus>>) {
   return {
-    id: profile.id, name: profile.name, os: profile.os, state: profile.status.state,
+    id: profile.id, name: profile.name, tags: profile.tags, os: profile.os, state: profile.status.state,
     screen: `${profile.screen.width}x${profile.screen.height}`, timezone: profile.timezone,
     proxy: profile.proxy ? `${profile.proxy.type}://${profile.proxy.host}:${profile.proxy.port}` : null,
     ...(profile.status.debuggerUrl ? { debuggerUrl: profile.status.debuggerUrl } : {}),
@@ -108,6 +112,31 @@ export const TOOLS: readonly Tool[] = [
       const profile = await context.store.createProfile(toProfileInput(args), deviceId);
       return profileWithStatus(context, profile.id);
     },
+  },
+  {
+    name: 'create_profiles',
+    description: 'Creates several profiles at once, named "<name> 1", "<name> 2", ..., each with a device identity of its own ' +
+        'and, when proxies are given, a proxy of its own (the first profile gets the first proxy, and so on).',
+    inputSchema: object({
+      count: { type: 'integer', description: 'How many profiles to create (1 to 200).' },
+      name: text('What they are called; a number is added to each.'),
+      common: { type: 'object', description: 'Fields every profile gets: os, languages, timezone, tags, startUrl, webrtc.', properties: PROFILE_FIELDS },
+      deviceId: text('Id of a stored device reading all of them take their identity from.'),
+      proxies: { type: ['string', 'array'], description: 'Proxies: text with one per line (host:port:user:password and similar), or a list of proxy objects.' },
+      proxyType: { type: 'string', enum: ['http', 'socks5'], description: 'Kind of the proxies in a text list that does not say. Default http.' },
+      shareProxies: { type: 'boolean', description: 'Allow fewer proxies than profiles. Off by default: profiles sharing an address are linked by it.' },
+    }, ['count']),
+    run: async (args, context) => {
+      const { deviceId, ...rest } = args;
+      const made = await createProfiles(context.store, { ...rest, fingerprintId: deviceId } as unknown as BulkRequest);
+      return made.map((p) => summary({ ...p, status: context.launcher.status(p.id) }));
+    },
+  },
+  {
+    name: 'duplicate_profile',
+    description: 'Makes a new profile with the settings of an existing one (proxy, place, tags, start page) and a device identity of its own. Cookies are not copied.',
+    inputSchema: object({ id: PROFILE_ID }, ['id']),
+    run: async (args, context) => profileWithStatus(context, (await context.store.duplicateProfile(String(args.id))).id),
   },
   {
     name: 'update_profile',
@@ -191,6 +220,18 @@ export const TOOLS: readonly Tool[] = [
       exitLookupUrl: text('Service asked for a proxy\'s exit address and time zone; empty turns the lookup off.'),
     }),
     run: (args, context) => context.store.updateSettings(args),
+  },
+  {
+    name: 'check_proxy',
+    description: 'Tries a proxy and reports where it comes out (address, time zone, position) and how long that took. ' +
+        'Give the id of a profile to try its proxy, or a proxy to try before using it.',
+    inputSchema: object({ id: text('Id of a profile whose proxy to try.'), proxy: PROFILE_FIELDS.proxy }),
+    run: async (args, context) => {
+      const proxy = args.id !== undefined ? (await context.store.getProfile(String(args.id))).proxy : args.proxy;
+      if (proxy === null || proxy === undefined) throw new Error('There is no proxy to check: give a profile that has one, or a proxy.');
+      validateProxy(proxy);
+      return checkProxy(proxy, (await context.store.getSettings()).exitLookupUrl);
+    },
   },
   {
     name: 'list_tabs',

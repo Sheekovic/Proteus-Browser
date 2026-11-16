@@ -75,6 +75,8 @@ export interface Profile {
   id: string;
   name: string;
   notes: string;
+  /** Labels of the user's own, for finding profiles: "shop", "client A". */
+  tags: string[];
   createdAt: string;
   updatedAt: string;
 
@@ -197,6 +199,24 @@ function checkBrands(value: unknown, field: string): void {
   }
 }
 
+/** Checks proxy settings from a caller and throws ValidationError describing the first problem. */
+export function validateProxy(value: unknown): asserts value is ProxySettings {
+  const p = value as Record<string, unknown>;
+  if (!isPlainObject(p) || (p.type !== 'http' && p.type !== 'socks5')) fail('proxy.type must be http or socks5');
+  if (typeof p.host !== 'string' || !/^[A-Za-z0-9.\-:[\]]{1,255}$/.test(p.host)) fail('proxy.host is not valid');
+  if (!isIntInRange(p.port, 1, 65535)) fail('proxy.port must be 1-65535');
+  for (const key of ['username', 'password'] as const) {
+    const field = p[key];
+    // SOCKS5 limits both to 255 bytes; control characters would break HTTP headers.
+    if (field !== undefined && (typeof field !== 'string' || Buffer.byteLength(field) > 255 ||
+                                /[\x00-\x1f\x7f]/.test(field))) {
+      fail(`proxy.${key} must be text of at most 255 bytes`);
+    }
+  }
+  if (typeof p.username === 'string' && p.username.includes(':')) fail('proxy.username must not contain ":"');
+  if ((p.password ?? '') !== '' && (p.username ?? '') === '') fail('proxy.password needs a proxy.username');
+}
+
 /**
  * Checks a complete profile and throws ValidationError describing the first problem.
  * Run on every profile before it is saved, so a stored profile can always be launched.
@@ -205,6 +225,12 @@ export function validateProfile(profile: Profile): void {
   checkString(profile.name, 'name', 200);
   if (profile.name.trim() === '') fail('name must not be empty');
   checkString(profile.notes, 'notes', 4000);
+  if (!Array.isArray(profile.tags) || profile.tags.length > 20) fail('tags must be a list of at most 20');
+  for (const tag of profile.tags) {
+    if (typeof tag !== 'string' || tag.trim() === '' || tag.length > 40 || /[\x00-\x1f\x7f,]/.test(tag)) {
+      fail('a tag is 1 to 40 characters without commas');
+    }
+  }
 
   if (!/^\d{1,20}$/.test(profile.seed) || BigInt(profile.seed) > 0xffff_ffff_ffff_ffffn) {
     fail('seed must be an unsigned 64-bit integer written as a decimal string');
@@ -293,21 +319,7 @@ export function validateProfile(profile: Profile): void {
     fail('webrtcPublicIp must be an IPv4 or IPv6 address, or empty');
   }
 
-  if (profile.proxy !== null) {
-    const p = profile.proxy;
-    if (!isPlainObject(p) || (p.type !== 'http' && p.type !== 'socks5')) fail('proxy.type must be http or socks5');
-    if (typeof p.host !== 'string' || !/^[A-Za-z0-9.\-:[\]]{1,255}$/.test(p.host)) fail('proxy.host is not valid');
-    if (!isIntInRange(p.port, 1, 65535)) fail('proxy.port must be 1-65535');
-    for (const key of ['username', 'password'] as const) {
-      // SOCKS5 limits both to 255 bytes; control characters would break HTTP headers.
-      if (p[key] !== undefined && (typeof p[key] !== 'string' || Buffer.byteLength(p[key]) > 255 ||
-                                   /[\x00-\x1f\x7f]/.test(p[key]))) {
-        fail(`proxy.${key} must be text of at most 255 bytes`);
-      }
-    }
-    if (typeof p.username === 'string' && p.username.includes(':')) fail('proxy.username must not contain ":"');
-    if ((p.password ?? '') !== '' && (p.username ?? '') === '') fail('proxy.password needs a proxy.username');
-  }
+  if (profile.proxy !== null) validateProxy(profile.proxy);
 
   if (profile.geolocation !== null) {
     const g = profile.geolocation;

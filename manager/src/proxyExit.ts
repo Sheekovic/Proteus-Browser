@@ -244,3 +244,22 @@ export function withProxyExit(profile: Profile, exit: ProxyExit): Profile {
         ? profile.geolocation : positionNear(exit.latitude, exit.longitude, profile.seed),
   };
 }
+
+/** What a proxy looks like from outside, and how long it took to find out. */
+export interface ProxyCheck extends ProxyExit {
+  /** Milliseconds from asking to the answer, through the proxy. */
+  ms: number;
+}
+
+/**
+ * Tries `proxy`: goes through it to the lookup services and reports where it comes
+ * out. Throws, with the reason, when it cannot be used.
+ */
+export async function checkProxy(proxy: ProxySettings, lookupSetting: string): Promise<ProxyCheck> {
+  if (lookupServices(lookupSetting).length === 0) {
+    throw new Error('the exit lookup is turned off in the settings, so a proxy cannot be checked');
+  }
+  const started = Date.now();
+  const exit = await lookupProxyExit(proxy, lookupSetting);
+  return { ...exit, ms: Date.now() - started };
+}

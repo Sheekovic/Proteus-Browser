@@ -239,6 +239,43 @@ export async function getCookies(debuggerUrl: string): Promise<Cookie[]> {
   });
 }
 
+const SAME_SITE: Record<string, Cookie['sameSite']> = { strict: 'Strict', lax: 'Lax', none: 'None', no_restriction: 'None' };
+
+/**
+ * Cookies from the text of an export file, in either of the two usual forms: JSON (a
+ * list, as browser extensions write it, or an object holding one under "cookies"),
+ * or the tab-separated "cookies.txt" form.
+ */
+export function cookiesFromText(text: unknown): Cookie[] {
+  if (typeof text !== 'string') throw new BrowserError('the cookie file must be text');
+  const trimmed = text.trim();
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+    let data: unknown;
+    try {
+      data = JSON.parse(trimmed);
+    } catch {
+      throw new BrowserError('the cookie file is not valid JSON');
+    }
+    return cleanCookies(Array.isArray(data) ? data : (data as { cookies?: unknown }).cookies);
+  }
+  if (trimmed === '') throw new BrowserError('the cookie file is empty');
+  const cookies: unknown[] = [];
+  for (let line of trimmed.split(/\r?\n/)) {
+    let httpOnly = false;
+    if (line.startsWith('#HttpOnly_')) {
+      httpOnly = true;
+      line = line.slice('#HttpOnly_'.length);
+    } else if (line.startsWith('#') || line.trim() === '') {
+      continue;
+    }
+    const fields = line.split('\t');
+    if (fields.length < 7) throw new BrowserError('this is neither a JSON cookie list nor a cookies.txt file');
+    const [domain, , path, secure, expires, name, ...value] = fields;
+    cookies.push({ domain, path, secure: secure.toUpperCase() === 'TRUE', expires: Number(expires), name, value: value.join('\t'), httpOnly });
+  }
+  return cleanCookies(cookies);
+}
+
 /** Checks cookies from a caller and returns them in the form the browser takes. */
 export function cleanCookies(value: unknown): Cookie[] {
   if (!Array.isArray(value) || value.length > 5000) throw new BrowserError('cookies must be a list');
@@ -255,10 +292,14 @@ export function cleanCookies(value: unknown): Cookie[] {
       domain: text('domain', 255) as string, path: text('path', 2048, false) ?? '/',
     };
     if (cleaned.name === '' || cleaned.domain === '') throw new BrowserError(`cookie ${index}: name and domain must not be empty`);
-    if (typeof cookie.expires === 'number' && Number.isFinite(cookie.expires) && cookie.expires > 0) cleaned.expires = cookie.expires;
+    // Browser extensions that export cookies call the expiry "expirationDate" and
+    // spell sameSite their own way.
+    const expires = [cookie.expires, cookie.expirationDate].find((value) => typeof value === 'number' && Number.isFinite(value) && value > 0);
+    if (typeof expires === 'number') cleaned.expires = expires;
     if (cookie.httpOnly === true) cleaned.httpOnly = true;
     if (cookie.secure === true) cleaned.secure = true;
-    if (cookie.sameSite === 'Strict' || cookie.sameSite === 'Lax' || cookie.sameSite === 'None') cleaned.sameSite = cookie.sameSite;
+    const sameSite = SAME_SITE[String(cookie.sameSite).toLowerCase()];
+    if (sameSite) cleaned.sameSite = sameSite;
     return cleaned;
   });
 }

@@ -84,6 +84,10 @@ Without a profile the kernel behaves like the Chromium it is built from.
 - Profiles stored as plain JSON files, each with its own browser data directory.
 - Identity generators for Windows, macOS, Linux, Android and iPhone.
 - Proxies per profile (HTTP and SOCKS5, with or without a login).
+- Proxies checked before use (where one comes out, and how fast), and tolerant of the
+  way real ones behave: retries, several lookup services, time limits.
+- Many profiles at once from a pasted proxy list, each a device of its own; editing,
+  duplicating and tagging them; cookies in and out as the files other browsers export.
 - Optional matching of time zone, WebRTC address and location to the proxy's exit.
 - A light interface in a window of its own, drawn by the kernel itself, so nothing
   heavier than a web page is running.
@@ -145,6 +149,13 @@ curl -X POST http://127.0.0.1:5310/api/profiles \
 curl -X POST http://127.0.0.1:5310/api/profiles/<id>/start \
      -H 'Content-Type: application/json' -d '{}'
 
+# Ten at once, each with its own identity and its own proxy from a list
+curl -X POST http://127.0.0.1:5310/api/profiles/bulk \n     -H 'Content-Type: application/json' \n     -d '{"count": 10, "name": "Shop", "common": {"os": "windows"}, "proxies": "host:port:user:password
+…"}'
+
+# Where does a proxy come out?
+curl -X POST http://127.0.0.1:5310/api/proxy/check \n     -H 'Content-Type: application/json' -d '{"profileId": "<id>"}'
+
 # Open a page in it, read what it shows, take a picture
 curl -X POST http://127.0.0.1:5310/api/profiles/<id>/tabs \
      -H 'Content-Type: application/json' -d '{"url": "https://example.com/"}'
@@ -168,9 +179,9 @@ curl -X PUT http://127.0.0.1:5310/api/profiles/<id>/cookies \
 
 The manager is also a [Model Context Protocol](https://modelcontextprotocol.io)
 server, so an assistant can create profiles, start them and work in them. It offers
-21 tools: profiles (`list_profiles`, `create_profile`, `update_profile`,
-`delete_profile`, `start_profile`, `stop_profile`, `new_identity`), devices and
-settings, and the browser itself (`list_tabs`, `open_tab`, `navigate`, `page_text`,
+24 tools: profiles (`list_profiles`, `create_profile`, `create_profiles`, `duplicate_profile`,
+`update_profile`, `delete_profile`, `start_profile`, `stop_profile`, `new_identity`), proxies
+(`check_proxy`), devices and settings, and the browser itself (`list_tabs`, `open_tab`, `navigate`, `page_text`,
 `evaluate`, `screenshot`, `close_tab`, `get_cookies`, `set_cookies`).
 
 - Assistants that connect over HTTP use `http://127.0.0.1:5310/mcp` while the manager

@@ -74,7 +74,7 @@ async function writeJson(file: string, value: unknown): Promise<void> {
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** Values for fields added after a profile was saved, so older profiles keep loading. */
-const FIELD_DEFAULTS: Pick<Profile, 'webrtc' | 'webrtcPublicIp' | 'fonts' | 'voices' | 'webgpu' | 'matchProxy' | 'geolocation' | 'mobile' | 'webglCaps'> = {
+const FIELD_DEFAULTS: Pick<Profile, 'webrtc' | 'webrtcPublicIp' | 'fonts' | 'voices' | 'webgpu' | 'matchProxy' | 'geolocation' | 'mobile' | 'webglCaps' | 'tags'> = {
   webrtc: 'proxyOnly',
   webrtcPublicIp: '',
   fonts: [],
@@ -85,6 +85,7 @@ const FIELD_DEFAULTS: Pick<Profile, 'webrtc' | 'webrtcPublicIp' | 'fonts' | 'voi
   geolocation: null,
   mobile: null,
   webglCaps: null,
+  tags: [],
 };
 
 function withDefaults(stored: Profile): Profile {
@@ -246,6 +247,7 @@ export class Store {
     const profile: Profile = {
       name: 'New profile',
       notes: '',
+      tags: [],
       languages: [],
       timezone: '',
       webrtc: FIELD_DEFAULTS.webrtc,
@@ -278,6 +280,20 @@ export class Store {
     validateProfile(profile);
     await writeJson(join(this.profileDir(id), 'profile.json'), profile);
     return profile;
+  }
+
+  /**
+   * A new profile with the settings of `id` (name, tags, proxy, place, start page) and
+   * a device identity of its own: sites see a different device, as they should for a
+   * second account. Cookies and other browser data are not copied.
+   */
+  async duplicateProfile(id: string): Promise<Profile> {
+    const source = await this.getProfile(id);
+    return this.createProfile({
+      name: `${source.name} copy`.slice(0, 200), notes: source.notes, tags: [...source.tags], os: source.os,
+      languages: [...source.languages], timezone: source.timezone, webrtc: source.webrtc,
+      proxy: source.proxy ? { ...source.proxy } : null, matchProxy: source.matchProxy, startUrl: source.startUrl,
+    });
   }
 
   /** Deletes the profile together with its browser data. */
