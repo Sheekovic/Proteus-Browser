@@ -34,7 +34,7 @@ const MAX_BODY_BYTES = 256 * 1024;
 
 const PROFILE_INPUT_KEYS = [
   'name', 'notes', 'seed', 'os', 'userAgent', 'platform', 'uaData', 'hardwareConcurrency',
-  'deviceMemory', 'screen', 'mobile', 'languages', 'timezone', 'webgl', 'webgpu', 'noise', 'voices', 'fonts', 'webrtc', 'webrtcPublicIp', 'geolocation', 'proxy', 'matchProxy', 'startUrl',
+  'deviceMemory', 'screen', 'mobile', 'languages', 'timezone', 'webgl', 'webglCaps', 'webgpu', 'noise', 'voices', 'fonts', 'webrtc', 'webrtcPublicIp', 'geolocation', 'proxy', 'matchProxy', 'startUrl',
 ] as const;
 
 /** Keeps only the fields a client may set, so unknown keys never reach a stored profile. */

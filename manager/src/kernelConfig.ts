@@ -27,6 +27,7 @@ export function buildKernelConfig(profile: Profile): Record<string, unknown> {
     // Lets a claimed font the machine lacks still be found (see fontSubstitutes.ts).
     config.fontAliases = buildFontSubstitutes(profile.fonts);
   }
+  if (profile.webglCaps !== null) config.webglCaps = profile.webglCaps;
   if (profile.webgpu.vendor !== '' || profile.webgpu.architecture !== '') config.webgpu = profile.webgpu;
   if (profile.voices.length > 0) config.voices = profile.voices;
   if (profile.webrtc === 'proxyOnly' && profile.webrtcPublicIp !== '') {

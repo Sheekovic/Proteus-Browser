@@ -245,7 +245,7 @@ export function hostOs(): OsFamily {
 
 export type GeneratedIdentity = Pick<Profile,
   'seed' | 'os' | 'userAgent' | 'platform' | 'uaData' | 'hardwareConcurrency' |
-  'deviceMemory' | 'screen' | 'mobile' | 'webgl' | 'webgpu' | 'noise' | 'fonts' | 'voices'>;
+  'deviceMemory' | 'screen' | 'mobile' | 'webgl' | 'webglCaps' | 'webgpu' | 'noise' | 'fonts' | 'voices'>;
 
 /**
  * Builds a fresh identity for `os`, matching kernel version `kernelVersion`
@@ -270,6 +270,7 @@ export function generateIdentity(os: OsFamily, kernelVersion: string, rng: Rng =
     screen: buildScreen(os, rng),
     mobile: null,
     webgl: { vendor: gpu.vendor, renderer: gpu.renderer },
+    webglCaps: null,
     webgpu: { ...gpu.webgpu },
     noise: { canvas: true, audio: true },
     fonts: fontsFor(os, uaData.platformVersion),

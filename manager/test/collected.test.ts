@@ -178,3 +178,60 @@ test('a profile from the largest fingerprint still fits the kernel command line'
   const bytes = Buffer.byteLength(JSON.stringify(buildKernelConfig(profile)));
   assert.ok(bytes < 16_000, `${bytes} bytes`);
 });
+
+/** WebGL capabilities as the collector reads them (shortened). */
+function caps(): Record<string, unknown> {
+  const s = Array.from({ length: 36 }, (_, i) => (i % 3 === 2 ? 23 : 127));
+  return {
+    '1': { p: { '3379': 16384, '3386': [32767, 32767], '33901': [1, 1024], '34047': 16 },
+           e: ['ANGLE_instanced_arrays', 'EXT_texture_filter_anisotropic', 'WEBGL_debug_renderer_info'], s },
+    '2': { p: { '3379': 16384, '32883': 2048, '36203': 4294967295 }, e: ['EXT_color_buffer_float'], s },
+  };
+}
+
+test('a card\'s WebGL capabilities travel from the reading to the kernel config', async () => {
+  const stored = await store.addFingerprint({ ...windowsLaptop(), webglCaps: caps(), label: 'With capabilities' });
+  const profile = await store.createProfile({ name: 'Caps' }, stored.id);
+  assert.deepEqual(profile.webglCaps, caps());
+  assert.deepEqual(buildKernelConfig(profile).webglCaps, caps());
+  // A generated identity names a card but has no reading of it: nothing is sent.
+  const generated = await store.createProfile({ os: 'windows' });
+  assert.equal(generated.webglCaps, null);
+  assert.ok(!('webglCaps' in buildKernelConfig(generated)));
+  // A reading made before the collector read capabilities still loads.
+  assert.equal(identityFromCollected(parseCollected(windowsLaptop()), KERNEL).webglCaps, null);
+});
+
+test('malformed WebGL capabilities are refused, in a reading and in a profile', async () => {
+  const bad: unknown[] = [
+    'yes',
+    { '1': { p: { MAX_TEXTURE_SIZE: 4096 } } },
+    { '1': { p: { '3379': 'big' } } },
+    { '1': { p: { '3379': [1, 2, 3, 4, 5] } } },
+    { '1': { e: ['OES_texture_float', 'has space'] } },
+    { '1': { e: ['<script>'] } },
+    { '2': { s: [1, 2, 3] } },
+    { '1': { p: Object.fromEntries(Array.from({ length: 200 }, (_, i) => [String(1000 + i), 1])) } },
+  ];
+  for (const webglCaps of bad) {
+    assert.throws(() => parseCollected({ ...windowsLaptop(), webglCaps }), ValidationError, JSON.stringify(webglCaps).slice(0, 60));
+    await assert.rejects(store.createProfile({ webglCaps: webglCaps as never }), ValidationError);
+  }
+  // Unknown keys are dropped; an empty object means "none".
+  const cleaned = parseCollected({ ...windowsLaptop(), webglCaps: { '1': { p: { '3379': 8 }, extra: 1 }, '3': {} } }).webglCaps;
+  assert.deepEqual(cleaned, { '1': { p: { '3379': 8 } } });
+  assert.equal(parseCollected({ ...windowsLaptop(), webglCaps: {} }).webglCaps, null);
+});
+
+test('the largest reading with full capabilities still fits the kernel command line', async () => {
+  const fonts = Array.from({ length: 400 }, (_, i) => `Some Rather Long Font Family Name ${i}`);
+  const voices = Array.from({ length: 300 }, (_, i) =>
+      ({ name: `Microsoft Voice Number ${i} - English (United States)`, lang: 'en-US', local: true, default: i === 0 }));
+  const p = Object.fromEntries(Array.from({ length: 45 }, (_, i) => [String(30000 + i), 4294967295]));
+  const e = Array.from({ length: 45 }, (_, i) => `WEBGL_some_long_extension_name_${i}`);
+  const s = Array.from({ length: 36 }, () => 127);
+  const stored = await store.addFingerprint({ ...windowsLaptop(), fonts, voices, webglCaps: { '1': { p, e, s }, '2': { p, e, s } } });
+  const profile = await store.createProfile({ name: 'Biggest' }, stored.id);
+  const bytes = Buffer.byteLength(JSON.stringify(buildKernelConfig(profile)));
+  assert.ok(bytes < 16_000, `${bytes} bytes`);
+});

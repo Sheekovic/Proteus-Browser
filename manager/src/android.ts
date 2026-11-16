@@ -72,6 +72,7 @@ export function generateAndroidIdentity(kernelVersion: string, rng: Rng): Genera
     deviceMemory: device.memory,
     screen: { width: device.width, height: device.height, availWidth: device.width, availHeight: device.height, colorDepth: 24 },
     webgl: { vendor: 'Google Inc. (ARM)', renderer: `ANGLE (ARM, ${device.gpu}, OpenGL ES 3.2)` },
+    webglCaps: null,
     webgpu: { vendor: 'arm', architecture: device.gpuFamily },
     noise: { canvas: true, audio: true },
     // No font list: the fonts stay those of the machine. Hiding them all and standing

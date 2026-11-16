@@ -48,7 +48,7 @@
        profile can present itself as the same kind of device. Nothing leaves this page unless you
        press a button below.</p>
     <p><strong>Collected:</strong> browser and system name and version, device model (phones), screen
-       size and pixel ratio, processor count, memory class, graphics card name, installed font names
+       size and pixel ratio, processor count, memory class, graphics card name and its limits, installed font names
        from a fixed list, speech voices, touch support.</p>
     <p><strong>Not collected:</strong> IP address, location, language, time zone, cookies, history,
        accounts, or anything typed or stored in this browser.</p>
@@ -155,6 +155,64 @@ function readWebgl() {
   } catch { return null; }
 }
 
+// Limits read from getParameter(), by the name each has on the context. Only limits
+// of the hardware: nothing that depends on how this page's canvas was set up.
+const GL_LIMITS = [
+  'MAX_TEXTURE_SIZE', 'MAX_VIEWPORT_DIMS', 'MAX_CUBE_MAP_TEXTURE_SIZE', 'MAX_RENDERBUFFER_SIZE',
+  'MAX_VERTEX_ATTRIBS', 'MAX_VERTEX_UNIFORM_VECTORS', 'MAX_FRAGMENT_UNIFORM_VECTORS', 'MAX_VARYING_VECTORS',
+  'MAX_COMBINED_TEXTURE_IMAGE_UNITS', 'MAX_VERTEX_TEXTURE_IMAGE_UNITS', 'MAX_TEXTURE_IMAGE_UNITS',
+  'ALIASED_LINE_WIDTH_RANGE', 'ALIASED_POINT_SIZE_RANGE',
+  // WebGL 2
+  'MAX_3D_TEXTURE_SIZE', 'MAX_ARRAY_TEXTURE_LAYERS', 'MAX_SAMPLES', 'MAX_DRAW_BUFFERS', 'MAX_COLOR_ATTACHMENTS',
+  'MAX_UNIFORM_BUFFER_BINDINGS', 'MAX_UNIFORM_BLOCK_SIZE', 'MAX_COMBINED_UNIFORM_BLOCKS',
+  'MAX_VERTEX_UNIFORM_BLOCKS', 'MAX_FRAGMENT_UNIFORM_BLOCKS', 'MAX_VERTEX_UNIFORM_COMPONENTS',
+  'MAX_FRAGMENT_UNIFORM_COMPONENTS', 'MAX_VARYING_COMPONENTS', 'MAX_VERTEX_OUTPUT_COMPONENTS',
+  'MAX_FRAGMENT_INPUT_COMPONENTS', 'MAX_ELEMENT_INDEX', 'MAX_ELEMENTS_INDICES', 'MAX_ELEMENTS_VERTICES',
+  'MAX_TEXTURE_LOD_BIAS', 'MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS',
+  'MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS', 'MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS',
+  'MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS', 'MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS',
+  'MAX_PROGRAM_TEXEL_OFFSET', 'MIN_PROGRAM_TEXEL_OFFSET', 'UNIFORM_BUFFER_OFFSET_ALIGNMENT',
+];
+
+/** What one kind of WebGL context says the graphics card can do, or null without one. */
+function readGlCaps(kind) {
+  try {
+    const gl = document.createElement('canvas').getContext(kind);
+    if (!gl) return null;
+    const p = {};
+    const read = (pname) => {
+      const value = gl.getParameter(pname);
+      if (typeof value === 'number' && Number.isFinite(value)) p[pname] = value;
+      else if (ArrayBuffer.isView(value) && value.length >= 1 && value.length <= 4) p[pname] = Array.from(value);
+    };
+    for (const name of GL_LIMITS) {
+      if (typeof gl[name] === 'number') read(gl[name]);
+    }
+    const e = gl.getSupportedExtensions() || [];
+    // The anisotropy limit exists only once its extension is switched on.
+    const anisotropic = gl.getExtension('EXT_texture_filter_anisotropic');
+    if (anisotropic) read(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+    const s = [];
+    for (const shader of [gl.VERTEX_SHADER, gl.FRAGMENT_SHADER]) {
+      for (const type of [gl.LOW_FLOAT, gl.MEDIUM_FLOAT, gl.HIGH_FLOAT, gl.LOW_INT, gl.MEDIUM_INT, gl.HIGH_INT]) {
+        const format = gl.getShaderPrecisionFormat(shader, type);
+        s.push(format ? format.rangeMin : 0, format ? format.rangeMax : 0, format ? format.precision : 0);
+      }
+    }
+    gl.getError();
+    return { p, e, s };
+  } catch { return null; }
+}
+
+function readWebglCaps() {
+  const caps = {};
+  const one = readGlCaps('webgl');
+  const two = readGlCaps('webgl2');
+  if (one) caps['1'] = one;
+  if (two) caps['2'] = two;
+  return one || two ? caps : null;
+}
+
 async function readWebgpu() {
   try {
     if (!navigator.gpu) return null;
@@ -216,6 +274,7 @@ async function collect() {
     innerWidth: window.innerWidth,
     innerHeight: window.innerHeight,
     webgl: readWebgl(),
+    webglCaps: readWebglCaps(),
     webgpu: await readWebgpu(),
     voices: await readVoices(),
     fonts: detectFonts(),
@@ -231,6 +290,8 @@ function show(fingerprint) {
     ['Screen', `${fingerprint.screen.width} × ${fingerprint.screen.height} at ${fingerprint.devicePixelRatio}×`],
     ['Processors / memory', `${fingerprint.hardwareConcurrency} / ${fingerprint.deviceMemory ?? '—'} GB`],
     ['Graphics', fingerprint.webgl ? fingerprint.webgl.renderer : '—'],
+    ['Graphics capabilities', fingerprint.webglCaps && fingerprint.webglCaps['1']
+        ? `${Object.keys(fingerprint.webglCaps['1'].p).length} limits, ${fingerprint.webglCaps['1'].e.length} extensions` : '—'],
     ['Fonts found', String(fingerprint.fonts.length)],
     ['Voices', String(fingerprint.voices.length)],
     ['Touch points', String(fingerprint.maxTouchPoints)],

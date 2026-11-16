@@ -2,6 +2,8 @@
 
 import { isIP } from 'node:net';
 
+import { cleanWebGLCaps, type WebGLCaps } from './webglCaps.ts';
+
 /** 'android' is Chrome on an Android phone; 'ios' is Safari on an iPhone. */
 export type OsFamily = 'windows' | 'linux' | 'macos' | 'android' | 'ios';
 export const OS_FAMILIES: readonly OsFamily[] = ['windows', 'linux', 'macos', 'android', 'ios'];
@@ -98,6 +100,12 @@ export interface Profile {
   timezone: string;
 
   webgl: { vendor: string; renderer: string };
+  /**
+   * What that graphics card can do (limits, extensions, shader precision), read from
+   * a real device. null means "report the real GPU's": the case for generated
+   * identities, which name a card but have no reading of it.
+   */
+  webglCaps: WebGLCaps | null;
   /**
    * GPUAdapterInfo.vendor / .architecture for the same GPU as `webgl`
    * ("intel" / "gen-12lp"). Empty strings mean "report the real GPU".
@@ -257,6 +265,8 @@ export function validateProfile(profile: Profile): void {
       typeof profile.noise.audio !== 'boolean') {
     fail('noise.canvas and noise.audio must be booleans');
   }
+
+  cleanWebGLCaps(profile.webglCaps);  // Throws on a malformed value.
 
   if (!isPlainObject(profile.webgpu)) fail('webgpu must be an object');
   checkString(profile.webgpu.vendor, 'webgpu.vendor', 100);

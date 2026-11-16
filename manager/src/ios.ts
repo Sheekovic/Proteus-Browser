@@ -73,6 +73,7 @@ export function generateIosIdentity(rng: Rng): GeneratedIdentity {
     deviceMemory: 4,
     screen: { width, height, availWidth: width, availHeight: height, colorDepth: 24 },
     webgl: { vendor: 'Apple Inc.', renderer: 'Apple GPU' },
+    webglCaps: null,
     webgpu: { vendor: '', architecture: '' },
     noise: { canvas: true, audio: true },
     // No font list, for the reason given in android.ts.

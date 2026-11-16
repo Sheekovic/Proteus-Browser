@@ -69,7 +69,7 @@ async function writeJson(file: string, value: unknown): Promise<void> {
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** Values for fields added after a profile was saved, so older profiles keep loading. */
-const FIELD_DEFAULTS: Pick<Profile, 'webrtc' | 'webrtcPublicIp' | 'fonts' | 'voices' | 'webgpu' | 'matchProxy' | 'geolocation' | 'mobile'> = {
+const FIELD_DEFAULTS: Pick<Profile, 'webrtc' | 'webrtcPublicIp' | 'fonts' | 'voices' | 'webgpu' | 'matchProxy' | 'geolocation' | 'mobile' | 'webglCaps'> = {
   webrtc: 'proxyOnly',
   webrtcPublicIp: '',
   fonts: [],
@@ -79,6 +79,7 @@ const FIELD_DEFAULTS: Pick<Profile, 'webrtc' | 'webrtcPublicIp' | 'fonts' | 'voi
   matchProxy: false,
   geolocation: null,
   mobile: null,
+  webglCaps: null,
 };
 
 function withDefaults(stored: Profile): Profile {

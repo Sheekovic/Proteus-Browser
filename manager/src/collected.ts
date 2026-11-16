@@ -12,6 +12,7 @@
 
 import type { GeneratedIdentity } from './fingerprint.ts';
 import { randomSeed } from './fingerprint.ts';
+import { cleanWebGLCaps, type WebGLCaps } from './webglCaps.ts';
 import { type OsFamily, type ScreenInfo, type UaBrand, ValidationError, type Voice } from './profile.ts';
 
 export interface CollectedUaData {
@@ -45,6 +46,8 @@ export interface Collected {
   innerWidth: number;
   innerHeight: number;
   webgl: { vendor: string; renderer: string } | null;
+  /** Absent in readings made before the collector read it. */
+  webglCaps: WebGLCaps | null;
   webgpu: { vendor: string; architecture: string } | null;
   voices: Voice[];
   fonts: string[];
@@ -54,8 +57,8 @@ export interface Collected {
 // Windows (launcher.ts refuses a configuration over 16,000 bytes). These budgets, in
 // bytes of that configuration, keep a profile made from a fingerprint inside it.
 // A font costs its name twice plus the substitutes named for it.
-const FONT_BUDGET = 7500;
-const VOICE_BUDGET = 4000;
+const FONT_BUDGET = 6000;
+const VOICE_BUDGET = 3000;
 const fontCost = (name: string): number => 2 * Buffer.byteLength(name) + 50;
 const voiceCost = (voice: Voice): number => Buffer.byteLength(JSON.stringify(voice)) + 1;
 
@@ -173,6 +176,7 @@ export function parseCollected(raw: unknown): Collected {
     innerWidth: Math.round(number(raw.innerWidth, 'innerWidth', 1, 32768)),
     innerHeight: Math.round(number(raw.innerHeight, 'innerHeight', 1, 32768)),
     webgl: pair(raw.webgl, 'webgl', 'vendor', 'renderer'),
+    webglCaps: cleanWebGLCaps(raw.webglCaps),
     webgpu: pair(raw.webgpu, 'webgpu', 'vendor', 'architecture'),
     voices,
     fonts,
@@ -257,6 +261,7 @@ export function identityFromCollected(c: Collected, kernelVersion: string): Gene
       deviceMemory: 4,
       screen,
       webgl,
+      webglCaps: c.webglCaps ?? null,
       webgpu: { vendor: '', architecture: '' },
       noise: { canvas: true, audio: true },
       fonts: [],
@@ -295,6 +300,7 @@ export function identityFromCollected(c: Collected, kernelVersion: string): Gene
     deviceMemory: c.deviceMemory !== null && DEVICE_MEMORY_VALUES.includes(c.deviceMemory) ? c.deviceMemory : 8,
     screen,
     webgl,
+    webglCaps: c.webglCaps ?? null,
     webgpu: c.webgpu ?? { vendor: '', architecture: '' },
     noise: { canvas: true, audio: true },
     // Phones keep the machine's fonts, as generated phone profiles do (android.ts).
