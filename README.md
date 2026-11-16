@@ -1,5 +1,8 @@
 # Proteus
 
+[![Manager tests](https://github.com/Sheekovic/Proteus-Browser/actions/workflows/manager-tests.yml/badge.svg)](https://github.com/Sheekovic/Proteus-Browser/actions/workflows/manager-tests.yml)
+[![License: BSD 3-Clause](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](LICENSE)
+
 A browser for keeping separate online identities separate.
 
 Proteus is two things that work together:
