@@ -269,10 +269,13 @@ test('a start matches the profile to its proxy exit, or refuses to start', async
     await assert.rejects(launcher.start(broken), LaunchError);
     assert.equal(launcher.isRunning(broken.id), false);
 
-    // Opting out starts without asking anyone.
+    // Opting out starts without asking anyone. What the first start learned about
+    // this proxy is still shown.
     const before = service.hits();
     const optedOut = await store.createProfile({ proxy, matchProxy: false });
-    assert.equal((await launcher.start(optedOut)).proxyExit, undefined);
+    assert.deepEqual((await launcher.start(optedOut)).proxyExit, { ip: '203.0.113.50', timezone: 'Asia/Tokyo' });
+    const optedOutConfig = JSON.parse(await readFile(join(store.profileDir(optedOut.id), 'kernel.json'), 'utf8'));
+    assert.ok(!('timezone' in optedOutConfig), 'and the browser is not matched to it');
     assert.equal(service.hits(), before);
     // Without a proxy the lookup tells which address sites see anyway, for WebRTC only.
     const direct = await store.createProfile({});

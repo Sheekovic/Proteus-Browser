@@ -5,6 +5,9 @@ import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { evaluateApart } from './browserControl.ts';
+import { exitAddress, ExitMemory, proxyKey } from './exitMemory.ts';
+import { borrowedLists, listsToKeep, READ_LISTS_SCRIPT } from './hostLists.ts';
 import { buildKernelArgs, buildKernelConfig } from './kernelConfig.ts';
 import type { Profile, ProxySettings } from './profile.ts';
 import { lookupOwnAddress, lookupProxyExit, type ProxyExit, withOwnAddress, withProxyExit } from './proxyExit.ts';
@@ -20,8 +23,20 @@ export interface ProfileStatus {
   startedAt?: string;
   /** DevTools (CDP) HTTP endpoint for automation tools, e.g. http://127.0.0.1:41233 */
   debuggerUrl?: string;
-  /** Where the profile's proxy comes out, when it was looked up for this run. */
+  /**
+   * Where the profile's proxy comes out, on a running profile. With `matchProxy` on
+   * it is always there and the browser was matched to it. With `matchProxy` off
+   * nobody is asked at a start, so it is what is remembered from the last time the
+   * proxy was asked (a proxy check, or a matched run), and absent when nothing is.
+   */
   proxyExit?: ProxyExit;
+  /** When `proxyExit` was last seen to be the proxy's exit. */
+  exitSeenAt?: string;
+  /**
+   * On a stopped profile with a proxy: where that proxy came out the last time it was
+   * asked, and when. Only from statusOf(), which knows the profile's proxy.
+   */
+  lastProxyExit?: ProxyExit & { at: string };
   /**
    * Where it comes out now, when that is no longer where it did at the start. The
    * browser still shows the time zone and WebRTC address of the first exit, which no
@@ -39,6 +54,7 @@ interface Running {
   startedAt: string;
   debuggerUrl?: string;
   proxyExit?: ProxyExit;
+  exitSeenAt?: string;
   exitNow?: ProxyExit & { since: string };
   exitProblem?: string;
   watch?: NodeJS.Timeout;
@@ -70,6 +86,25 @@ export type SpawnKernel = (kernelPath: string, args: string[]) => ChildProcess;
  */
 export type PrepareKernel = (kernelPath: string) => Promise<boolean>;
 
+/**
+ * Asks the browser at a DevTools address which lists it reports for the machine
+ * (hostLists.ts). Replaceable for the same reason.
+ */
+export type ReadLists = (debuggerUrl: string) => Promise<unknown>;
+
+const readRealLists: ReadLists = async (debuggerUrl) =>
+  JSON.parse(String(await evaluateApart(debuggerUrl, READ_LISTS_SCRIPT))) as unknown;
+
+/**
+ * One shape for a profile's state wherever it is reported: `state` ("running" or
+ * "stopped") beside `status`, the details. Used for a profile (`{...profile, state,
+ * status}`) and for the status, start and stop replies, which also keep the details
+ * at the top level where they always were.
+ */
+export function stateOf(status: ProfileStatus): { state: ProfileStatus['state']; status: ProfileStatus } {
+  return { state: status.state, status };
+}
+
 const spawnRealKernel: SpawnKernel = (kernelPath, args) =>
   spawn(kernelPath, args, { stdio: 'ignore', windowsHide: false });
 
@@ -77,14 +112,35 @@ export class Launcher {
   private readonly store: Store;
   private readonly spawnKernel: SpawnKernel;
   private readonly prepareKernel: PrepareKernel;
+  private readonly readLists: ReadLists;
+  private readonly exits: ExitMemory;
   private readonly running = new Map<string, Running>();
   private readonly lastExit = new Map<string, NonNullable<ProfileStatus['lastExit']>>();
 
   constructor(store: Store, spawnKernel: SpawnKernel = spawnRealKernel,
-              prepareKernel: PrepareKernel = (kernelPath) => allowSandboxToReadKernel(kernelPath)) {
+              prepareKernel: PrepareKernel = (kernelPath) => allowSandboxToReadKernel(kernelPath),
+              readLists: ReadLists = readRealLists) {
     this.store = store;
     this.spawnKernel = spawnKernel;
     this.prepareKernel = prepareKernel;
+    this.readLists = readLists;
+    this.exits = new ExitMemory(join(store.dataDir, 'exits.json'));
+  }
+
+  /** Records where `proxy` was just found to come out (a proxy check), for the profiles that use it. */
+  async noteExit(proxy: ProxySettings, exit: ProxyExit): Promise<void> {
+    await this.exits.note(proxyKey(proxy), exit);
+  }
+
+  /**
+   * The status of `profile`, with what only its settings can tell: where the proxy of
+   * a stopped profile came out the last time it was asked.
+   */
+  async statusOf(profile: Pick<Profile, 'id' | 'proxy'>): Promise<ProfileStatus> {
+    const status = this.status(profile.id);
+    if (status.state === 'running' || !profile.proxy) return status;
+    const last = await this.exits.get(proxyKey(profile.proxy));
+    return last ? { ...status, lastProxyExit: { ...last.exit, at: last.at } } : status;
   }
 
   status(id: string): ProfileStatus {
@@ -99,6 +155,7 @@ export class Launcher {
       startedAt: entry.startedAt,
       debuggerUrl: entry.debuggerUrl,
       ...(entry.proxyExit ? { proxyExit: entry.proxyExit } : {}),
+      ...(entry.proxyExit && entry.exitSeenAt ? { exitSeenAt: entry.exitSeenAt } : {}),
       ...(entry.exitNow ? { exitNow: entry.exitNow } : {}),
       ...(entry.exitProblem ? { exitProblem: entry.exitProblem } : {}),
     };
@@ -126,23 +183,47 @@ export class Launcher {
       throw new LaunchError(`Kernel not found at ${settings.kernelPath}`);
     }
 
+    // Opening the kernel's folder to its sandbox can take a moment the first time;
+    // it does not depend on the proxy, so it runs while the proxy is asked.
+    const prepared = this.prepareKernel(settings.kernelPath);
+    prepared.catch(() => {});
+
     // Make the browser agree with where the proxy comes out. Without knowing that,
     // starting would show sites a time zone that contradicts their view of the address.
     let profile = stored;
     let proxyExit: ProxyExit | undefined;
-    if (stored.proxy && stored.matchProxy && settings.exitLookupUrl !== '') {
-      try {
-        proxyExit = await lookupProxyExit(stored.proxy, settings.exitLookupUrl);
-      } catch (error) {
-        throw new LaunchError(`Could not find out where the proxy comes out: ${(error as Error).message}. ` +
-            'Check the proxy, or turn "match proxy" off for this profile to start anyway.');
+    let exitSeenAt: string | undefined;
+    const lookupOn = settings.exitLookupUrl !== '';
+    if (stored.proxy && !stored.matchProxy) {
+      // Opted out: nobody is asked. What is remembered of this proxy is still shown.
+      const last = await this.exits.get(proxyKey(stored.proxy));
+      proxyExit = last?.exit;
+      exitSeenAt = last?.at;
+    } else if (stored.proxy && lookupOn) {
+      // An exit seen twice in a row a short while ago is taken to still be there: the
+      // start does not wait for the lookup, which runs while the browser comes up
+      // and says so if the exit has moved after all (see lookAgain).
+      const known = await this.exits.fresh(proxyKey(stored.proxy), settings.exitCacheMinutes);
+      if (known) {
+        proxyExit = known.exit;
+        exitSeenAt = known.at;
+      } else {
+        try {
+          proxyExit = await lookupProxyExit(stored.proxy, settings.exitLookupUrl);
+        } catch (error) {
+          throw new LaunchError(`Could not find out where the proxy comes out: ${(error as Error).message}. ` +
+              'Check the proxy, or turn "match proxy" off for this profile to start anyway.');
+        }
+        exitSeenAt = (await this.exits.note(proxyKey(stored.proxy), proxyExit)).at;
       }
       profile = withProxyExit(stored, proxyExit);
-    } else if (!stored.proxy && stored.matchProxy && settings.exitLookupUrl !== '' &&
+    } else if (!stored.proxy && stored.matchProxy && lookupOn &&
                stored.webrtc === 'proxyOnly' && stored.webrtcPublicIp === '') {
       // No proxy: sites see this machine's own address, so WebRTC may show it too,
       // as an ordinary browser would. If it cannot be found out the profile still
-      // starts; WebRTC then shows no public address, which is safe.
+      // starts; WebRTC then shows no public address, which is safe. (Never taken from
+      // memory: this machine's address changes with its network, and an old one must
+      // not be shown on a new network.)
       try {
         profile = withOwnAddress(stored, await lookupOwnAddress(settings.exitLookupUrl));
       } catch {
@@ -171,7 +252,13 @@ export class Launcher {
     // A proxy with a login is reached through a local relay that logs in for the kernel.
     const relay = needsRelay(profile.proxy) ? await startProxyRelay(profile.proxy) : undefined;
     const proxyServer = relay ? `socks5://127.0.0.1:${relay.port}` : undefined;
-    const networkSandbox = await this.prepareKernel(settings.kernelPath);
+    let networkSandbox: boolean;
+    try {
+      networkSandbox = await prepared;
+    } catch (error) {
+      await relay?.close();
+      throw error;
+    }
     const args = buildKernelArgs(profile, { userDataDir, configFile, proxyServer, networkSandbox }, settings.extraArgs);
     const child = this.spawnKernel(settings.kernelPath, args);
 
@@ -186,17 +273,23 @@ export class Launcher {
       throw error;
     }
 
-    const entry: Running = { child, startedAt: new Date().toISOString(), proxyExit };
+    const entry: Running = { child, startedAt: new Date().toISOString(), proxyExit, exitSeenAt };
     this.running.set(profile.id, entry);
     this.lastExit.delete(profile.id);
-    // A proxy's exit can change or go away while the profile runs, and the browser
-    // cannot be re-matched without a restart: look again now and then, and say so.
-    if (proxyExit && stored.proxy && settings.exitWatchMinutes > 0) {
+    if (stored.proxy && stored.matchProxy && lookupOn) {
       const proxy = stored.proxy;
-      entry.watch = setInterval(() => {
-        void this.lookAgain(entry, proxy, settings.exitLookupUrl);
-      }, settings.exitWatchMinutes * 60_000);
-      entry.watch.unref();
+      // One look while the browser comes up. It checks an exit taken from memory, and
+      // is the second sighting that lets the next start take this exit from memory.
+      // (Not with exitCacheMinutes 0: then every start asks first, and only once.)
+      if (settings.exitCacheMinutes > 0) void this.lookAgain(entry, proxy, settings.exitLookupUrl);
+      // A proxy's exit can change or go away while the profile runs, and the browser
+      // cannot be re-matched without a restart: look again now and then, and say so.
+      if (settings.exitWatchMinutes > 0) {
+        entry.watch = setInterval(() => {
+          void this.lookAgain(entry, proxy, settings.exitLookupUrl);
+        }, settings.exitWatchMinutes * 60_000);
+        entry.watch.unref();
+      }
     }
     child.once('exit', (code, signal) => {
       clearInterval(entry.watch);
@@ -211,21 +304,43 @@ export class Launcher {
       const exit = this.lastExit.get(profile.id);
       throw new LaunchError(`The kernel exited right after starting (exit code ${exit?.code ?? 'unknown'}).`);
     }
+    if (entry.debuggerUrl && borrowedLists(stored).length > 0) void this.keepLists(stored.id, entry.debuggerUrl);
     return this.status(profile.id);
   }
 
-  /** Asks once more where `proxy` comes out and records a change or a failure on `entry`. */
+  /**
+   * Saves in the profile the lists it left to this machine (hostLists.ts), as its
+   * browser reported them just now. Best effort: a browser that cannot be asked is
+   * asked again at the next start.
+   */
+  private async keepLists(id: string, debuggerUrl: string): Promise<void> {
+    try {
+      const read = await this.readLists(debuggerUrl);
+      // Read again: the profile may have been edited while the browser started.
+      const current = await this.store.getProfile(id);
+      const keep = listsToKeep(current, read);
+      if (keep.voices && Buffer.byteLength(JSON.stringify(buildKernelConfig({ ...current, ...keep }))) > MAX_CONFIG_BYTES) {
+        delete keep.voices;
+      }
+      if (Object.keys(keep).length > 0) await this.store.updateProfile(id, keep);
+    } catch {
+      // Not a browser that can be asked, or the profile is gone.
+    }
+  }
+
+  /** Asks once more where `proxy` comes out and records the answer, a change or a failure on `entry`. */
   private async lookAgain(entry: Running, proxy: ProxySettings, lookupSetting: string): Promise<void> {
-    const address = (exit: ProxyExit): string => exit.ipv4 ?? exit.ip;
     // A look at a proxy in trouble takes a while (it is retried); the next one waits for it.
     if (entry.looking) return;
     entry.looking = true;
     try {
       const now = await lookupProxyExit(proxy, lookupSetting);
+      const seen = await this.exits.note(proxyKey(proxy), now);
       entry.exitProblem = undefined;
-      if (!entry.proxyExit || address(now) === address(entry.proxyExit)) {
+      if (!entry.proxyExit || exitAddress(now) === exitAddress(entry.proxyExit)) {
+        entry.exitSeenAt = seen.at;
         entry.exitNow = undefined;
-      } else if (!entry.exitNow || address(entry.exitNow) !== address(now)) {
+      } else if (!entry.exitNow || exitAddress(entry.exitNow) !== exitAddress(now)) {
         entry.exitNow = { ...now, since: new Date().toISOString() };
       }
     } catch (error) {

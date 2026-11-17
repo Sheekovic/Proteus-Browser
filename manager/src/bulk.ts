@@ -3,6 +3,7 @@
 
 import { type Profile, type ProxySettings, validateProxy, ValidationError } from './profile.ts';
 import { toProfileInput } from './profileInput.ts';
+import { presetOs } from './presets.ts';
 import { parseProxyList } from './proxyList.ts';
 import type { Store } from './store.ts';
 
@@ -17,6 +18,8 @@ export interface BulkRequest {
   common?: unknown;
   /** A stored device reading all of them take their identity from, instead of generated ones. */
   fingerprintId?: string;
+  /** A ready-made setup (presets.ts) all of them are made from, instead of generated ones. */
+  preset?: string;
   /** Proxies, as pasted text (one per line) or as a list. The first profile gets the first, and so on. */
   proxies?: string | unknown[];
   /** Kind of the proxies in a pasted list that does not say. */
@@ -34,6 +37,7 @@ export async function createProfiles(store: Store, request: BulkRequest): Promis
   if (!Number.isInteger(request.count) || request.count < 1 || request.count > MAX_AT_ONCE) {
     throw new ValidationError(`count must be a whole number from 1 to ${MAX_AT_ONCE}`);
   }
+  if (request.preset !== undefined) presetOs(String(request.preset));  // Throws when there is no such preset.
   const name = (request.name ?? 'Profile').trim();
   if (name === '' || name.length > 180) throw new ValidationError('name must be 1 to 180 characters');
   const common = toProfileInput(request.common ?? {});
@@ -58,7 +62,7 @@ export async function createProfiles(store: Store, request: BulkRequest): Promis
     for (let index = 0; index < request.count; index++) {
       const input = { ...common, name: `${name} ${index + 1}` };
       if (proxies.length > 0) input.proxy = { ...proxies[index % proxies.length] };
-      made.push(await store.createProfile(input, request.fingerprintId));
+      made.push(await store.createProfile(input, request.fingerprintId, request.preset));
     }
   } catch (error) {
     for (const profile of made) await store.deleteProfile(profile.id).catch(() => {});

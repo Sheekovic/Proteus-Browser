@@ -12,6 +12,7 @@ import { join } from 'node:path';
 
 import { classify, type Collected, identityFromCollected, parseCollected } from './collected.ts';
 import { generateIdentity, hostOs } from './fingerprint.ts';
+import { identityFromPreset } from './presets.ts';
 import { OS_FAMILIES, type Profile, type ProfileInput, ValidationError, validateProfile } from './profile.ts';
 
 export interface Settings {
@@ -34,6 +35,12 @@ export interface Settings {
    * through the proxy. 0 turns it off.
    */
   exitWatchMinutes: number;
+  /**
+   * How long, in minutes, a proxy's exit that was seen twice in a row is trusted at a
+   * start: the profile then starts at once with the remembered exit, which is checked
+   * again while the browser comes up (see launcher.ts). 0 looks first at every start.
+   */
+  exitCacheMinutes: number;
 }
 
 /** The lookup setting of versions that asked a single service. */
@@ -43,6 +50,7 @@ const DEFAULT_SETTINGS: Settings = {
   kernelPath: '', kernelVersion: '158.0.8127.37', extraArgs: [],
   exitLookupUrl: 'https://ipwho.is/ https://api.ip.sb/geoip https://ipapi.co/json/ https://ipinfo.io/json',
   exitWatchMinutes: 10,
+  exitCacheMinutes: 30,
 };
 
 /** A fingerprint read from a real device (see collected.ts), as kept on disk. */
@@ -156,6 +164,12 @@ export class Store {
       }
       next.exitWatchMinutes = patch.exitWatchMinutes;
     }
+    if (patch.exitCacheMinutes !== undefined) {
+      if (typeof patch.exitCacheMinutes !== 'number' || !(patch.exitCacheMinutes >= 0 && patch.exitCacheMinutes <= 1440)) {
+        throw new ValidationError('exitCacheMinutes must be a number from 0 to 1440');
+      }
+      next.exitCacheMinutes = patch.exitCacheMinutes;
+    }
     await mkdir(this.dataDir, { recursive: true });
     await writeJson(join(this.dataDir, 'settings.json'), next);
     return next;
@@ -243,19 +257,23 @@ export class Store {
 
   /**
    * Creates a profile; `input` overrides any field of its identity. The identity is
-   * that of the stored fingerprint `fingerprintId` when one is given, and freshly
-   * generated otherwise.
+   * that of the stored fingerprint `fingerprintId` or of the ready-made setup
+   * `presetId` (presets.ts) when one is given, and freshly generated otherwise.
    */
-  async createProfile(input: ProfileInput = {}, fingerprintId?: string): Promise<Profile> {
+  async createProfile(input: ProfileInput = {}, fingerprintId?: string, presetId?: string): Promise<Profile> {
     const settings = await this.getSettings();
-    const fromDevice = fingerprintId === undefined ? undefined
-        : identityFromCollected((await this.getFingerprint(fingerprintId)).collected, settings.kernelVersion);
+    if (fingerprintId !== undefined && presetId !== undefined) {
+      throw new ValidationError('give a fingerprint or a preset, not both');
+    }
+    const fromDevice = fingerprintId !== undefined
+        ? identityFromCollected((await this.getFingerprint(fingerprintId)).collected, settings.kernelVersion)
+        : presetId !== undefined ? identityFromPreset(presetId, settings.kernelVersion) : undefined;
     const os = input.os ?? fromDevice?.os ?? hostOs();
     if (!OS_FAMILIES.includes(os)) {
       throw new ValidationError(`os must be one of ${OS_FAMILIES.join(', ')}`);
     }
     if (fromDevice && fromDevice.os !== os) {
-      throw new ValidationError(`that fingerprint is of a ${fromDevice.os} device, not ${os}`);
+      throw new ValidationError(`that ${presetId !== undefined ? 'preset' : 'fingerprint'} is of a ${fromDevice.os} device, not ${os}`);
     }
     const now = new Date().toISOString();
     const profile: Profile = {
@@ -276,7 +294,7 @@ export class Store {
       createdAt: now,
       updatedAt: now,
     };
-    validateProfile(profile);
+    validateProfile(profile, { deviceMemory: true });
     await mkdir(this.profileDir(profile.id), { recursive: true });
     await writeJson(join(this.profileDir(profile.id), 'profile.json'), profile);
     return profile;
@@ -291,7 +309,8 @@ export class Store {
       createdAt: current.createdAt,
       updatedAt: new Date().toISOString(),
     };
-    validateProfile(profile);
+    // A memory value is held to its system's browser when it, or the system, is set now.
+    validateProfile(profile, { deviceMemory: 'deviceMemory' in input || 'os' in input });
     await writeJson(join(this.profileDir(id), 'profile.json'), profile);
     return profile;
   }

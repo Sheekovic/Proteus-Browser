@@ -21,7 +21,7 @@ interface Device {
   gpu: string;
   gpuFamily: string;
   cores: number;
-  /** navigator.deviceMemory, which Chrome caps at 8. */
+  /** navigator.deviceMemory, which Chrome on Android caps at 8. */
   memory: number;
 }
 
@@ -62,8 +62,9 @@ export const ANDROID_FONTS: readonly string[] = [
 const SYSTEM_BARS_HEIGHT = 130;
 
 /** A fresh Chrome-on-Android identity matching kernel version `kernelVersion`. */
-export function generateAndroidIdentity(kernelVersion: string, rng: Rng): GeneratedIdentity {
-  const device = DEVICES[rng(DEVICES.length)];
+export function generateAndroidIdentity(kernelVersion: string, rng: Rng, model?: string): GeneratedIdentity {
+  // `model` picks one phone (a ready-made setup); otherwise any of them.
+  const device = DEVICES.find((candidate) => candidate.model === model) ?? DEVICES[rng(DEVICES.length)];
   const major = kernelVersion.split('.')[0];
   return {
     seed: randomSeed(),

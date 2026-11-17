@@ -14,18 +14,18 @@ import { mediaDevicesFor } from './mediaDevices.ts';
 import { voicesFor } from './voices.ts';
 
 /** The systems with a desktop identity generator; phones have their own (android.ts, ios.ts). */
-type DesktopOs = Exclude<OsFamily, 'android' | 'ios'>;
+export type DesktopOs = Exclude<OsFamily, 'android' | 'ios'>;
 
 /** Returns a uniformly distributed integer in [0, bound). */
 export type Rng = (bound: number) => number;
 
-const cryptoRng: Rng = (bound) => randomBytes(4).readUInt32BE(0) % bound;
+export const cryptoRng: Rng = (bound) => randomBytes(4).readUInt32BE(0) % bound;
 
 function pick<T>(rng: Rng, items: readonly T[]): T {
   return items[rng(items.length)];
 }
 
-interface Gpu {
+export interface Gpu {
   /** WEBGL_debug_renderer_info strings. */
   vendor: string;
   renderer: string;
@@ -42,17 +42,17 @@ const SCREENS: Record<DesktopOs, readonly (readonly [number, number, number])[]>
 
 // The third argument is the WebGPU "architecture": the GPU generation name the
 // browser reports for that hardware (Intel gen-9, NVIDIA Turing, AMD GCN 4, ...).
-const d3d11 = (vendor: string, device: string, architecture: string): Gpu => ({
+export const d3d11 = (vendor: string, device: string, architecture: string): Gpu => ({
   vendor: `Google Inc. (${vendor})`,
   renderer: `ANGLE (${vendor}, ${device} Direct3D11 vs_5_0 ps_5_0, D3D11)`,
   webgpu: { vendor: vendor.toLowerCase(), architecture },
 });
-const openGl = (vendor: string, device: string, webgpuVendor: string, architecture: string): Gpu => ({
+export const openGl = (vendor: string, device: string, webgpuVendor: string, architecture: string): Gpu => ({
   vendor: `Google Inc. (${vendor})`,
   renderer: `ANGLE (${vendor}, ${device})`,
   webgpu: { vendor: webgpuVendor, architecture },
 });
-const metal = (chip: string): Gpu => ({
+export const metal = (chip: string): Gpu => ({
   vendor: 'Google Inc. (Apple)',
   renderer: `ANGLE (Apple, ANGLE Metal Renderer: ${chip}, Unspecified Version)`,
   webgpu: { vendor: 'apple', architecture: 'metal-3' },
@@ -80,15 +80,35 @@ const GPUS: Record<DesktopOs, readonly Gpu[]> = {
   macos: [metal('Apple M1'), metal('Apple M2'), metal('Apple M3 Pro')],
 };
 
-const CORES: Record<DesktopOs, readonly number[]> = {
-  windows: [4, 6, 8, 8, 12, 16],
-  linux: [4, 8, 8, 12, 16],
-  macos: [8, 8, 10, 12],
-};
-const MEMORY: Record<DesktopOs, readonly number[]> = {
-  windows: [8, 8, 16, 16, 32],
-  linux: [8, 16, 16, 32],
-  macos: [8, 16, 16, 32],
+/** A computer as far as its processor and memory go. */
+export interface Machine {
+  /** navigator.hardwareConcurrency */
+  cores: number;
+  /** navigator.deviceMemory: the installed memory rounded down to a power of two, 32 at most. */
+  memory: number;
+  /** On a Mac the chip is also the graphics card; absent elsewhere. */
+  gpu?: Gpu;
+}
+
+// Processor and memory go together: a four-core office machine does not have 32 GB,
+// and a sixteen-core one rarely has 8. An entry listed twice is twice as likely.
+const MACHINES: Record<DesktopOs, readonly Machine[]> = {
+  windows: [
+    { cores: 4, memory: 8 }, { cores: 4, memory: 8 }, { cores: 6, memory: 8 }, { cores: 6, memory: 16 },
+    { cores: 8, memory: 8 }, { cores: 8, memory: 16 }, { cores: 8, memory: 16 }, { cores: 12, memory: 16 },
+    { cores: 12, memory: 16 }, { cores: 12, memory: 32 }, { cores: 16, memory: 16 }, { cores: 16, memory: 32 },
+  ],
+  linux: [
+    { cores: 4, memory: 8 }, { cores: 8, memory: 8 }, { cores: 8, memory: 16 }, { cores: 8, memory: 16 },
+    { cores: 12, memory: 16 }, { cores: 16, memory: 16 }, { cores: 16, memory: 32 },
+  ],
+  // Apple sells each chip with a fixed number of cores and two or three memory sizes
+  // (18 GB reads as 16, 36 GB as 32).
+  macos: [
+    { cores: 8, memory: 8, gpu: metal('Apple M1') }, { cores: 8, memory: 16, gpu: metal('Apple M1') },
+    { cores: 8, memory: 8, gpu: metal('Apple M2') }, { cores: 8, memory: 16, gpu: metal('Apple M2') },
+    { cores: 12, memory: 16, gpu: metal('Apple M3 Pro') }, { cores: 12, memory: 32, gpu: metal('Apple M3 Pro') },
+  ],
 };
 
 // Font families that ship with a default installation of each system. A profile
@@ -227,9 +247,18 @@ function buildUaData(os: DesktopOs, kernelVersion: string, rng: Rng): UaData {
   };
 }
 
-function buildScreen(os: DesktopOs, rng: Rng): ScreenInfo {
-  const [width, height, bar] = pick(rng, SCREENS[os]);
+/** The screen of [width, height, taskbar or dock height]. */
+function screenOf([width, height, bar]: readonly [number, number, number]): ScreenInfo {
   return { width, height, availWidth: width, availHeight: height - bar, colorDepth: 24 };
+}
+
+/** The parts of a desktop identity a ready-made setup (presets.ts) fixes instead of leaving to chance. */
+export interface DesktopChoice {
+  /** [width, height, taskbar or dock height] */
+  screen?: readonly [number, number, number];
+  gpu?: Gpu;
+  cores?: number;
+  memory?: number;
 }
 
 /** A random unsigned 64-bit seed, never zero. */
@@ -255,9 +284,16 @@ export type GeneratedIdentity = Pick<Profile,
 export function generateIdentity(os: OsFamily, kernelVersion: string, rng: Rng = cryptoRng): GeneratedIdentity {
   if (os === 'android') return generateAndroidIdentity(kernelVersion, rng);
   if (os === 'ios') return generateIosIdentity(rng);
+  return generateDesktopIdentity(os, kernelVersion, rng);
+}
+
+/** The same for a computer, with the parts `choice` names fixed. */
+export function generateDesktopIdentity(os: DesktopOs, kernelVersion: string, rng: Rng = cryptoRng,
+                                        choice: DesktopChoice = {}): GeneratedIdentity {
   const major = kernelVersion.split('.')[0];
   const identity = OS_IDENTITY[os];
-  const gpu = pick(rng, GPUS[os]);
+  const machine = pick(rng, MACHINES[os]);
+  const gpu = choice.gpu ?? machine.gpu ?? pick(rng, GPUS[os]);
   const uaData = buildUaData(os, kernelVersion, rng);
   return {
     seed: randomSeed(),
@@ -266,9 +302,9 @@ export function generateIdentity(os: OsFamily, kernelVersion: string, rng: Rng =
                `Chrome/${major}.0.0.0 Safari/537.36`,
     platform: identity.navigatorPlatform,
     uaData,
-    hardwareConcurrency: pick(rng, CORES[os]),
-    deviceMemory: pick(rng, MEMORY[os]),
-    screen: buildScreen(os, rng),
+    hardwareConcurrency: choice.cores ?? machine.cores,
+    deviceMemory: choice.memory ?? machine.memory,
+    screen: screenOf(choice.screen ?? pick(rng, SCREENS[os])),
     mobile: null,
     webgl: { vendor: gpu.vendor, renderer: gpu.renderer },
     webglCaps: null,

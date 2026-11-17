@@ -207,6 +207,25 @@ export async function screenshot(debuggerUrl: string, tabId: string, fullPage = 
   });
 }
 
+/**
+ * Runs `expression` in a JavaScript world of its own inside the profile's first tab
+ * and returns its value: the page in that tab cannot see the script or alter what it
+ * reads. For asking the browser about itself (hostLists.ts), not for driving pages.
+ */
+export async function evaluateApart(debuggerUrl: string, expression: string): Promise<unknown> {
+  return withAnyTab(debuggerUrl, async (session) => {
+    const tree = await session.send('Page.getFrameTree');
+    const frameId = (tree.frameTree as { frame?: { id?: string } } | undefined)?.frame?.id;
+    if (typeof frameId !== 'string') throw new BrowserError('The tab has no page to ask.');
+    const world = await session.send('Page.createIsolatedWorld', { frameId, worldName: 'proteus' });
+    const reply = await session.send('Runtime.evaluate', {
+      expression, contextId: world.executionContextId, awaitPromise: true, returnByValue: true,
+    });
+    if (reply.exceptionDetails) throw new BrowserError('The browser could not be asked.');
+    return (reply.result as { value?: unknown } | undefined)?.value;
+  });
+}
+
 /** A tab to ask browser-wide questions through; opens one if the profile has none. */
 async function anyTab(debuggerUrl: string): Promise<{ tab: Target; opened: boolean }> {
   const existing = (await targets(debuggerUrl)).find((target) => target.type === 'page' && target.webSocketDebuggerUrl);

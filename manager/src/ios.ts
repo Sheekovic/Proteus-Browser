@@ -67,8 +67,9 @@ export const SAFARI_MISSING: readonly string[] = [
 ];
 
 /** A fresh Safari-on-iPhone identity. */
-export function generateIosIdentity(rng: Rng): GeneratedIdentity {
-  const [width, height] = SCREENS[rng(SCREENS.length)];
+export function generateIosIdentity(rng: Rng, screen?: readonly [number, number]): GeneratedIdentity {
+  // `screen` picks one iPhone size (a ready-made setup); otherwise any of them.
+  const [width, height] = screen ?? SCREENS[rng(SCREENS.length)];
   const [osVersion, safariVersion] = VERSIONS[rng(VERSIONS.length)];
   return {
     seed: randomSeed(),

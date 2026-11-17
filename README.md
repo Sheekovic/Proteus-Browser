@@ -83,13 +83,17 @@ Without a profile the kernel behaves like the Chromium it is built from.
 ### Manager
 
 - Profiles stored as plain JSON files, each with its own browser data directory.
-- Identity generators for Windows, macOS, Linux, Android and iPhone.
+- Identity generators for Windows, macOS, Linux, Android and iPhone, and ready-made
+  setups (ordinary laptops, desktops and phones) to choose from instead.
 - Proxies per profile (HTTP and SOCKS5, with or without a login).
 - Proxies checked before use (where one comes out, and how fast), and tolerant of the
   way real ones behave: retries, several lookup services, time limits.
 - Many profiles at once from a pasted proxy list, each a device of its own; editing,
   duplicating and tagging them; cookies in and out as the files other browsers export.
-- Optional matching of time zone, WebRTC address and location to the proxy's exit.
+- Optional matching of time zone, WebRTC address and location to the proxy's exit,
+  and the exit address shown for every profile, running or stopped.
+- A profile that came out at the same address twice starts without waiting for the
+  lookup, which is repeated while the browser comes up.
 - A light interface in a window of its own, drawn by the kernel itself, so nothing
   heavier than a web page is running.
 - Everything it does can be done by a program: a JSON API, and the same abilities as
@@ -177,13 +181,71 @@ curl -X PUT http://127.0.0.1:5310/api/profiles/<id>/cookies \
 `GET /api` lists every route; they are described at the top of
 [`manager/src/server.ts`](manager/src/server.ts).
 
+**A profile's state has one shape in every reply.** `state` is `"running"` or
+`"stopped"`, and `status` holds the details:
+
+```json
+{ "id": "…", "name": "Shop account", "…": "…",
+  "state": "running",
+  "status": { "state": "running", "pid": 4242, "startedAt": "…", "debuggerUrl": "http://127.0.0.1:41233",
+              "proxyExit": { "ip": "203.0.113.50", "timezone": "Asia/Tokyo" }, "exitSeenAt": "…" } }
+```
+
+The list, a single profile, and the replies to creating, editing and duplicating one
+all look like that. The status, start and stop replies carry `state` and `status` too,
+and also keep the details at the top level (`debuggerUrl`, `pid`, …), where they were
+before, so both `reply.status.debuggerUrl` and `reply.debuggerUrl` work there.
+
+In `status`:
+
+| Field | When | Meaning |
+| --- | --- | --- |
+| `proxyExit` | running, with a proxy | The address (and time zone, position) the proxy comes out on. With `matchProxy` on it is always there and the browser was matched to it. With `matchProxy` off nobody is asked at a start, so it is what the last proxy check or matched run found, if anything. |
+| `exitSeenAt` | with `proxyExit` | When that address was last seen. |
+| `lastProxyExit` | stopped, with a proxy | Where the proxy came out the last time it was asked, with `at`. |
+| `exitNow` | running | The proxy has moved to this address since the start: restart the profile to match it. |
+| `exitProblem` | running | Why the proxy could not be reached at the last look. |
+| `lastExit` | stopped | How the last run ended, if it ended on its own. |
+
+**Ready-made setups.** `GET /api/presets` lists them (`windows-office-laptop`,
+`windows-laptop`, `windows-desktop`, `windows-gaming-desktop`, `macbook-air`,
+`macbook-pro-14`, `linux-desktop`, `pixel-8`, `galaxy-a34`, `iphone-15`). Passing
+`"preset": "<id>"` when creating a profile (or to the bulk route) fixes the screen,
+graphics card, processor and memory to that device; the noise seed is new each time,
+so two profiles from one preset are two devices of the same model. Without a preset
+an identity is generated as before. They are hand-written compositions of common
+configurations, not readings of real devices; for those, see below.
+
+**Memory.** `deviceMemory` is held to what the profile's browser can report:
+`2, 4, 8, 16, 32` for Chrome on a computer and `1, 2, 4, 8` for Chrome on Android
+(checked against an unmodified kernel 158, which reports 32 on a machine with more;
+Chrome versions before the limit was raised stopped at 8). A value outside that is
+refused with `{"error": …}` naming the accepted ones, when the value or the system is
+set. A generated profile gets a value that fits its processor. Profiles saved earlier
+keep whatever they have.
+
+**Start times.** Measured on Windows 11 with kernel 158: a profile without a proxy
+starts in about 1.5 s. Behind a proxy almost all of the time is the exit lookup: 3 s
+to 27 s in our runs through a residential proxy. Once the exit has been the same
+twice it is remembered for `exitCacheMinutes` (30 by default, a setting) and the
+start takes about 1.4 s; the lookup then runs while the browser comes up, and
+`exitNow` says so if the exit has moved after all. A proxy that gives a new address
+on every connection never qualifies and is always asked first, as is any proxy with
+the setting at 0.
+
+**Lists a profile carries.** Fonts, voices and media devices are part of a profile
+from the moment it is made. Its languages are not, unless given: the first time such a
+profile runs, the manager asks its browser which languages (and, for profiles saved
+by early versions, voices) it reported and saves them in the profile, so that it
+reports the same on any computer afterwards.
+
 ### MCP (for AI assistants)
 
 The manager is also a [Model Context Protocol](https://modelcontextprotocol.io)
 server, so an assistant can create profiles, start them and work in them. It offers
-24 tools: profiles (`list_profiles`, `create_profile`, `create_profiles`, `duplicate_profile`,
+25 tools: profiles (`list_profiles`, `create_profile`, `create_profiles`, `duplicate_profile`,
 `update_profile`, `delete_profile`, `start_profile`, `stop_profile`, `new_identity`), proxies
-(`check_proxy`), devices and settings, and the browser itself (`list_tabs`, `open_tab`, `navigate`, `page_text`,
+(`check_proxy`), ready-made setups (`list_presets`), devices and settings, and the browser itself (`list_tabs`, `open_tab`, `navigate`, `page_text`,
 `evaluate`, `screenshot`, `close_tab`, `get_cookies`, `set_cookies`).
 
 - Assistants that connect over HTTP use `http://127.0.0.1:5310/mcp` while the manager
@@ -340,6 +402,10 @@ Worth knowing before relying on it:
   others report the machine's own.
 - **A limit is a claim.** A page that actually allocates beyond a claimed limit
   succeeds if the real hardware allows it.
+- **Two things still come from the machine a profile runs on.** The stand-in fonts
+  below are chosen from the machine's own, and a profile without a device reading
+  reports the machine's graphics limits (above). Moved to another computer, a profile
+  keeps everything else.
 - **Fonts of another system are stand-ins.** A profile of a system other than the
   machine's own — which includes every phone profile — claims that system's fonts and
   hides the machine's, but draws them with substitutes. A page finds the names;

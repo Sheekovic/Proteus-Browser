@@ -281,6 +281,8 @@
           <input name="exitLookupUrl" spellcheck="false"></label>
         <label>Look again while a profile runs, every (minutes; 0 for never)
           <input name="exitWatchMinutes" type="number" min="0" max="1440" step="1"></label>
+        <label>Start without waiting when the exit was the same twice, for (minutes; 0 to always ask first)
+          <input name="exitCacheMinutes" type="number" min="0" max="1440" step="1"></label>
       </div>
       <div class="row"><button class="button primary" type="submit">Save</button></div>
     </form>
@@ -314,7 +316,7 @@
     <fieldset id="device-fields">
       <legend>Device</legend>
       <div class="systems" id="systems"></div>
-      <label>Or take the identity of a device you have read
+      <label>Or use a ready-made setup, or a device you have read
         <select name="fingerprintId"><option value="">Generate one for the system chosen above</option></select>
       </label>
     </fieldset>
@@ -454,6 +456,14 @@ function profileCard(p, index) {
   fact('Graphics', (p.webgl.renderer || 'this computer’s').replace(/^ANGLE \((.*)\)$/, '$1'));
   fact('Time zone', p.timezone || 'this computer’s');
   fact('Proxy', p.proxy ? `${p.proxy.type}://${p.proxy.host}:${p.proxy.port}` : 'none');
+  // Which address the proxy comes out on: now, for a running profile, and the last
+  // time it was asked, for a stopped one.
+  if (p.proxy) {
+    const where = (exit) => `${exit.ipv4 || exit.ip}${exit.timezone ? ' · ' + exit.timezone : ''}`;
+    if (running && p.status.proxyExit) fact('Exit', where(p.status.proxyExit));
+    else if (running) fact('Exit', p.matchProxy ? 'being looked up…' : 'not asked (matching is off; check the proxy to see it)');
+    else if (p.status.lastProxyExit) fact('Last exit', `${where(p.status.lastProxyExit)} (${new Date(p.status.lastProxyExit.at).toLocaleString()})`);
+  }
 
   const actions = el('div', 'actions');
   if (running) {
@@ -699,14 +709,15 @@ $('create').addEventListener('submit', async (event) => {
       toast(`Saved “${f.name.value.trim()}”.`);
     } else if (count === 1) {
       const input = { ...fields, name: f.name.value.trim(), proxy: formProxy(f) };
-      // A device that was read brings its own system; the system choice is then ignored.
-      if (f.fingerprintId.value) input.fingerprintId = f.fingerprintId.value;
+      // A ready-made setup or a device that was read brings its own system; the system
+      // choice is then ignored.
+      if (f.fingerprintId.value) Object.assign(input, deviceChoice(f));
       else if (f.os.value) input.os = f.os.value;
       const profile = await api('POST', '/api/profiles', input);
       toast(`Created “${profile.name}”.`);
     } else {
       const request = { count, name: f.name.value.trim(), common: { ...fields } };
-      if (f.fingerprintId.value) request.fingerprintId = f.fingerprintId.value;
+      if (f.fingerprintId.value) Object.assign(request, deviceChoice(f));
       else if (f.os.value) request.common.os = f.os.value;
       if (f.proxyList.value.trim()) {
         request.proxies = f.proxyList.value;
@@ -723,13 +734,28 @@ $('create').addEventListener('submit', async (event) => {
 });
 
 // --- Devices ---------------------------------------------------------------------------
+/** What the device menu chose: {preset} for a ready-made setup, {fingerprintId} for a device that was read. */
+function deviceChoice(f) {
+  const value = f.fingerprintId.value;
+  return value.startsWith('preset:') ? { preset: value.slice('preset:'.length) } : { fingerprintId: value };
+}
+
+let presets = null;
 async function loadFingerprints() {
+  presets = presets || await api('GET', '/api/presets');
   const fingerprints = await api('GET', '/api/fingerprints');
   $('count-devices').textContent = String(fingerprints.length);
   $('no-fingerprints').hidden = fingerprints.length > 0;
   const select = $('create').fingerprintId;
   const chosen = select.value;
-  select.replaceChildren(select.options[0]);
+  const readyMade = document.createElement('optgroup');
+  readyMade.label = 'Ready-made setups';
+  for (const preset of presets) {
+    const option = el('option', '', `${preset.name} — ${preset.description}`);
+    option.value = 'preset:' + preset.id;
+    readyMade.append(option);
+  }
+  select.replaceChildren(select.options[0], readyMade);
   $('fingerprints').replaceChildren(...fingerprints.map((f) => {
     const name = f.label || f.device;
     const row = el('tr');
@@ -775,6 +801,7 @@ async function loadSettings() {
   form.extraArgs.value = settings.extraArgs.join(' ');
   form.exitLookupUrl.value = settings.exitLookupUrl;
   form.exitWatchMinutes.value = settings.exitWatchMinutes;
+  form.exitCacheMinutes.value = settings.exitCacheMinutes;
   const state = $('kernel-state');
   state.textContent = settings.kernelPath ? `version ${settings.kernelVersion}` : 'not set — see Settings';
   state.classList.toggle('warn', !settings.kernelPath);
@@ -789,6 +816,7 @@ $('settings').addEventListener('submit', async (event) => {
       extraArgs: f.extraArgs.value.split(' ').map((s) => s.trim()).filter(Boolean),
       exitLookupUrl: f.exitLookupUrl.value.trim(),
       exitWatchMinutes: Number(f.exitWatchMinutes.value) || 0,
+      exitCacheMinutes: Number(f.exitCacheMinutes.value) || 0,
     });
     toast('Settings saved.');
     await loadSettings();

@@ -8,8 +8,9 @@ import * as browser from './browserControl.ts';
 import { type BulkRequest, createProfiles } from './bulk.ts';
 import { describeCollected } from './collected.ts';
 import { generateIdentity } from './fingerprint.ts';
-import type { Launcher } from './launcher.ts';
-import { validateProxy } from './profile.ts';
+import { type Launcher, stateOf } from './launcher.ts';
+import { listPresets } from './presets.ts';
+import { type Profile, validateProxy } from './profile.ts';
 import { toProfileInput } from './profileInput.ts';
 import { checkProxy } from './proxyExit.ts';
 import type { Store } from './store.ts';
@@ -44,6 +45,8 @@ const object = (properties: Json, required: string[] = []) =>
 const PROFILE_ID = text('Id of the profile (from list_profiles).');
 const TAB_ID = text('Id of the tab (from list_tabs or open_tab).');
 
+const PRESET = text('Id of a ready-made setup (from list_presets) to make the device from, e.g. windows-laptop.');
+
 const PROFILE_FIELDS: Json = {
   name: text('Name shown in the manager.'),
   notes: text('Free notes.'),
@@ -72,8 +75,19 @@ function debuggerOf(context: McpContext, id: unknown): string {
   return status.debuggerUrl;
 }
 
+/** A profile with its state, in the one shape the API uses too: `state` and `status` beside its fields. */
+async function withState(context: McpContext, profile: Profile) {
+  return { ...profile, ...stateOf(await context.launcher.statusOf(profile)) };
+}
+
 async function profileWithStatus(context: McpContext, id: string) {
-  return { ...(await context.store.getProfile(id)), status: context.launcher.status(id) };
+  return withState(context, await context.store.getProfile(id));
+}
+
+/** What start_profile and stop_profile return: the details, and the one shape around them. */
+async function statusReply(context: McpContext, id: string) {
+  const status = await context.launcher.statusOf(await context.store.getProfile(id));
+  return { ...status, ...stateOf(status) };
 }
 
 /** A profile as lists show it: enough to pick one, without its whole identity. */
@@ -82,6 +96,11 @@ function summary(profile: Awaited<ReturnType<typeof profileWithStatus>>) {
     id: profile.id, name: profile.name, tags: profile.tags, os: profile.os, state: profile.status.state,
     screen: `${profile.screen.width}x${profile.screen.height}`, timezone: profile.timezone,
     proxy: profile.proxy ? `${profile.proxy.type}://${profile.proxy.host}:${profile.proxy.port}` : null,
+    // Where the proxy comes out (running), or came out the last time it was asked (stopped).
+    ...(profile.status.proxyExit ? { proxyExit: profile.status.proxyExit } : {}),
+    ...(profile.status.lastProxyExit ? { lastProxyExit: profile.status.lastProxyExit } : {}),
+    ...(profile.status.exitNow ? { exitNow: profile.status.exitNow } : {}),
+    ...(profile.status.exitProblem ? { exitProblem: profile.status.exitProblem } : {}),
     ...(profile.status.debuggerUrl ? { debuggerUrl: profile.status.debuggerUrl } : {}),
   };
 }
@@ -89,11 +108,11 @@ function summary(profile: Awaited<ReturnType<typeof profileWithStatus>>) {
 export const TOOLS: readonly Tool[] = [
   {
     name: 'list_profiles',
-    description: 'Lists the browser profiles with their state (running or stopped).',
+    description: 'Lists the browser profiles with their state (running or stopped) and, for one with a proxy, the address it comes out on.',
     inputSchema: object({}),
     run: async (_args, context) => {
       const profiles = await context.store.listProfiles();
-      return profiles.map((p) => summary({ ...p, status: context.launcher.status(p.id) }));
+      return Promise.all(profiles.map(async (p) => summary(await withState(context, p))));
     },
   },
   {
@@ -105,12 +124,13 @@ export const TOOLS: readonly Tool[] = [
   {
     name: 'create_profile',
     description: 'Creates a profile. A coherent device identity (browser, screen, graphics card, fonts, noise seed) is ' +
-        'generated for the chosen system, or taken from a stored device reading when deviceId is given.',
-    inputSchema: object({ ...PROFILE_FIELDS, deviceId: text('Id of a stored device reading (from list_devices) to take the identity from.') }, ['name']),
+        'generated for the chosen system, or taken from a ready-made setup (preset) or a stored device reading (deviceId).',
+    inputSchema: object({ ...PROFILE_FIELDS, preset: PRESET,
+                          deviceId: text('Id of a stored device reading (from list_devices) to take the identity from.') }, ['name']),
     run: async (args, context) => {
       const deviceId = args.deviceId === undefined ? undefined : String(args.deviceId);
-      const profile = await context.store.createProfile(toProfileInput(args), deviceId);
-      return profileWithStatus(context, profile.id);
+      const preset = args.preset === undefined ? undefined : String(args.preset);
+      return withState(context, await context.store.createProfile(toProfileInput(args), deviceId, preset));
     },
   },
   {
@@ -122,6 +142,7 @@ export const TOOLS: readonly Tool[] = [
       name: text('What they are called; a number is added to each.'),
       common: { type: 'object', description: 'Fields every profile gets: os, languages, timezone, tags, startUrl, webrtc.', properties: PROFILE_FIELDS },
       deviceId: text('Id of a stored device reading all of them take their identity from.'),
+      preset: PRESET,
       proxies: { type: ['string', 'array'], description: 'Proxies: text with one per line (host:port:user:password and similar), or a list of proxy objects.' },
       proxyType: { type: 'string', enum: ['http', 'socks5'], description: 'Kind of the proxies in a text list that does not say. Default http.' },
       shareProxies: { type: 'boolean', description: 'Allow fewer proxies than profiles. Off by default: profiles sharing an address are linked by it.' },
@@ -129,7 +150,7 @@ export const TOOLS: readonly Tool[] = [
     run: async (args, context) => {
       const { deviceId, ...rest } = args;
       const made = await createProfiles(context.store, { ...rest, fingerprintId: deviceId } as unknown as BulkRequest);
-      return made.map((p) => summary({ ...p, status: context.launcher.status(p.id) }));
+      return Promise.all(made.map(async (p) => summary(await withState(context, p))));
     },
   },
   {
@@ -163,7 +184,10 @@ export const TOOLS: readonly Tool[] = [
     name: 'start_profile',
     description: 'Starts the browser for a profile and returns its status, including the DevTools address.',
     inputSchema: object({ id: PROFILE_ID }, ['id']),
-    run: async (args, context) => context.launcher.start(await context.store.getProfile(String(args.id))),
+    run: async (args, context) => {
+      await context.launcher.start(await context.store.getProfile(String(args.id)));
+      return statusReply(context, String(args.id));
+    },
   },
   {
     name: 'stop_profile',
@@ -171,7 +195,8 @@ export const TOOLS: readonly Tool[] = [
     inputSchema: object({ id: PROFILE_ID }, ['id']),
     run: async (args, context) => {
       await context.store.getProfile(String(args.id));
-      return context.launcher.stop(String(args.id));
+      await context.launcher.stop(String(args.id));
+      return statusReply(context, String(args.id));
     },
   },
   {
@@ -186,6 +211,12 @@ export const TOOLS: readonly Tool[] = [
       await context.store.updateProfile(id, generateIdentity(current.os, settings.kernelVersion));
       return profileWithStatus(context, id);
     },
+  },
+  {
+    name: 'list_presets',
+    description: 'Lists the ready-made setups (ordinary laptops, desktops and phones) a profile can be made from with create_profile.',
+    inputSchema: object({}),
+    run: async () => listPresets(),
   },
   {
     name: 'list_devices',
@@ -219,6 +250,7 @@ export const TOOLS: readonly Tool[] = [
       extraArgs: { type: 'array', items: { type: 'string' }, description: 'Extra arguments for every launch.' },
       exitLookupUrl: text('Services asked for a proxy\'s exit address and time zone, separated by spaces; empty turns the lookup off.'),
       exitWatchMinutes: { type: 'number', description: 'How often, in minutes, a running profile\'s proxy exit is looked at again; 0 turns that off.' },
+      exitCacheMinutes: { type: 'number', description: 'How long, in minutes, a proxy exit seen twice in a row lets a profile start without waiting for the lookup; 0 looks first at every start.' },
     }),
     run: (args, context) => context.store.updateSettings(args),
   },
@@ -231,7 +263,10 @@ export const TOOLS: readonly Tool[] = [
       const proxy = args.id !== undefined ? (await context.store.getProfile(String(args.id))).proxy : args.proxy;
       if (proxy === null || proxy === undefined) throw new Error('There is no proxy to check: give a profile that has one, or a proxy.');
       validateProxy(proxy);
-      return checkProxy(proxy, (await context.store.getSettings()).exitLookupUrl);
+      const check = await checkProxy(proxy, (await context.store.getSettings()).exitLookupUrl);
+      const { ms: _ms, ...exit } = check;
+      await context.launcher.noteExit(proxy, exit);
+      return check;
     },
   },
   {

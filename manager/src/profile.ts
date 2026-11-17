@@ -168,7 +168,30 @@ export type ProfileInput = Partial<Omit<Profile, 'id' | 'createdAt' | 'updatedAt
 
 export class ValidationError extends Error {}
 
+/** Every value any version of the format has stored; a saved profile keeps loading and saving with these. */
 const DEVICE_MEMORY_VALUES = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
+
+/**
+ * The values navigator.deviceMemory can have in the browser a profile of `os` presents
+ * itself as. Chrome rounds the machine's memory down to a power of two and clamps it:
+ * to 2-32 on a computer and to 1-8 on a phone. (Measured: an unmodified kernel 158 on a
+ * Windows machine with 93 GB reports 32. Older Chrome versions stopped at 8.) Safari
+ * has no such value, so an iPhone profile's is never shown to a page.
+ */
+export function deviceMemoryValuesFor(os: OsFamily): readonly number[] {
+  if (os === 'android') return [1, 2, 4, 8];
+  if (os === 'ios') return DEVICE_MEMORY_VALUES;
+  return [2, 4, 8, 16, 32];
+}
+
+/** Checks a memory value someone chose against what that browser can report. */
+export function checkDeviceMemory(os: OsFamily, value: unknown): void {
+  const allowed = deviceMemoryValuesFor(os);
+  if (!allowed.includes(value as number)) {
+    fail(`deviceMemory must be one of ${allowed.join(', ')} for a ${os} profile: ` +
+         'those are the only values that browser reports');
+  }
+}
 
 function fail(message: string): never {
   throw new ValidationError(message);
@@ -227,8 +250,11 @@ export function validateProxy(value: unknown): asserts value is ProxySettings {
 /**
  * Checks a complete profile and throws ValidationError describing the first problem.
  * Run on every profile before it is saved, so a stored profile can always be launched.
+ * `chosen.deviceMemory` says the memory value (or the system it belongs to) is being
+ * set now, by a caller or a generator: it is then held to what that system's browser
+ * can report. A value saved earlier is left alone, so older profiles keep saving.
  */
-export function validateProfile(profile: Profile): void {
+export function validateProfile(profile: Profile, chosen: { deviceMemory?: boolean } = {}): void {
   checkString(profile.name, 'name', 200);
   if (profile.name.trim() === '') fail('name must not be empty');
   checkString(profile.notes, 'notes', 4000);
@@ -263,6 +289,7 @@ export function validateProfile(profile: Profile): void {
   if (!DEVICE_MEMORY_VALUES.includes(profile.deviceMemory)) {
     fail(`deviceMemory must be one of ${DEVICE_MEMORY_VALUES.join(', ')}`);
   }
+  if (chosen.deviceMemory && OS_FAMILIES.includes(profile.os)) checkDeviceMemory(profile.os, profile.deviceMemory);
 
   const s = profile.screen;
   if (!isPlainObject(s)) fail('screen must be an object');

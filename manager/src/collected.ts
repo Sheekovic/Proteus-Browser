@@ -18,7 +18,7 @@ import { IOS_FONTS } from './ios.ts';
 import { randomSeed } from './fingerprint.ts';
 import { type MediaDevices, mediaDevicesFor } from './mediaDevices.ts';
 import { cleanWebGLCaps, type WebGLCaps } from './webglCaps.ts';
-import { type OsFamily, type ScreenInfo, type UaBrand, ValidationError, type Voice } from './profile.ts';
+import { deviceMemoryValuesFor, type OsFamily, type ScreenInfo, type UaBrand, ValidationError, type Voice } from './profile.ts';
 
 export interface CollectedUaData {
   brands: UaBrand[];
@@ -217,7 +217,6 @@ export function classify(c: Collected): { os: OsFamily; browser: CollectedBrowse
   fail(`the system "${platform || c.platform}" is not one Proteus has profiles for`);
 }
 
-const DEVICE_MEMORY_VALUES = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
 const COLOR_DEPTHS = [24, 30, 32, 48];
 
 /** What Chrome puts in the user agent for each system, whatever the real version is. */
@@ -331,7 +330,9 @@ export function identityFromCollected(c: Collected, kernelVersion: string): Gene
       wow64: ua?.wow64 ?? false,
     },
     hardwareConcurrency: cores,
-    deviceMemory: c.deviceMemory !== null && DEVICE_MEMORY_VALUES.includes(c.deviceMemory) ? c.deviceMemory : 8,
+    // A reading taken in an older browser, or a made-up one, may hold a value this
+    // system's Chrome does not report.
+    deviceMemory: c.deviceMemory !== null && deviceMemoryValuesFor(os).includes(c.deviceMemory) ? c.deviceMemory : 8,
     screen,
     webgl,
     webglCaps: c.webglCaps ?? null,

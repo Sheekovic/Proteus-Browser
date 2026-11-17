@@ -49,7 +49,7 @@ named like that are available in this session, prefer them. To connect an assist
 ## 3. Profiles
 
 ```bash
-# List (each entry carries its status: running or stopped)
+# List (each entry carries "state": "running" or "stopped", and "status" with the details)
 curl -s http://127.0.0.1:5310/api/profiles
 
 # Create. Only what is given is fixed; the rest of the identity is generated to fit.
@@ -88,6 +88,15 @@ What matters when choosing fields:
   given; with `matchProxy` the time zone follows the proxy.
 - `fingerprintId` takes the identity from a device the user has read
   (`GET /api/fingerprints` lists them) instead of generating one.
+- `preset` makes the profile one of the ready-made setups instead
+  (`GET /api/presets` lists them: `windows-laptop`, `windows-desktop`, `macbook-air`,
+  `pixel-8`, `iphone-15`, ...). The hardware is that device's; the noise seed is new.
+  Offer these when the user wants "an ordinary laptop" rather than a random device.
+- `deviceMemory` must be a value that system's browser reports: 2, 4, 8, 16 or 32 on
+  `windows`, `macos` and `linux`; 1, 2, 4 or 8 on `android`. Anything else is refused
+  with the accepted values in the error. Leave it out and a fitting one is chosen.
+- `languages` left out means the computer's own; they are saved into the profile at
+  its first start, so the profile then reports the same on any computer.
 - Two profiles should not share one proxy address: sites link them by it. The bulk
   route refuses that unless `shareProxies` is true.
 
@@ -108,17 +117,34 @@ curl -s        http://127.0.0.1:5310/api/profiles/<id>/status
 curl -s -X POST http://127.0.0.1:5310/api/profiles/<id>/stop  -H 'Content-Type: application/json' -d '{}'
 ```
 
+Every reply about a profile reports its state the same way: `state` is the plain word
+(`"running"` or `"stopped"`) and `status` holds the details. Read `reply.state` to
+know whether it runs, on the list, on one profile and on the status, start and stop
+replies alike (those three also repeat the details at the top level, as older
+clients expect).
+
 Starting opens a real browser window on the user's screen and returns the status:
 
 - `debuggerUrl` - a DevTools (CDP) endpoint, for Playwright, Puppeteer or any CDP
   client (`chromium.connectOverCDP(debuggerUrl)`).
-- `proxyExit` - where the proxy came out and what the browser was matched to.
+- `proxyExit` - the address the proxy comes out on, with `exitSeenAt`. With
+  `matchProxy` on it is always there and the browser was matched to it; with it off
+  nobody is asked at a start, and it is what the last proxy check found, if anything.
+- `lastProxyExit` - on a stopped profile: where its proxy came out the last time it
+  was asked, and when (`at`). The list shows it too, so "which address is this
+  profile on?" needs no start.
 - `exitNow` - present when the proxy has since moved to another address: the browser
   still shows the first exit's time zone, so tell the user and restart the profile.
 - `exitProblem` - present while the proxy cannot be reached.
 
 A start fails with a clear message when the proxy does not work; report it rather
 than retrying in a loop. Stopping keeps cookies and storage.
+
+A profile without a proxy starts in about 1.5 seconds. Behind a proxy the first
+start waits for the exit lookup (seconds, sometimes tens of them). Once the exit has
+been the same twice, later starts within `exitCacheMinutes` (a setting, 30 by
+default) do not wait: they use the remembered exit and check it while the browser
+comes up. If `exitNow` then appears, the exit moved: restart the profile.
 
 ## 5. Working inside a running profile
 

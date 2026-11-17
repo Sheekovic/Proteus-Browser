@@ -9,6 +9,12 @@
 //   POST   /api/profiles/bulk            many at once (bulk.ts): {count, name, common, proxies, ...}
 //   GET    /api/profiles/:id/status
 //   POST   /api/profiles/:id/start       POST /api/profiles/:id/stop
+//   GET    /api/presets                  ready-made setups; POST /api/profiles {preset: "<id>"} uses one
+//
+// A profile's state has one shape in every reply: `state` ("running" or "stopped") and
+// `status` (the details: pid, debuggerUrl, proxyExit, ...). A profile carries both
+// beside its own fields; the status, start and stop replies carry both too, and keep
+// the details at the top level as well, where they have always been.
 //   GET    /api/fingerprints             POST /api/fingerprints       a fingerprint read from a real device
 //   GET    /api/fingerprints/:id         DELETE /api/fingerprints/:id
 //   GET    /collect                      the page that reads a device's fingerprint
@@ -35,9 +41,10 @@ import * as browser from './browserControl.ts';
 import { type BulkRequest, createProfiles } from './bulk.ts';
 import { describeCollected } from './collected.ts';
 import { generateIdentity } from './fingerprint.ts';
-import { LaunchError, type Launcher } from './launcher.ts';
+import { LaunchError, type Launcher, stateOf } from './launcher.ts';
+import { listPresets } from './presets.ts';
 import { handleMcp } from './mcp.ts';
-import { validateProxy, ValidationError } from './profile.ts';
+import { type Profile, validateProxy, ValidationError } from './profile.ts';
 import { toProfileInput } from './profileInput.ts';
 import { checkProxy } from './proxyExit.ts';
 import { NotFoundError, type Store, type StoredFingerprint } from './store.ts';
@@ -55,7 +62,7 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 /** What the API offers, for GET /api. */
 const ROUTES = [
-  'GET /api/health', 'GET /api/settings', 'PUT /api/settings', 'POST /api/proxy/check',
+  'GET /api/health', 'GET /api/settings', 'PUT /api/settings', 'POST /api/proxy/check', 'GET /api/presets',
   'GET /api/profiles', 'POST /api/profiles', 'GET /api/profiles/:id', 'PATCH /api/profiles/:id', 'DELETE /api/profiles/:id',
   'GET /api/profiles/:id/status', 'POST /api/profiles/:id/start', 'POST /api/profiles/:id/stop', 'POST /api/profiles/:id/regenerate', 'POST /api/profiles/:id/duplicate', 'POST /api/profiles/bulk',
   'GET /api/profiles/:id/tabs', 'POST /api/profiles/:id/tabs', 'DELETE /api/profiles/:id/tabs/:tab',
@@ -136,8 +143,19 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
     }
   }
 
+  /** A profile as every reply shows it: its fields, `state` and `status`. */
+  async function described(profile: Profile) {
+    return { ...profile, ...stateOf(await launcher.statusOf(profile)) };
+  }
+
   async function withStatus(id: string) {
-    return { ...(await store.getProfile(id)), status: launcher.status(id) };
+    return described(await store.getProfile(id));
+  }
+
+  /** The reply of the status, start and stop routes: the details, and the one shape around them. */
+  async function statusReply(id: string) {
+    const status = await launcher.statusOf(await store.getProfile(id));
+    return { ...status, ...stateOf(status) };
   }
 
   async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -168,8 +186,9 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
     }
     if (path === '/api/profiles/bulk' && method === 'POST') {
       const made = await createProfiles(store, (await readJsonBody(request)) as BulkRequest);
-      return sendJson(response, 201, made.map((p) => ({ ...p, status: launcher.status(p.id) })));
+      return sendJson(response, 201, await Promise.all(made.map(described)));
     }
+    if (method === 'GET' && path === '/api/presets') return sendJson(response, 200, listPresets());
     if (path === '/api/proxy/check' && method === 'POST') {
       // Either a proxy to try, or the id of a profile whose proxy to try.
       const body = (await readJsonBody(request)) as Record<string, unknown> | null;
@@ -177,7 +196,11 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
       if (proxy === null || proxy === undefined) throw new ValidationError('there is no proxy to check');
       validateProxy(proxy);
       try {
-        return sendJson(response, 200, await checkProxy(proxy, (await store.getSettings()).exitLookupUrl));
+        const check = await checkProxy(proxy, (await store.getSettings()).exitLookupUrl);
+        // Remembered, so the profiles using this proxy can show where it comes out.
+        const { ms: _ms, ...exit } = check;
+        await launcher.noteExit(proxy, exit);
+        return sendJson(response, 200, check);
       } catch (error) {
         // The proxy's own failure is a result of the check, not a fault of the request.
         return sendJson(response, 200, { error: (error as Error).message });
@@ -194,17 +217,18 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
     if (path === '/api/profiles') {
       if (method === 'GET') {
         const profiles = await store.listProfiles();
-        return sendJson(response, 200, profiles.map((p) => ({ ...p, status: launcher.status(p.id) })));
+        return sendJson(response, 200, await Promise.all(profiles.map(described)));
       }
       if (method === 'POST') {
         const body = await readJsonBody(request);
         // "fingerprintId" names a stored device fingerprint to take the identity from.
-        const fingerprintId = (body as Record<string, unknown> | null)?.fingerprintId;
+        // "preset" names a ready-made setup (GET /api/presets) to take it from instead.
+        const { fingerprintId, preset } = (body ?? {}) as Record<string, unknown>;
         if (fingerprintId !== undefined && typeof fingerprintId !== 'string') {
           throw new ValidationError('fingerprintId must be a string');
         }
-        const profile = await store.createProfile(toProfileInput(body), fingerprintId);
-        return sendJson(response, 201, { ...profile, status: launcher.status(profile.id) });
+        if (preset !== undefined && typeof preset !== 'string') throw new ValidationError('preset must be a string');
+        return sendJson(response, 201, await described(await store.createProfile(toProfileInput(body), fingerprintId, preset)));
       }
     }
 
@@ -292,16 +316,16 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
           return;
         }
       } else if (action === 'status' && method === 'GET') {
-        await store.getProfile(id);
-        return sendJson(response, 200, launcher.status(id));
+        return sendJson(response, 200, await statusReply(id));
       } else if (action === 'start' && method === 'POST') {
-        return sendJson(response, 200, await launcher.start(await store.getProfile(id)));
+        await launcher.start(await store.getProfile(id));
+        return sendJson(response, 200, await statusReply(id));
       } else if (action === 'stop' && method === 'POST') {
         await store.getProfile(id);
-        return sendJson(response, 200, await launcher.stop(id));
+        await launcher.stop(id);
+        return sendJson(response, 200, await statusReply(id));
       } else if (action === 'duplicate' && method === 'POST') {
-        const copy = await store.duplicateProfile(id);
-        return sendJson(response, 201, { ...copy, status: launcher.status(copy.id) });
+        return sendJson(response, 201, await described(await store.duplicateProfile(id)));
       } else if (action === 'regenerate' && method === 'POST') {
         if (launcher.isRunning(id)) throw new HttpError(409, 'stop the profile before changing its identity');
         const current = await store.getProfile(id);

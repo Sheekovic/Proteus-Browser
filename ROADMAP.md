@@ -13,6 +13,8 @@ from tests.
 - [x] Check a proxy before using it: where it comes out, how fast, from the UI, the API and MCP
 - [x] SOCKS5 against a real provider
 - [x] A long session: what happens when the exit changes or goes away while browsing
+- [x] The exit address of every profile, running or stopped, in the interface, the API and MCP
+- [x] A start that does not wait for an exit already seen twice
 
 ## 2. Managing many profiles
 
@@ -21,6 +23,8 @@ from tests.
 - [x] Create many at once, each with its own identity and its own proxy from a list
 - [x] Cookies in the interface: export a profile's, import a session into it
 - [x] Tags, and filtering by them
+- [x] Ready-made setups to choose from: common laptops, desktops and phones
+- [x] One shape for a profile's state in every API and MCP reply
 
 ## 3. Proof that it works
 
@@ -34,6 +38,8 @@ from tests.
 - [x] Media devices: the number, kind and names of cameras, microphones and speakers from the profile
 - [ ] Generated identities with a graphics card's real capabilities *(needs: readings from more devices)*
 - [x] Battery and network information that fit the claimed device
+- [x] A memory value its browser can report, fitting the processor, and checked when set by hand
+- [x] The machine's languages saved in the profile at its first start, so it is the same profile on another computer
 - [ ] The TLS handshake of a non-Chrome identity *(large: another network stack's fingerprint)*
 - [ ] A Firefox kernel *(large: a second engine)*
 
