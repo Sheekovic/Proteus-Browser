@@ -42,7 +42,7 @@ from tests.
 - [x] Preview bundles for Windows and Linux that run as they are
 - [ ] An optimised "official" build *(needs: about a day of the build server and its disk; it replaces the fast builds there)*
 - [ ] An installer, and a signed one *(needs: a code-signing certificate)*
-- [ ] Release builds made by one command on the build server *(written: `release/make-release.ps1`; not yet run end to end)*
+- [x] Release builds made by one command on the build server (`release/make-release.ps1`)
 
 ## Done before this list existed
 
