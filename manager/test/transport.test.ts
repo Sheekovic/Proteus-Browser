@@ -245,7 +245,7 @@ test('the report says whether the handshake agrees with the claim, and why not',
   assert.deepEqual(agreed.claims, { browser: 'Chrome', version: KERNEL, userAgent: windows.userAgent });
   assert.deepEqual(agreed.kernel, { version: KERNEL });
   assert.deepEqual(agreed.expected, { ja4: STOCK_JA4, http2: CHROME_HTTP2, measuredFrom: 'Chrome 157.0.8103.79, Windows 11' });
-  assert.ok(agreed.notes.some((note) => /No stock Chrome 158/.test(note)), 'what the expectation rests on is said');
+  assert.ok(agreed.notes.some((note) => /stock Chrome 158 has not been measured/.test(note)), 'what the expectation rests on is said');
 
   // The handshake this was written to fix: one extension too many.
   const padded = reportTransport(windows, KERNEL, shapeOf(PADDED_JA4, [...EXTENSIONS, 0x12e0], CHROME_HTTP2, windows.userAgent));

@@ -267,8 +267,8 @@ ready-made setup claims and produces, measured on Windows 11 with kernel 158.0.8
 
 Nine of them claim the Chrome the kernel is, so they produce one shape: the same as
 stock Chrome 157.0.8103.79 on the same machine, byte for byte in what the fingerprints
-cover. (Stock Chrome 158 was not out to measure; the kernel is 158's own network code
-with no experiments.) The version a setup names is the kernel's (`kernelVersion` in
+cover. (The Chrome installed on the measuring machine was still 157; a stock 158 has
+not been measured. The kernel is 158's own network code with no experiments.) The version a setup names is the kernel's (`kernelVersion` in
 the settings), so a newer kernel moves claim and shape together. Three things the
 table does not show:
 

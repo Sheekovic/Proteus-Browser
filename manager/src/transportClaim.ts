@@ -77,9 +77,9 @@ const CHROME_REFERENCE_TO = 158;
 
 /**
  * The shape the claimed browser makes, when one has been measured for it. Chrome 158
- * could not be measured as a stock browser (it was not released when this was
- * written); it is held to the shape of 157, which the kernel, built from 158's
- * source with no experiments, reproduces exactly.
+ * has not been measured as a stock browser (the Chrome installed on the measuring
+ * machine was still 157); it is held to the shape of 157, which the kernel, built
+ * from 158's source with no experiments, reproduces exactly.
  */
 export function referenceFor(claim: Claim): Reference | null {
   if (claim.browser === 'Chrome' && claim.major !== null &&
@@ -141,7 +141,7 @@ export function reportTransport(profile: Pick<Profile, 'userAgent' | 'uaData' | 
       differences.push(`HTTP/2: produced ${produces.http2.fingerprint}, ${reference.measuredFrom} sends ${reference.http2}.`);
     }
     if (claim.major !== null && claim.major > CHROME_REFERENCE_FROM) {
-      notes.push(`No stock Chrome ${claim.major} was at hand to measure: the expected shape is that of ${reference.measuredFrom}.`);
+      notes.push(`A stock Chrome ${claim.major} has not been measured: the expected shape is that of ${reference.measuredFrom}.`);
     }
   } else if (claim.browser === 'Chrome' && claim.major === kernelMajor) {
     notes.push(`No stock Chrome ${claim.major} has been measured to compare with; the kernel's own version matches the claim.`);
