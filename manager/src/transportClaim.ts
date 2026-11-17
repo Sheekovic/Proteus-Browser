@@ -77,8 +77,8 @@ const CHROME_REFERENCE_TO = 158;
 
 /**
  * The shape the claimed browser makes, when one has been measured for it. Chrome 158
- * has not been measured as a stock browser (the Chrome installed on the measuring
- * machine was still 157); it is held to the shape of 157, which the kernel, built
+ * has not been measured as a stock browser (stable Chrome was 157 for nearly everyone when
+ * this was written, 158 at the start of its rollout); it is held to the shape of 157, which the kernel, built
  * from 158's source with no experiments, reproduces exactly.
  */
 export function referenceFor(claim: Claim): Reference | null {
