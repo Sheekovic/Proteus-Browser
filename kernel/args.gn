@@ -3,7 +3,8 @@
 #
 # This is the fast-iteration profile: optimised, but without the official-build
 # link-time optimisation, which needs far more RAM and time than the build server has
-# to spare. Switch is_official_build to true for release kernels.
+# to spare. server-build.sh's "official" flavour switches is_official_build to true
+# for release kernels, in an output folder of its own.
 is_debug = false
 is_official_build = false
 dcheck_always_on = false

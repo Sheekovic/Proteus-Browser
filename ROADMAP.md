@@ -40,7 +40,7 @@ from tests.
 ## 5. Shipping
 
 - [x] Preview bundles for Windows and Linux that run as they are
-- [ ] An optimised "official" build *(needs: about a day of the build server and its disk; it replaces the fast builds there)*
+- [ ] An optimised "official" build *(in progress: `server-build.sh <target> ... official` builds it next to the fast one)*
 - [ ] An installer, and a signed one *(needs: a code-signing certificate)*
 - [x] Release builds made by one command on the build server (`release/make-release.ps1`)
 
