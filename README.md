@@ -129,6 +129,7 @@ PROTEUS_KERNEL=/path/to/chrome node src/main.ts --open
 
 The Proteus window opens. Create a profile and press **Start**.
 
+- Starting Proteus while it is already running shows its window again.
 - `--open` shows the manager in a window of its own; closing it ends Proteus, unless
   profiles are still running. `--open-browser` uses your usual browser instead, and
   without either the manager only serves <http://127.0.0.1:5310>.
@@ -194,6 +195,10 @@ server, so an assistant can create profiles, start them and work in them. It off
   { "mcpServers": { "proteus": { "command": "node", "args": ["/path/to/manager/src/mcp-stdio.ts"] } } }
   ```
 
+[`.claude/skills/proteus`](.claude/skills/proteus/SKILL.md) is a skill that teaches an
+assistant to do all of this: Claude Code picks it up by itself inside this repository,
+and copying the folder to `~/.claude/skills/` makes it available everywhere.
+
 The API and the MCP endpoint have no login. They answer only requests addressed to
 localhost and refuse requests from other websites' pages. Whoever can reach them can
 run scripts in your profiles' pages and read their cookies, which is the point of
@@ -258,6 +263,11 @@ On that setup a release is one command: [`release/make-release.ps1`](release/mak
 ` <version>` rebuilds the Linux kernel, runs every kernel test on it, exports the patch
 series, builds the Windows kernel and assembles both bundles, stopping at the first
 failure. It publishes nothing.
+
+[`release/update-dist.ps1`](release/update-dist.ps1) keeps a `dist` folder (not
+committed) that runs the current working tree as it is — the newest kernel under
+`out`, the manager, a shortcut with the Proteus icon — and, with `-InstallHook`,
+refreshes it after every commit.
 
 `kernel/src` and `kernel/scripts/edits` are the patches in their editable form: new
 source files, and small scripts that make the in-place edits to Chromium's own files.

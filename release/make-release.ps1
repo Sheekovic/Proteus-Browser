@@ -40,7 +40,9 @@ function Invoke-Remote([string]$Command) {
 }
 
 if (-not $Fetch) {
-  if ((Invoke-Remote 'pgrep -f "server-(release|test|build)\.sh" > /dev/null && echo busy || echo free') -eq 'busy') {
+  # Remote commands carry no double quotes: Windows PowerShell drops them on the way.
+  # The brackets keep the search from finding its own command line.
+  if ((Invoke-Remote "pgrep -f 'server-[r]elease|server-[t]est|server-[b]uild' > /dev/null && echo busy || echo free") -eq 'busy') {
     throw 'The build server is in the middle of another build or test run.'
   }
   # Two archives: the kernel, laid out as the test runs expect it, and what the
@@ -72,7 +74,7 @@ if (-not $Fetch) {
   $shown = 0
   while ($true) {
     Start-Sleep -Seconds 60
-    $lines = @(ssh @ssh $h 'grep -a "^== \|RELEASE-OK\| ok=\|^FAIL\|no release" /opt/proteus/release.log; test -f /opt/proteus/release.done && echo "exit=$(cat /opt/proteus/release.done)"')
+    $lines = @(ssh @ssh $h "grep -a '^== \|RELEASE-OK\| ok=\|^FAIL\|no release' /opt/proteus/release.log; test -f /opt/proteus/release.done && echo exit=`$(cat /opt/proteus/release.done)")
     if ($lines.Count -gt $shown) { $lines[$shown..($lines.Count - 1)] | ForEach-Object { Write-Host $_ }; $shown = $lines.Count }
     if ($lines -match '^exit=') { break }
   }
@@ -84,7 +86,7 @@ if ($code -ne '0') {
   ssh @ssh $h 'tail -n 40 /opt/proteus/release.log'
   throw "The release run failed (exit $code); the end of its log is above."
 }
-if (-not (Invoke-Remote "ls /opt/proteus/release-out | grep -F -- 'Proteus-$Version-'")) {
+if (-not (Invoke-Remote "ls /opt/proteus/release-out | grep -F -- 'Proteus-$Version-' || true")) {
   throw "The finished run on the server was not for version $Version."
 }
 

@@ -5,3 +5,6 @@
 # Build and local output
 /out/
 *.log
+
+# The folder for trying the current state (release/update-dist.ps1)
+/dist/

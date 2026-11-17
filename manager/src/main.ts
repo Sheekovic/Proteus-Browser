@@ -43,6 +43,40 @@ if (settings.kernelPath === '' || !existsSync(settings.kernelPath)) {
   }
 }
 
+// Started a second time (the shortcut was clicked again, perhaps because the window
+// was closed while profiles kept running): Proteus is already there, so show its
+// window again instead of failing over the port.
+server.once('error', async (error: NodeJS.ErrnoException) => {
+  const url = `http://127.0.0.1:${parsePort(argv)}`;
+  let already = false;
+  if (error.code === 'EADDRINUSE') {
+    try {
+      const health = await (await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(3000) })).json() as { name?: string };
+      already = health.name === 'proteus-manager';
+    } catch { /* Something else has the port. */ }
+  }
+  if (!already) {
+    console.error(error.code === 'EADDRINUSE'
+        ? `Port ${parsePort(argv)} is used by another program. Start Proteus with --port <n> to use another one.`
+        : `Proteus could not start: ${error.message}`);
+    process.exit(1);
+  }
+  console.log(`Proteus is already running at ${url}.`);
+  if (argv.includes('--open')) {
+    const { kernelPath } = await store.getSettings();
+    if (kernelPath !== '' && existsSync(kernelPath)) {
+      spawn(kernelPath, appWindowArguments(url, store.dataDir), { stdio: 'ignore', detached: true })
+          .on('error', () => openInBrowser(url)).unref();
+    } else {
+      openInBrowser(url);
+    }
+  } else if (argv.includes('--open-browser')) {
+    openInBrowser(url);
+  }
+  // Leave time for the window's process to be on its way before this one ends.
+  setTimeout(() => process.exit(0), 500);
+});
+
 // Loopback only: the API has no login and must not be reachable from the network.
 server.listen(parsePort(argv), '127.0.0.1', () => {
   const address = server.address();
