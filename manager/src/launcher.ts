@@ -1,7 +1,8 @@
 // Starts and stops kernel processes, one per running profile.
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -13,6 +14,8 @@ import type { Profile, ProxySettings } from './profile.ts';
 import { lookupOwnAddress, lookupProxyExit, type ProxyExit, withOwnAddress, withProxyExit } from './proxyExit.ts';
 import { needsRelay, startProxyRelay } from './proxyRelay.ts';
 import type { Store } from './store.ts';
+import { startRecorder, TransportError } from './transport.ts';
+import { reportTransport, type TransportReport } from './transportClaim.ts';
 import { allowSandboxToReadKernel } from './winSandbox.ts';
 
 export class LaunchError extends Error {}
@@ -74,6 +77,8 @@ const SETTLE_NO_ANSWER_MS = 1_500;
  * child processes' command lines, next to several thousand characters of their own.
  */
 const MAX_CONFIG_BYTES = 16_000;
+/** How long the transport report waits for the kernel to reach the recorder. */
+const TRANSPORT_WAIT_MS = 30_000;
 /** How long a kernel gets to exit cleanly before it is killed. */
 const STOP_GRACE_MS = 8_000;
 
@@ -103,6 +108,19 @@ const readRealLists: ReadLists = async (debuggerUrl) =>
  */
 export function stateOf(status: ProfileStatus): { state: ProfileStatus['state']; status: ProfileStatus } {
   return { state: status.state, status };
+}
+
+/**
+ * The state of a profile as its own entry shows it (the list, a single profile):
+ * stateOf(), and where its proxy comes out at the top level as well - `proxyExit`,
+ * `lastProxyExit` and what goes with them - exactly where the status, start and stop
+ * replies have them, so one way of reading the exit works on every reply.
+ */
+export function entryStateOf(status: ProfileStatus) {
+  const { proxyExit, exitSeenAt, lastProxyExit, exitNow, exitProblem } = status;
+  const exit = Object.fromEntries(Object.entries({ proxyExit, exitSeenAt, lastProxyExit, exitNow, exitProblem })
+      .filter(([, value]) => value !== undefined)) as Pick<ProfileStatus, 'proxyExit' | 'exitSeenAt' | 'lastProxyExit' | 'exitNow' | 'exitProblem'>;
+  return { ...exit, ...stateOf(status) };
 }
 
 const spawnRealKernel: SpawnKernel = (kernelPath, args) =>
@@ -394,6 +412,69 @@ export class Launcher {
         if (!answered && Date.now() - started > SETTLE_NO_ANSWER_MS) return;
       }
       await delay(50);
+    }
+  }
+
+  /**
+   * How `profile`'s browser introduces itself to a server - its TLS hello and the
+   * opening of its HTTP/2 connection - beside what the profile claims to be.
+   *
+   * Measured, not assumed: a second, windowless copy of the kernel is started with
+   * the profile's settings in a folder of its own and sent to a recorder on this
+   * machine (transport.ts). It works the same whether the profile is running or not
+   * and touches neither its browser data nor its tabs. The copy can reach nothing
+   * but the recorder: it gets no proxy, and every other name is made unresolvable.
+   */
+  async transport(stored: Profile): Promise<TransportReport> {
+    const settings = await this.store.getSettings();
+    if (settings.kernelPath === '') {
+      throw new LaunchError('No kernel is configured. Set kernelPath in the settings first.');
+    }
+    try {
+      await access(settings.kernelPath);
+    } catch {
+      throw new LaunchError(`Kernel not found at ${settings.kernelPath}`);
+    }
+    const networkSandbox = await this.prepareKernel(settings.kernelPath);
+    const dir = await mkdtemp(join(tmpdir(), 'proteus-transport-'));
+    const recorder = await startRecorder(TRANSPORT_WAIT_MS);
+    let child: ChildProcess | undefined;
+    try {
+      const profile: Profile = { ...stored, proxy: null, startUrl: recorder.url };
+      const userDataDir = join(dir, 'browser');
+      const configFile = join(dir, 'kernel.json');
+      await mkdir(userDataDir, { recursive: true });
+      await writeFile(configFile, JSON.stringify(buildKernelConfig(profile)), 'utf8');
+      const args = buildKernelArgs(profile, { userDataDir, configFile, networkSandbox }, [
+        ...settings.extraArgs,
+        '--headless=new',
+        // The recorder's certificate is made on the spot and signed by nobody.
+        '--ignore-certificate-errors',
+        '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost',
+      ]);
+      const started = this.spawnKernel(settings.kernelPath, args);
+      child = started;
+      const failed = new Promise<never>((_resolve, reject) => {
+        started.once('error', (error) => reject(new LaunchError(`Could not start the kernel: ${error.message}`)));
+        started.once('exit', (code) => reject(new LaunchError(
+            `The kernel exited before it connected (exit code ${code ?? 'unknown'}).`)));
+      });
+      failed.catch(() => {});
+      const shape = await Promise.race([recorder.shape, failed]);
+      return reportTransport(stored, settings.kernelVersion, shape);
+    } catch (error) {
+      if (error instanceof TransportError) throw new LaunchError(`Could not record the handshake: ${error.message}.`);
+      throw error;
+    } finally {
+      await recorder.close();
+      if (child && child.exitCode === null && child.signalCode === null) {
+        const leaving = child;
+        const exited = new Promise<void>((resolve) => leaving.once('exit', () => resolve()));
+        leaving.kill();
+        await Promise.race([exited, delay(STOP_GRACE_MS)]);
+      }
+      // The kernel's helper processes let go of their files a moment after it exits.
+      await rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }).catch(() => {});
     }
   }
 

@@ -159,6 +159,14 @@ test('the address a proxy comes out on is shown in the list and for the profile,
   assert.deepEqual(started.proxyExit, TOKYO);
   assert.ok(!Number.isNaN(Date.parse(started.status.exitSeenAt)));
   assert.deepEqual((await api('GET', '/api/profiles')).body.find((p: any) => p.id === id).status.proxyExit, TOKYO, 'in the list');
+  // Read the same way on every reply: at the top level too, as the start reply has it.
+  for (const reply of [(await api('GET', '/api/profiles')).body.find((p: any) => p.id === id),
+                       (await api('GET', `/api/profiles/${id}`)).body, (await api('GET', `/api/profiles/${id}/status`)).body,
+                       await tool('get_profile', { id })]) {
+    assert.deepEqual(reply.proxyExit, TOKYO);
+    assert.equal(reply.exitSeenAt, reply.status.exitSeenAt);
+    assert.equal(reply.lastProxyExit, undefined);
+  }
   assert.deepEqual((await api('GET', `/api/profiles/${id}`)).body.status.proxyExit, TOKYO, 'for the profile');
   assert.deepEqual((await tool('list_profiles')).find((p: any) => p.id === id).proxyExit, TOKYO, 'in the MCP list');
   assert.deepEqual((await tool('get_profile', { id })).status.proxyExit, TOKYO);
@@ -168,6 +176,8 @@ test('the address a proxy comes out on is shown in the list and for the profile,
   for (const reply of [(await api('GET', '/api/profiles')).body.find((p: any) => p.id === id),
                        (await api('GET', `/api/profiles/${id}`)).body, await tool('get_profile', { id })]) {
     assert.equal(reply.status.proxyExit, undefined);
+    assert.equal(reply.proxyExit, undefined);
+    assert.deepEqual(reply.lastProxyExit, reply.status.lastProxyExit, 'at the top level too');
     assert.equal(reply.status.lastProxyExit.ip, TOKYO.ip);
     assert.equal(reply.status.lastProxyExit.timezone, TOKYO.timezone);
     assert.ok(!Number.isNaN(Date.parse(reply.status.lastProxyExit.at)));
@@ -176,6 +186,11 @@ test('the address a proxy comes out on is shown in the list and for the profile,
   // A profile without a proxy has neither.
   const direct = (await api('POST', '/api/profiles', { name: 'Direct', matchProxy: false })).body;
   assert.equal(direct.status.lastProxyExit, undefined);
+  assert.ok(!('proxyExit' in direct) && !('lastProxyExit' in direct));
+  // Sending an entry back as an edit does not store what was only reported.
+  const edited = (await api('PATCH', `/api/profiles/${id}`, (await api('GET', `/api/profiles/${id}`)).body)).body;
+  assert.equal(edited.lastProxyExit.ip, TOKYO.ip);
+  assert.ok(!('lastProxyExit' in JSON.parse(await readFile(join(dir, 'profiles', id, 'profile.json'), 'utf8'))));
 });
 
 test('a profile that is not matched asks nobody, and shows what a proxy check found', async () => {

@@ -395,6 +395,16 @@ try {
     lookup.close();
   }
 
+  // The handshake: measured while the profile runs, and agreeing with what it claims.
+  const transport = await api('GET', `/api/profiles/${profile.id}/transport`);
+  check('transport: the profile claims the kernel\'s Chrome', `${transport.claims.browser} ${transport.claims.version}`,
+        `Chrome ${transport.kernel.version}`);
+  check('transport: the TLS hello is stock Chrome\'s', transport.produces.tls.ja4, transport.expected.ja4);
+  check('transport: the HTTP/2 opening is stock Chrome\'s', transport.produces.http2?.fingerprint, transport.expected.http2);
+  check('transport: the request carried the profile\'s User-Agent', transport.produces.userAgent, profile.userAgent);
+  check('transport: handshake and claim agree', `${transport.agrees} ${transport.differences.join(' ')}`.trim(), 'true');
+  check('transport: measuring left the profile running', (await api('GET', `/api/profiles/${profile.id}`)).state, 'running');
+
   for (const id of [profile.id, other.id]) {
     const stopped = await api('POST', `/api/profiles/${id}/stop`);
     check('profile reports stopped', stopped.state, 'stopped');

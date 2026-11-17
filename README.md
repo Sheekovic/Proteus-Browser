@@ -192,7 +192,9 @@ curl -X PUT http://127.0.0.1:5310/api/profiles/<id>/cookies \
 ```
 
 The list, a single profile, and the replies to creating, editing and duplicating one
-all look like that. The status, start and stop replies carry `state` and `status` too,
+all look like that. They also carry `proxyExit` (or `lastProxyExit`), `exitSeenAt`,
+`exitNow` and `exitProblem` at the top level when there is one, so `entry.proxyExit`
+reads the same on a list entry as on a start reply. The status, start and stop replies carry `state` and `status` too,
 and also keep the details at the top level (`debuggerUrl`, `pid`, …), where they were
 before, so both `reply.status.debuggerUrl` and `reply.debuggerUrl` work there.
 
@@ -215,6 +217,71 @@ graphics card, processor and memory to that device; the noise seed is new each t
 so two profiles from one preset are two devices of the same model. Without a preset
 an identity is generated as before. They are hand-written compositions of common
 configurations, not readings of real devices; for those, see below.
+
+**How a profile introduces itself.** Before any page loads, a server sees the shape of
+the browser's TLS hello and of its HTTP/2 opening, and can compare it with the version
+the browser claims. `GET /api/profiles/<id>/transport` measures both and sets them
+beside the claim:
+
+```json
+{ "claims":   { "browser": "Chrome", "version": "158.0.8127.37", "userAgent": "Mozilla/5.0 …" },
+  "kernel":   { "version": "158.0.8127.37" },
+  "produces": { "tls":   { "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99", "ciphers": ["1301", "…"], "extensions": ["0000", "…"], "…": "…" },
+                "http2": { "fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p", "settings": [[1, 65536], "…"],
+                           "pseudoHeaders": [":method", ":authority", ":scheme", ":path"], "headers": ["sec-ch-ua", "…"] },
+                "userAgent": "Mozilla/5.0 …" },
+  "expected": { "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99", "http2": "1:65536;…|m,a,s,p", "measuredFrom": "Chrome 157.0.8103.79, Windows 11" },
+  "agrees": true, "differences": [], "notes": ["…"] }
+```
+
+`produces` is measured, each time: a second, windowless copy of the kernel is started
+with the profile's settings in a folder of its own and sent to a recorder on
+`localhost` ([`transport.ts`](manager/src/transport.ts)). It takes about half a second,
+works on a running or a stopped profile, touches neither its browser data nor its
+tabs, uses no proxy and can reach nothing but the recorder. `tls.ja4` is the
+[JA4](https://github.com/FoxIO-LLC/ja4) TLS fingerprint; `http2.fingerprint` is
+settings, window update, priority frames and pseudo-header order. `expected` is what a
+stock browser of the claimed kind sent to the same recorder, and `differences` says in
+words what does not fit (an extra TLS extension, a claimed version the kernel is not,
+…). `agrees` is true when there is none.
+
+A profile is started so that its handshake is the one its claim goes with
+([`transportClaim.ts`](manager/src/transportClaim.ts)). Chromium builds that are not
+Google's switch on an experiment Chrome has off (`AddTLSServerHandshakePadding`), which
+adds a TLS extension, `0x12e0`; with it a profile sent
+`t13d1518h2_8daaf6152771_4980c97edce0`. The manager now turns it off. What each
+ready-made setup claims and produces, measured on Windows 11 with kernel 158.0.8127.37:
+
+| Setup | Claims | TLS (JA4) | HTTP/2 | Agrees |
+| --- | --- | --- | --- | --- |
+| `windows-office-laptop` | Chrome 158.0.8127.37, Windows | `t13d1517h2_8daaf6152771_cb7bf5808d99` | `1:65536;2:0;4:6291456;6:262144\|15663105\|0\|m,a,s,p` | yes |
+| `windows-laptop` | Chrome 158.0.8127.37, Windows | same | same | yes |
+| `windows-desktop` | Chrome 158.0.8127.37, Windows | same | same | yes |
+| `windows-gaming-desktop` | Chrome 158.0.8127.37, Windows | same | same | yes |
+| `macbook-air` | Chrome 158.0.8127.37, macOS | same | same | yes |
+| `macbook-pro-14` | Chrome 158.0.8127.37, macOS | same | same | yes |
+| `linux-desktop` | Chrome 158.0.8127.37, Linux | same | same | yes |
+| `pixel-8` | Chrome 158.0.8127.37, Android | same | same | yes |
+| `galaxy-a34` | Chrome 158.0.8127.37, Android | same | same | yes |
+| `iphone-15` | Safari 18.5 or 18.6, iPhone | same: Chrome's, not Safari's | same: Chrome's, not Safari's | **no** |
+
+Nine of them claim the Chrome the kernel is, so they produce one shape: the same as
+stock Chrome 157.0.8103.79 on the same machine, byte for byte in what the fingerprints
+cover. (Stock Chrome 158 was not out to measure; the kernel is 158's own network code
+with no experiments.) The version a setup names is the kernel's (`kernelVersion` in
+the settings), so a newer kernel moves claim and shape together. Three things the
+table does not show:
+
+- The reference was measured on Windows only. Chrome uses the same network code on
+  macOS, Linux and Android, but no stock Chrome there was measured.
+- The iPhone setup claims Safari and shakes hands as Chrome. The manager cannot change
+  that from outside: Safari's shape needs changes to the kernel's network code.
+- A profile whose User-Agent names another Chrome version than the kernel (set by
+  hand, or made for an older kernel) still shakes hands as the kernel's version. The
+  report says so; a new identity brings the claim back in line.
+
+A connection that resumes an earlier session carries one more extension (`0x0029`),
+in every Chrome; fingerprints taken on a second visit therefore differ from these.
 
 **Memory.** `deviceMemory` is held to what the profile's browser can report:
 `2, 4, 8, 16, 32` for Chrome on a computer and `1, 2, 4, 8` for Chrome on Android
@@ -243,9 +310,9 @@ reports the same on any computer afterwards.
 
 The manager is also a [Model Context Protocol](https://modelcontextprotocol.io)
 server, so an assistant can create profiles, start them and work in them. It offers
-25 tools: profiles (`list_profiles`, `create_profile`, `create_profiles`, `duplicate_profile`,
+26 tools: profiles (`list_profiles`, `create_profile`, `create_profiles`, `duplicate_profile`,
 `update_profile`, `delete_profile`, `start_profile`, `stop_profile`, `new_identity`), proxies
-(`check_proxy`), ready-made setups (`list_presets`), devices and settings, and the browser itself (`list_tabs`, `open_tab`, `navigate`, `page_text`,
+(`check_proxy`), the handshake report (`transport_report`), ready-made setups (`list_presets`), devices and settings, and the browser itself (`list_tabs`, `open_tab`, `navigate`, `page_text`,
 `evaluate`, `screenshot`, `close_tab`, `get_cookies`, `set_cookies`).
 
 - Assistants that connect over HTTP use `http://127.0.0.1:5310/mcp` while the manager
@@ -351,7 +418,7 @@ kernel/scripts/win-test.sh <folder with chrome.exe> identity locale mobile glcap
 ```
 
 **End to end** — starts the manager, creates profiles, launches the real kernel and
-checks what pages see:
+checks what pages see, and that the handshake agrees with the claim:
 
 ```bash
 python kernel/tests/serve.py kernel/tests 8793 &
@@ -396,7 +463,11 @@ Worth knowing before relying on it:
 
 - **It is Chromium underneath.** An iPhone profile reports Safari's identity and
   lacks what Safari lacks, but a site that probes engine behaviour, or looks at the
-  TLS handshake, can still tell it is not WebKit. There is no Firefox kernel.
+  TLS handshake, can still tell it is not WebKit: its handshake is Chrome's, and
+  `GET /api/profiles/<id>/transport` reports it as not agreeing. There is no Firefox
+  kernel.
+- **One kernel, one handshake.** Every profile shakes hands as the Chrome version the
+  kernel was built from. A profile claiming another version is reported, not fixed.
 - **Generated identities name a graphics card without its capabilities.** Only
   profiles made from a real device's reading report that card's WebGL limits; the
   others report the machine's own.

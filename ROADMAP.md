@@ -25,6 +25,7 @@ from tests.
 - [x] Tags, and filtering by them
 - [x] Ready-made setups to choose from: common laptops, desktops and phones
 - [x] One shape for a profile's state in every API and MCP reply
+- [x] A report of the TLS and HTTP/2 shape a profile's browser makes, beside the version it claims
 
 ## 3. Proof that it works
 
@@ -39,6 +40,8 @@ from tests.
 - [ ] Generated identities with a graphics card's real capabilities *(needs: readings from more devices)*
 - [x] Battery and network information that fit the claimed device
 - [x] A memory value its browser can report, fitting the processor, and checked when set by hand
+- [x] A TLS hello like stock Chrome's: without the experiment a Chromium build adds to it
+- [ ] Safari's TLS and HTTP/2 shape for iPhone profiles (kernel work: today they shake hands as Chrome)
 - [x] The machine's languages saved in the profile at its first start, so it is the same profile on another computer
 - [ ] The TLS handshake of a non-Chrome identity *(large: another network stack's fingerprint)*
 - [ ] A Firefox kernel *(large: a second engine)*

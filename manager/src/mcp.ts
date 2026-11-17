@@ -8,7 +8,7 @@ import * as browser from './browserControl.ts';
 import { type BulkRequest, createProfiles } from './bulk.ts';
 import { describeCollected } from './collected.ts';
 import { generateIdentity } from './fingerprint.ts';
-import { type Launcher, stateOf } from './launcher.ts';
+import { entryStateOf, type Launcher, stateOf } from './launcher.ts';
 import { listPresets } from './presets.ts';
 import { type Profile, validateProxy } from './profile.ts';
 import { toProfileInput } from './profileInput.ts';
@@ -77,7 +77,7 @@ function debuggerOf(context: McpContext, id: unknown): string {
 
 /** A profile with its state, in the one shape the API uses too: `state` and `status` beside its fields. */
 async function withState(context: McpContext, profile: Profile) {
-  return { ...profile, ...stateOf(await context.launcher.statusOf(profile)) };
+  return { ...profile, ...entryStateOf(await context.launcher.statusOf(profile)) };
 }
 
 async function profileWithStatus(context: McpContext, id: string) {
@@ -211,6 +211,12 @@ export const TOOLS: readonly Tool[] = [
       await context.store.updateProfile(id, generateIdentity(current.os, settings.kernelVersion));
       return profileWithStatus(context, id);
     },
+  },
+  {
+    name: 'transport_report',
+    description: "Measures how a profile's browser introduces itself to a server (its TLS hello as a JA4 fingerprint, and the opening of its HTTP/2 connection) and says whether that agrees with the browser version the profile claims. Works on a running or stopped profile; takes a few seconds; contacts nothing outside this machine.",
+    inputSchema: object({ id: PROFILE_ID }, ['id']),
+    run: async (args, context) => context.launcher.transport(await context.store.getProfile(String(args.id))),
   },
   {
     name: 'list_presets',

@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { buildFontSubstitutes } from './fontSubstitutes.ts';
 import { SAFARI_MISSING } from './ios.ts';
 import type { Profile } from './profile.ts';
+import { claimOf, shapeSwitches } from './transportClaim.ts';
 
 /** A number from 0 up to 1 that belongs to this profile and `purpose`. */
 function fraction(profile: Profile, purpose: string): number {
@@ -152,8 +153,9 @@ export function buildKernelArgs(profile: Profile, paths: LaunchPaths, extraArgs:
   // only when asked for here.
   if (profile.mobile !== null) args.push('--touch-events=enabled');
   args.push(...QUIET_START_ARGS);
-  const disabled = paths.networkSandbox === false ? [...QUIET_DISABLED_FEATURES, 'NetworkServiceSandbox']
-                                                   : QUIET_DISABLED_FEATURES;
+  // The handshake must be that of the browser the profile claims to be (transportClaim.ts).
+  const disabled = [...QUIET_DISABLED_FEATURES, ...shapeSwitches(claimOf(profile))];
+  if (paths.networkSandbox === false) disabled.push('NetworkServiceSandbox');
   args.push(`--disable-features=${disabled.join(',')}`);
   if (paths.proxyServer !== undefined) {
     args.push(`--proxy-server=${paths.proxyServer}`);

@@ -9,12 +9,15 @@
 //   POST   /api/profiles/bulk            many at once (bulk.ts): {count, name, common, proxies, ...}
 //   GET    /api/profiles/:id/status
 //   POST   /api/profiles/:id/start       POST /api/profiles/:id/stop
+//   GET    /api/profiles/:id/transport   the TLS and HTTP/2 shape its browser makes, beside what it claims to be
 //   GET    /api/presets                  ready-made setups; POST /api/profiles {preset: "<id>"} uses one
 //
 // A profile's state has one shape in every reply: `state` ("running" or "stopped") and
 // `status` (the details: pid, debuggerUrl, proxyExit, ...). A profile carries both
 // beside its own fields; the status, start and stop replies carry both too, and keep
-// the details at the top level as well, where they have always been.
+// the details at the top level as well, where they have always been. Where a proxy
+// comes out (`proxyExit`, or `lastProxyExit` on a stopped profile) is at the top level
+// of every one of them, a profile in the list included.
 //   GET    /api/fingerprints             POST /api/fingerprints       a fingerprint read from a real device
 //   GET    /api/fingerprints/:id         DELETE /api/fingerprints/:id
 //   GET    /collect                      the page that reads a device's fingerprint
@@ -41,7 +44,7 @@ import * as browser from './browserControl.ts';
 import { type BulkRequest, createProfiles } from './bulk.ts';
 import { describeCollected } from './collected.ts';
 import { generateIdentity } from './fingerprint.ts';
-import { LaunchError, type Launcher, stateOf } from './launcher.ts';
+import { entryStateOf, LaunchError, type Launcher, stateOf } from './launcher.ts';
 import { listPresets } from './presets.ts';
 import { handleMcp } from './mcp.ts';
 import { type Profile, validateProxy, ValidationError } from './profile.ts';
@@ -64,7 +67,7 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const ROUTES = [
   'GET /api/health', 'GET /api/settings', 'PUT /api/settings', 'POST /api/proxy/check', 'GET /api/presets',
   'GET /api/profiles', 'POST /api/profiles', 'GET /api/profiles/:id', 'PATCH /api/profiles/:id', 'DELETE /api/profiles/:id',
-  'GET /api/profiles/:id/status', 'POST /api/profiles/:id/start', 'POST /api/profiles/:id/stop', 'POST /api/profiles/:id/regenerate', 'POST /api/profiles/:id/duplicate', 'POST /api/profiles/bulk',
+  'GET /api/profiles/:id/status', 'POST /api/profiles/:id/start', 'POST /api/profiles/:id/stop', 'GET /api/profiles/:id/transport', 'POST /api/profiles/:id/regenerate', 'POST /api/profiles/:id/duplicate', 'POST /api/profiles/bulk',
   'GET /api/profiles/:id/tabs', 'POST /api/profiles/:id/tabs', 'DELETE /api/profiles/:id/tabs/:tab',
   'POST /api/profiles/:id/tabs/:tab/navigate', 'POST /api/profiles/:id/tabs/:tab/evaluate',
   'GET /api/profiles/:id/tabs/:tab/text', 'GET /api/profiles/:id/tabs/:tab/screenshot',
@@ -145,7 +148,7 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
 
   /** A profile as every reply shows it: its fields, `state` and `status`. */
   async function described(profile: Profile) {
-    return { ...profile, ...stateOf(await launcher.statusOf(profile)) };
+    return { ...profile, ...entryStateOf(await launcher.statusOf(profile)) };
   }
 
   async function withStatus(id: string) {
@@ -300,7 +303,7 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
       throw new HttpError(405, `${method} is not supported on ${path}`);
     }
 
-    const match = /^\/api\/profiles\/([^/]+)(?:\/(status|start|stop|regenerate|duplicate))?$/.exec(path);
+    const match = /^\/api\/profiles\/([^/]+)(?:\/(status|start|stop|regenerate|duplicate|transport))?$/.exec(path);
     if (match) {
       const [, id, action] = match;
       if (!action) {
@@ -317,6 +320,8 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
         }
       } else if (action === 'status' && method === 'GET') {
         return sendJson(response, 200, await statusReply(id));
+      } else if (action === 'transport' && method === 'GET') {
+        return sendJson(response, 200, await launcher.transport(await store.getProfile(id)));
       } else if (action === 'start' && method === 'POST') {
         await launcher.start(await store.getProfile(id));
         return sendJson(response, 200, await statusReply(id));

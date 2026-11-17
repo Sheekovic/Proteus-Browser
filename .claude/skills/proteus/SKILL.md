@@ -130,6 +130,7 @@ Starting opens a real browser window on the user's screen and returns the status
 - `proxyExit` - the address the proxy comes out on, with `exitSeenAt`. With
   `matchProxy` on it is always there and the browser was matched to it; with it off
   nobody is asked at a start, and it is what the last proxy check found, if anything.
+  Both are at the top level of a list entry too (`entry.proxyExit`), as on a start reply.
 - `lastProxyExit` - on a stopped profile: where its proxy came out the last time it
   was asked, and when (`at`). The list shows it too, so "which address is this
   profile on?" needs no start.
@@ -139,6 +140,16 @@ Starting opens a real browser window on the user's screen and returns the status
 
 A start fails with a clear message when the proxy does not work; report it rather
 than retrying in a loop. Stopping keeps cookies and storage.
+
+`GET /api/profiles/<id>/transport` (MCP: `transport_report`) measures how the
+profile's browser introduces itself to a server - the TLS hello as a JA4 fingerprint
+and the opening of its HTTP/2 connection - and compares it with the browser version
+the profile claims: read `agrees`, and `differences` when it is false. It takes about
+half a second, works on a running or stopped profile and contacts nothing outside
+this machine. Chrome profiles of the kernel's version agree; an `ios` profile does not
+(it claims Safari and shakes hands as Chrome), and neither does a profile whose
+User-Agent names another Chrome version than the kernel. Use it when the user asks
+whether a profile's TLS/JA4 or HTTP/2 fingerprint matches its User-Agent.
 
 A profile without a proxy starts in about 1.5 seconds. Behind a proxy the first
 start waits for the exit lookup (seconds, sometimes tens of them). Once the exit has
