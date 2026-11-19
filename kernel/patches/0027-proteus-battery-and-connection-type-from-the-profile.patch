@@ -1,7 +1,7 @@
 From 491383e527efa0ef49f83443650d3648dcb91e15 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 22:14:46 +0000
-Subject: [PATCH 27/27] proteus: battery and connection type from the profile
+Subject: [PATCH 27/28] proteus: battery and connection type from the profile
 
 ---
  content/child/runtime_features.cc             |  7 ++++++

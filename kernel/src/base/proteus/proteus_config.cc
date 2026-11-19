@@ -265,6 +265,7 @@ Config LoadConfig() {
     }
   }
   config.vendor = StringOrEmpty(*dict, "vendor");
+  config.safari_transport = StringOrEmpty(*dict, "transport") == "safari";
   config.client_hints = dict->FindBool("clientHints").value_or(true);
   config.chrome_object = dict->FindBool("chromeObject").value_or(true);
   if (const DictValue* hide = dict->FindDict("hide")) {

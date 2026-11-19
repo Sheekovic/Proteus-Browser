@@ -79,6 +79,8 @@ export function buildKernelConfig(profile: Profile, now: number = Date.now()): R
     delete config.deviceMemory;
     delete config.battery;
     config.vendor = 'Apple Computer, Inc.';
+    // And Safari's network handshake (kernel patch 0028; an older kernel ignores it).
+    config.transport = 'safari';
     config.clientHints = false;
     config.chromeObject = false;
     config.hide = { Navigator: SAFARI_MISSING, WorkerNavigator: SAFARI_MISSING };
@@ -155,6 +157,9 @@ export function buildKernelArgs(profile: Profile, paths: LaunchPaths, extraArgs:
   args.push(...QUIET_START_ARGS);
   // The handshake must be that of the browser the profile claims to be (transportClaim.ts).
   const disabled = [...QUIET_DISABLED_FEATURES, ...shapeSwitches(claimOf(profile))];
+  // Safari's handshake is reproduced for TLS over TCP and HTTP/2. Over QUIC the
+  // kernel would be Chrome again, so a Safari profile does not use it.
+  if (profile.os === 'ios') args.push('--disable-quic');
   if (paths.networkSandbox === false) disabled.push('NetworkServiceSandbox');
   args.push(`--disable-features=${disabled.join(',')}`);
   if (paths.proxyServer !== undefined) {

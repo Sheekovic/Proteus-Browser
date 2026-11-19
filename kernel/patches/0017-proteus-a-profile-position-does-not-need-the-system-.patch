@@ -1,7 +1,7 @@
 From 62e1dad71c13d63d26733f3f3d74763a9eb41221 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 02:34:14 +0000
-Subject: [PATCH 17/27] proteus: a profile position does not need the system
+Subject: [PATCH 17/28] proteus: a profile position does not need the system
  location switch
 
 ---

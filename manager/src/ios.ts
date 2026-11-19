@@ -20,13 +20,17 @@ const SCREENS: readonly (readonly [number, number])[] = [
   [393, 852],  // iPhone 15, 16
   [402, 874],  // iPhone 16 Pro
   [430, 932],  // iPhone 15 Plus, 16 Plus, 15 Pro Max
-  [440, 956],  // iPhone 16 Pro Max
+  [440, 956],  // iPhone 16 Pro Max, 17 Pro Max
 ];
 
-/** iOS versions as [user agent form, Safari version]. */
+/**
+ * iOS versions as [user agent form, Safari version]. What a current iPhone sends, read
+ * from one (iPhone 17 Pro Max, November 2026): Safari names itself 27.2, and the
+ * system version in the User-Agent has stayed at 18_7. Earlier profiles claimed
+ * Safari 18.5 or 18.6 and keep doing so.
+ */
 const VERSIONS: readonly (readonly [string, string])[] = [
-  ['18_5', '18.5'],
-  ['18_6', '18.6'],
+  ['18_7', '27.2'],
 ];
 
 /**

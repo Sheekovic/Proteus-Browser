@@ -146,9 +146,10 @@ profile's browser introduces itself to a server - the TLS hello as a JA4 fingerp
 and the opening of its HTTP/2 connection - and compares it with the browser version
 the profile claims: read `agrees`, and `differences` when it is false. It takes about
 half a second, works on a running or stopped profile and contacts nothing outside
-this machine. Chrome profiles of the kernel's version agree; an `ios` profile does not
-(it claims Safari and shakes hands as Chrome), and neither does a profile whose
-User-Agent names another Chrome version than the kernel. Use it when the user asks
+this machine. Chrome profiles of the kernel's version agree, and so does an `ios` profile
+(the kernel makes Safari's handshake for it; on a kernel older than patch 0028 it
+shakes hands as Chrome and the report says so). A profile whose User-Agent names
+another Chrome version than the kernel does not agree. Use it when the user asks
 whether a profile's TLS/JA4 or HTTP/2 fingerprint matches its User-Agent.
 
 A profile without a proxy starts in about 1.5 seconds. Behind a proxy the first

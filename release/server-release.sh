@@ -26,6 +26,10 @@ SRC="$ROOT/chromium/src"
 # The commit the patch series starts from, and the Windows toolchain package the
 # cross-build uses (upstream's hash, and the hash of the package made on this server).
 BASE_COMMIT=6dc9bc3bda
+# BoringSSL is a repository of its own inside the checkout (third_party/boringssl/src),
+# with patches of its own: the commit Chromium pins, which they start from.
+BORINGSSL=third_party/boringssl/src
+BORINGSSL_BASE=5b83e5d1ab
 TOOLCHAIN_UPSTREAM=3bfcb536c8
 TOOLCHAIN_OURS=e1fc4eb033
 
@@ -56,16 +60,23 @@ echo "== 2. patch series  $(date -u +%FT%TZ)"
 cd "$SRC"
 G="git -c user.name=Proteus -c user.email=proteus@localhost"
 git add -A -- $(cd "$ROOT/stage/src" && find . -type f | sed 's|^\./||')
-git add -u
+# Not BoringSSL's pointer: its changes are commits in its own repository, exported below.
+git add -u -- . ":(exclude)$BORINGSSL"
+if [ -n "$(git -C "$BORINGSSL" status --short --untracked-files=no)" ]; then
+  [ -n "$MESSAGE" ] || { echo "BoringSSL has uncommitted changes: give a commit message"; exit 1; }
+  git -C "$BORINGSSL" add -u
+  $G -C "$BORINGSSL" commit -q -m "proteus: $MESSAGE"
+fi
 if ! git diff --cached --quiet; then
   [ -n "$MESSAGE" ] || { echo "the kernel has uncommitted changes: give a commit message"; exit 1; }
   $G commit -q -m "proteus: $MESSAGE"
 fi
 git log --oneline -3
-rm -rf "$ROOT/patches" && mkdir "$ROOT/patches"
+rm -rf "$ROOT/patches" && mkdir -p "$ROOT/patches/boringssl"
 $G format-patch -q "$BASE_COMMIT" -o "$ROOT/patches"
+$G -C "$BORINGSSL" format-patch -q "$BORINGSSL_BASE" -o "$ROOT/patches/boringssl"
 tar -cf "$ROOT/patches.tar" -C "$ROOT/patches" .
-echo "patches: $(ls "$ROOT/patches" | wc -l)"
+echo "patches: $(ls "$ROOT/patches"/*.patch | wc -l), for BoringSSL: $(ls "$ROOT/patches/boringssl" | wc -l)"
 
 echo "== 3. Windows kernel  $(date -u +%FT%TZ)"
 cd "$ROOT"

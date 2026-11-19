@@ -14,7 +14,7 @@ import { connect as connectTls } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 
 import { generateIdentity } from '../src/fingerprint.ts';
-import { buildKernelArgs } from '../src/kernelConfig.ts';
+import { buildKernelArgs, buildKernelConfig } from '../src/kernelConfig.ts';
 import { alignToKernel, readKernelVersion } from '../src/kernelVersion.ts';
 import { Launcher } from '../src/launcher.ts';
 import { listPresets } from '../src/presets.ts';
@@ -40,6 +40,10 @@ const SIGNATURES = [0x0904, 0x0905, 0x0906, 0x0403, 0x0804, 0x0401, 0x0503, 0x08
 const STOCK_JA4 = 't13d1517h2_8daaf6152771_cb7bf5808d99';
 const PADDED_JA4 = 't13d1518h2_8daaf6152771_4980c97edce0';
 const CHROME_HTTP2 = '1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p';
+// What Safari 27.2 on an iPhone 17 Pro Max sends to a named host.
+const SAFARI_EXTENSIONS = [0x0000, 0x0005, 0x000a, 0x000b, 0x000d, 0x0010, 0x0012, 0x0017, 0x001b, 0x002b, 0x002d, 0x0033, 0xff01];
+const SAFARI_JA4 = 't13d2013h2_a09f3c656075_7f0f34a4126d';
+const SAFARI_HTTP2 = '2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p';
 
 const u8 = (n: number) => Buffer.from([n]);
 const u16 = (n: number) => Buffer.from([n >> 8, n & 0xff]);
@@ -201,8 +205,8 @@ test('what a profile claims to be is read from it, for every system and ready-ma
   }
   const iphone = claimOf(generateIdentity('ios', KERNEL));
   assert.equal(iphone.browser, 'Safari');
-  assert.match(iphone.version, /^\d+\.\d+/);
-  assert.equal(referenceFor(iphone), null);
+  assert.equal(iphone.version, '27.2');
+  assert.deepEqual([referenceFor(iphone)?.ja4, referenceFor(iphone)?.http2], [SAFARI_JA4, SAFARI_HTTP2], 'Safari has a measured shape of its own');
   assert.equal(claimOf({ userAgent: 'curl/8', uaData: generateIdentity('windows', KERNEL).uaData }).browser, 'unknown');
   // A version the client hints do not back up is taken from the User-Agent.
   const older = { ...generateIdentity('windows', KERNEL) };
@@ -237,6 +241,24 @@ test('a profile is started without the experiment that changes its handshake', (
     assert.ok(features[0].split('=')[1].split(',').includes('AddTLSServerHandshakePadding'));
     assert.ok(features[0].includes('OptimizationHints'), 'beside the ones that were there');
   }
+  assert.ok(!buildKernelArgs(profile, { userDataDir: 'u', configFile: 'c' }, []).includes('--disable-quic'));
+  assert.ok(!('transport' in buildKernelConfig(profile)), 'a Chrome profile asks for nothing');
+});
+
+test('an iPhone profile asks the kernel for Safari\'s handshake, and stays off QUIC', () => {
+  const iphone = {
+    ...generateIdentity('ios', KERNEL), id: 'x', name: 'n', notes: '', createdAt: '', updatedAt: '',
+    languages: [], timezone: '', webrtc: 'proxyOnly', webrtcPublicIp: '', geolocation: null, proxy: null,
+    matchProxy: false, startUrl: '',
+  } as unknown as Profile;
+  assert.equal(buildKernelConfig(iphone).transport, 'safari');
+  const args = buildKernelArgs(iphone, { userDataDir: 'u', configFile: 'c' }, []);
+  assert.ok(args.includes('--disable-quic'));
+  assert.ok(args.find((a) => a.startsWith('--disable-features='))?.includes('AddTLSServerHandshakePadding'));
+  for (const os of ['windows', 'macos', 'linux', 'android'] as const) {
+    const other = { ...iphone, ...generateIdentity(os, KERNEL) } as unknown as Profile;
+    assert.ok(!('transport' in buildKernelConfig(other)), os);
+  }
 });
 
 test('the report says whether the handshake agrees with the claim, and why not', () => {
@@ -265,18 +287,42 @@ test('the report says whether the handshake agrees with the claim, and why not',
   assert.match(missing.differences.join(' '), /missing TLS extensions 0xca34/);
   assert.match(missing.differences.join(' '), /HTTP\/2: produced 1:65536\|00\|0\|m,s,a,p/);
 
-  // A claim the kernel cannot back: another Chrome version, or Safari.
+  // A claim the kernel cannot back: another Chrome version.
   const older = { ...windows, userAgent: windows.userAgent.replace('Chrome/157', 'Chrome/150') };
   const stale = reportTransport(older, KERNEL, shapeOf(STOCK_JA4, EXTENSIONS, CHROME_HTTP2, older.userAgent));
   assert.equal(stale.agrees, false);
   assert.match(stale.differences[0], /claims Chrome 150, but the kernel is Chromium 157/);
   assert.equal(stale.expected, null, 'no shape was measured for that version');
 
+  // Safari: held to what an iPhone sends. A kernel that makes that handshake agrees;
+  // one from before it could (it shakes hands as Chrome) is told apart from one that
+  // merely differs.
   const iphone = generateIdentity('ios', KERNEL);
-  const safari = reportTransport(iphone, KERNEL, shapeOf(STOCK_JA4, EXTENSIONS, CHROME_HTTP2, iphone.userAgent));
-  assert.equal(safari.agrees, false);
-  assert.match(safari.differences[0], /claims Safari/);
-  assert.equal(safari.claims.browser, 'Safari');
+  const safari = reportTransport(iphone, KERNEL, shapeOf(SAFARI_JA4, SAFARI_EXTENSIONS, SAFARI_HTTP2, iphone.userAgent));
+  assert.equal(safari.agrees, true, safari.differences.join(' '));
+  assert.deepEqual([safari.claims.browser, safari.claims.version], ['Safari', '27.2']);
+  assert.equal(safari.expected?.measuredFrom, 'Safari 27.2, iPhone 17 Pro Max');
+  assert.ok(safari.notes.some((note) => /QUIC/.test(note)), 'what is not Safari\'s is said');
+  assert.ok(!safari.notes.some((note) => /has not been measured/.test(note)));
+
+  const asChrome = reportTransport(iphone, KERNEL, shapeOf(STOCK_JA4, EXTENSIONS, CHROME_HTTP2, iphone.userAgent));
+  assert.equal(asChrome.agrees, false);
+  assert.match(asChrome.differences.join(' '), /TLS: produced t13d1517h2.*Safari 27\.2, iPhone 17 Pro Max sends t13d2013h2/);
+  assert.match(asChrome.differences.join(' '), /extra TLS extensions 0x0023, 0x44cd, 0xca34, 0xfe0d/);
+  assert.match(asChrome.differences.join(' '), /claims Safari 27\.2, but this kernel shakes hands as Chrome does/);
+  assert.match(asChrome.differences.join(' '), /HTTP\/2: produced 1:65536/);
+
+  const halfway = reportTransport(iphone, KERNEL, shapeOf(SAFARI_JA4, SAFARI_EXTENSIONS, CHROME_HTTP2, iphone.userAgent));
+  assert.equal(halfway.agrees, false);
+  assert.equal(halfway.differences.length, 1);
+  assert.match(halfway.differences[0], /^HTTP\/2: /);
+
+  // An iPhone profile made before Safari 27 was read from a phone keeps its version,
+  // and the report says which Safari the expectation comes from.
+  const earlier = { ...iphone, userAgent: iphone.userAgent.replace('Version/27.2', 'Version/18.6').replace('18_7', '18_6') };
+  const held = reportTransport(earlier, KERNEL, shapeOf(SAFARI_JA4, SAFARI_EXTENSIONS, SAFARI_HTTP2, earlier.userAgent));
+  assert.equal(held.agrees, true);
+  assert.ok(held.notes.some((note) => /A Safari 18\.6 has not been measured/.test(note)));
 
   // A kernel of a newer version than the profile was made for.
   assert.equal(reportTransport(windows, '160.0.1.2', shapeOf(STOCK_JA4, EXTENSIONS, CHROME_HTTP2, windows.userAgent)).agrees, false);

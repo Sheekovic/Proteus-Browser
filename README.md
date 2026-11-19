@@ -263,7 +263,7 @@ ready-made setup claims and produces, measured on Windows 11 with kernel 157.0.8
 | `linux-desktop` | Chrome 157.0.8103.79, Linux | same | same | yes |
 | `pixel-8` | Chrome 157.0.8103.79, Android | same | same | yes |
 | `galaxy-a34` | Chrome 157.0.8103.79, Android | same | same | yes |
-| `iphone-15` | Safari 18.5 or 18.6, iPhone | same: Chrome's, not Safari's | same: Chrome's, not Safari's | **no** |
+| `iphone-15` | Safari 27.2, iPhone | `t13d2013h2_a09f3c656075_7f0f34a4126d` | `2:0;3:100;4:2097152;9:1\|10420225\|0\|m,s,a,p` | yes |
 
 Nine of them claim the Chrome the kernel is, so they produce one shape: the same as
 stock Chrome 157.0.8103.79 on the same machine, byte for byte in what the fingerprints
@@ -279,8 +279,16 @@ table does not show:
 
 - The reference was measured on Windows only. Chrome uses the same network code on
   macOS, Linux and Android, but no stock Chrome there was measured.
-- The iPhone setup claims Safari and shakes hands as Chrome. The manager cannot change
-  that from outside: Safari's shape needs changes to the kernel's network code.
+- The iPhone setup shakes hands as Safari does: the kernel (patch 0028) makes Safari's
+  TLS hello and HTTP/2 opening when a profile's configuration asks for it. What it is
+  held to was recorded from Safari 27.2 on an iPhone 17 Pro Max: the cipher suites,
+  the extensions with their content and order, the HTTP/2 settings and window, and
+  the headers of a page load (their order, Safari's `Accept`, and none of the two
+  Chrome adds, `Upgrade-Insecure-Requests` and `Sec-Fetch-User`). Three things are not
+  Safari's: such a profile stays off QUIC (HTTP/3), where the kernel would be Chrome
+  again; the headers of requests other than a page load (pictures, scripts, `fetch`)
+  were not measured, and over HTTP/1.1 they are Chrome's; and an iPhone profile made before
+  this keeps the Safari 18.5 or 18.6 it claimed, held to the same shape.
 - A profile whose User-Agent names another Chrome version than the kernel (set by
   hand, or made for an older kernel) still shakes hands as the kernel's version. The
   report says so; a new identity brings the claim back in line.
@@ -368,7 +376,9 @@ noise seed — not copies of one device.
 
 The kernel is Chromium **157.0.8103.79** (pinned in
 [`kernel/CHROMIUM_VERSION`](kernel/CHROMIUM_VERSION)) with the patches in
-[`kernel/patches`](kernel/patches) applied in order.
+[`kernel/patches`](kernel/patches) applied in order. BoringSSL, the TLS library, is a
+repository of its own inside a Chromium checkout, so the one patch that touches it is
+kept apart, in [`kernel/patches/boringssl`](kernel/patches/boringssl).
 
 A Chromium build needs a capable machine: roughly 100 GB of disk, 32 GB of RAM, and
 hours for the first build. In outline:
@@ -380,6 +390,7 @@ hours for the first build. In outline:
    ```bash
    cd chromium/src
    git am /path/to/Proteus/kernel/patches/*.patch
+   git -C third_party/boringssl/src am /path/to/Proteus/kernel/patches/boringssl/*.patch
    ```
 3. Configure with [`kernel/args.gn`](kernel/args.gn) and build:
    ```bash
@@ -467,12 +478,12 @@ manager/
 Worth knowing before relying on it:
 
 - **It is Chromium underneath.** An iPhone profile reports Safari's identity and
-  lacks what Safari lacks, but a site that probes engine behaviour, or looks at the
-  TLS handshake, can still tell it is not WebKit: its handshake is Chrome's, and
-  `GET /api/profiles/<id>/transport` reports it as not agreeing. There is no Firefox
-  kernel.
-- **One kernel, one handshake.** Every profile shakes hands as the Chrome version the
-  kernel was built from. A profile claiming another version is reported, not fixed.
+  lacks what Safari lacks, and its TLS and HTTP/2 handshake is Safari's, but a site
+  that probes engine behaviour can still tell it is not WebKit. It does not use
+  HTTP/3. There is no Firefox kernel.
+- **One kernel, two handshakes.** A Chrome profile shakes hands as the Chrome version
+  the kernel was built from, an iPhone profile as the one Safari that was measured.
+  A profile claiming another Chrome version is reported, not fixed.
 - **Generated identities name a graphics card without its capabilities.** Only
   profiles made from a real device's reading report that card's WebGL limits; the
   others report the machine's own.

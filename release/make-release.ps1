@@ -103,8 +103,8 @@ foreach ($line in Get-Content (Join-Path $out 'SHA256SUMS.txt')) {
 $patches = Join-Path $env:TEMP 'proteus-patches.tar'
 scp @ssh -q "${h}:/opt/proteus/patches.tar" $patches
 if ($LASTEXITCODE -ne 0) { throw 'download of the patch series failed' }
-Remove-Item "$repo\kernel\patches\*.patch"
+Remove-Item "$repo\kernel\patches\*.patch", "$repo\kernel\patches\boringssl\*.patch" -ErrorAction SilentlyContinue
 tar -xf $patches -C "$repo\kernel\patches"
 Write-Host "Bundles: $out"
 Get-ChildItem $out | ForEach-Object { Write-Host ("  {0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB)) }
-Write-Host "Patch series: kernel\patches ($((Get-ChildItem "$repo\kernel\patches\*.patch").Count) patches)"
+Write-Host "Patch series: kernel\patches ($((Get-ChildItem "$repo\kernel\patches\*.patch").Count) patches, and $((Get-ChildItem "$repo\kernel\patches\boringssl\*.patch").Count) for BoringSSL)"

@@ -1,0 +1,122 @@
+From b061de1611853852af08f4fedcee5005844c60ef Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Thu, 19 Nov 2026 20:34:27 +0000
+Subject: [PATCH] proteus: cipher suites and signature algorithms of a
+ ClientHello as given
+
+---
+ include/openssl/ssl.h   | 13 +++++++++++++
+ ssl/extensions.cc       |  9 +++++++++
+ ssl/handshake_client.cc | 10 ++++++++++
+ ssl/internal.h          |  5 +++++
+ ssl/ssl_lib.cc          | 13 +++++++++++++
+ 5 files changed, 50 insertions(+)
+
+diff --git a/include/openssl/ssl.h b/include/openssl/ssl.h
+index 334997de9..efe3326ea 100644
+--- a/include/openssl/ssl.h
++++ b/include/openssl/ssl.h
+@@ -5692,6 +5692,19 @@ OPENSSL_EXPORT void SSL_CTX_set_permute_extensions(SSL_CTX *ctx, int enabled);
+ // permute extensions. For now, this is only implemented for the ClientHello.
+ OPENSSL_EXPORT void SSL_set_permute_extensions(SSL *ssl, int enabled);
+ 
++// Proteus: SSL_set_proteus_client_hello gives the cipher suites and the
++// signature algorithms that `ssl` lists in its ClientHello, as they go on the
++// wire (a GREASE cipher suite is still put first when GREASE is enabled). It
++// changes what is announced, not what is accepted: the cipher list and the
++// verify preferences still decide that, so a server choosing something only
++// announced fails the handshake. An empty list leaves that part alone. It
++// returns one on success and zero on allocation failure.
++OPENSSL_EXPORT int SSL_set_proteus_client_hello(SSL *ssl,
++                                                const uint16_t *ciphers,
++                                                size_t num_ciphers,
++                                                const uint16_t *sigalgs,
++                                                size_t num_sigalgs);
++
+ // SSL_max_seal_overhead returns the maximum overhead, in bytes, of sealing a
+ // record with `ssl`.
+ OPENSSL_EXPORT size_t SSL_max_seal_overhead(const SSL *ssl);
+diff --git a/ssl/extensions.cc b/ssl/extensions.cc
+index ce21ccea8..0703aa8ae 100644
+--- a/ssl/extensions.cc
++++ b/ssl/extensions.cc
+@@ -1034,6 +1034,15 @@ static bool ext_sigalgs_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
+                    ssl_get_grease_value(hs, ssl_grease_signature_algorithm))) {
+     return false;
+   }
++  // Proteus: the list as given, in place of the verify preferences.
++  if (!hs->config->proteus_hello_sigalgs.empty()) {
++    for (uint16_t sigalg : hs->config->proteus_hello_sigalgs) {
++      if (!CBB_add_u16(&sigalgs_cbb, sigalg)) {
++        return false;
++      }
++    }
++    return CBB_flush(out_compressible);
++  }
+   if (!tls12_add_verify_sigalgs(hs, &sigalgs_cbb) ||
+       !CBB_flush(out_compressible)) {
+     return false;
+diff --git a/ssl/handshake_client.cc b/ssl/handshake_client.cc
+index 3d57f34da..e4da41632 100644
+--- a/ssl/handshake_client.cc
++++ b/ssl/handshake_client.cc
+@@ -100,6 +100,16 @@ static bool ssl_write_client_cipher_list(const SSL_HANDSHAKE *hs, CBB *out,
+     return false;
+   }
+ 
++  // Proteus: the list as given, in place of the one made from what is enabled.
++  if (!hs->config->proteus_hello_ciphers.empty()) {
++    for (uint16_t id : hs->config->proteus_hello_ciphers) {
++      if (!CBB_add_u16(&child, id)) {
++        return false;
++      }
++    }
++    return CBB_flush(out);
++  }
++
+   // Add TLS 1.3 ciphers in configured preference order.
+   if (hs->max_version >= TLS1_3_VERSION) {
+     for (const SSL_CIPHER *cipher : hs->config->tls13_cipher_list.ciphers()) {
+diff --git a/ssl/internal.h b/ssl/internal.h
+index 2405d44ae..f6c5ca723 100644
+--- a/ssl/internal.h
++++ b/ssl/internal.h
+@@ -3565,6 +3565,11 @@ struct SSL_CONFIG {
+   // should be freed after the handshake completes.
+   bool shed_handshake_config : 1;
+ 
++  // Proteus: when not empty, what the ClientHello lists as cipher suites and
++  // as signature algorithms (SSL_set_proteus_client_hello).
++  Array<uint16_t> proteus_hello_ciphers;
++  Array<uint16_t> proteus_hello_sigalgs;
++
+   // jdk11_workaround is whether to disable TLS 1.3 for JDK 11 clients, as a
+   // workaround for https://bugs.openjdk.java.net/browse/JDK-8211806.
+   bool jdk11_workaround : 1;
+diff --git a/ssl/ssl_lib.cc b/ssl/ssl_lib.cc
+index 8b3d85a56..46d59aa24 100644
+--- a/ssl/ssl_lib.cc
++++ b/ssl/ssl_lib.cc
+@@ -3328,6 +3328,19 @@ void SSL_set_permute_extensions(SSL *ssl, int enabled) {
+   ssl_impl->config->permute_extensions = !!enabled;
+ }
+ 
++int SSL_set_proteus_client_hello(SSL *ssl, const uint16_t *ciphers,
++                                 size_t num_ciphers, const uint16_t *sigalgs,
++                                 size_t num_sigalgs) {
++  auto *ssl_impl = FromOpaque(ssl);
++  if (!ssl_impl->config) {
++    return 0;
++  }
++  return ssl_impl->config->proteus_hello_ciphers.CopyFrom(
++             Span(ciphers, num_ciphers)) &&
++         ssl_impl->config->proteus_hello_sigalgs.CopyFrom(
++             Span(sigalgs, num_sigalgs));
++}
++
+ int32_t SSL_get_ticket_age_skew(const SSL *ssl) {
+   return FromOpaque(ssl)->s3->ticket_age_skew;
+ }
+-- 
+2.43.0
+

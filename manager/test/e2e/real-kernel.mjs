@@ -314,6 +314,11 @@ try {
   check('iPhone: a microphone and a camera, no speaker entry', phoneDevices.kinds, 'audioinput,videoinput');
   const phonePower = await readPage(iphoneStatus.debuggerUrl, `${pagesUrl}/battery.html`);
   check('iPhone: no battery or connection interface', `${phonePower.battery}/${phonePower.connection}`, 'absent/absent');
+  // And on the wire: the handshake Safari on an iPhone was measured to make.
+  const phoneTransport = await api('GET', `/api/profiles/${iphone.id}/transport`);
+  check('iPhone: the TLS hello is Safari\'s', phoneTransport.produces.tls.ja4, 't13d2013h2_a09f3c656075_7f0f34a4126d');
+  check('iPhone: the HTTP/2 opening is Safari\'s', phoneTransport.produces.http2?.fingerprint, '2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p');
+  check('iPhone: handshake and claim agree', `${phoneTransport.agrees} ${phoneTransport.differences.join(' ')}`.trim(), 'true');
   await api('POST', `/api/profiles/${iphone.id}/stop`);
   await api('DELETE', `/api/profiles/${iphone.id}`);
 

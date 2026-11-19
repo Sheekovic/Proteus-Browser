@@ -1,0 +1,387 @@
+From f7c5b39d4830c604f3bf8c7dcececd3e6d4e9fda Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Thu, 19 Nov 2026 20:34:29 +0000
+Subject: [PATCH 28/28] proteus: a Safari profile shakes hands as Safari does
+
+---
+ base/proteus/proteus_config.cc       |  1 +
+ base/proteus/proteus_config.h        |  7 ++++
+ net/http/http_network_session.cc     | 17 +++++++-
+ net/socket/ssl_client_socket_impl.cc | 58 ++++++++++++++++++++++++----
+ net/spdy/spdy_http_utils.cc          | 49 +++++++++++++++++++++++
+ net/spdy/spdy_session.cc             | 13 ++++++-
+ net/ssl/cert_compression.cc          | 30 ++++++++++++++
+ 7 files changed, 166 insertions(+), 9 deletions(-)
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index 0df0f76b94..c914c979ca 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -265,6 +265,7 @@ Config LoadConfig() {
+     }
+   }
+   config.vendor = StringOrEmpty(*dict, "vendor");
++  config.safari_transport = StringOrEmpty(*dict, "transport") == "safari";
+   config.client_hints = dict->FindBool("clientHints").value_or(true);
+   config.chrome_object = dict->FindBool("chromeObject").value_or(true);
+   if (const DictValue* hide = dict->FindDict("hide")) {
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index 62c28e5bf2..73db6e8d40 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -222,6 +222,13 @@ struct BASE_EXPORT Config {
+   bool client_hints = true;
+   bool chrome_object = true;
+ 
++  // The network handshake of that other browser: with |safari_transport| the
++  // TLS ClientHello and the opening of an HTTP/2 connection are the ones Safari
++  // sends (measured from Safari on an iPhone), not Chrome's. A site that
++  // compares the handshake with the User-Agent otherwise sees Chrome under a
++  // Safari name. Read in the network process.
++  bool safari_transport = false;
++
+   // The microphones, cameras and speakers of the profile's machine, in the order
+   // enumerateDevices() lists them; index 0 is audio input, 1 video input and 2
+   // audio output. With |has_media_devices| set, a page learns which kinds exist
+diff --git a/net/http/http_network_session.cc b/net/http/http_network_session.cc
+index 05fc047000..e98ec526e6 100644
+--- a/net/http/http_network_session.cc
++++ b/net/http/http_network_session.cc
+@@ -12,6 +12,7 @@
+ #include "base/check_op.h"
+ #include "base/compiler_specific.h"
+ #include "base/feature_list.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/notreached.h"
+ #include "base/power_monitor/power_monitor.h"
+ #include "base/strings/string_number_conversions.h"
+@@ -57,6 +58,17 @@ namespace {
+ // implemented, to be sent to the server.
+ // Set default values for settings that |http2_settings| does not specify.
+ spdy::SettingsMap AddDefaultHttp2Settings(spdy::SettingsMap http2_settings) {
++  if (base::proteus::GetConfig().safari_transport) {
++    spdy::SettingsMap safari;
++    safari[spdy::SETTINGS_HEADER_TABLE_SIZE] = 4096;
++    safari[spdy::SETTINGS_ENABLE_PUSH] = kSpdyDisablePush;
++    safari[spdy::SETTINGS_MAX_CONCURRENT_STREAMS] = 100;
++    safari[spdy::SETTINGS_INITIAL_WINDOW_SIZE] = 2 * 1024 * 1024;
++    safari[spdy::SETTINGS_MAX_HEADER_LIST_SIZE] = kSpdyMaxHeaderListSize;
++    safari[spdy::SETTINGS_DEPRECATE_HTTP2_PRIORITIES] = 1;
++    return safari;
++  }
++
+   // Server push is not supported.
+   http2_settings[spdy::SETTINGS_ENABLE_PUSH] = kSpdyDisablePush;
+ 
+@@ -91,7 +103,10 @@ bool OriginToForceQuicOnInternal(const QuicParams& quic_params,
+ }  // unnamed namespace
+ 
+ HttpNetworkSessionParams::HttpNetworkSessionParams()
+-    : spdy_session_max_recv_window_size(kSpdySessionMaxRecvWindowSize),
++    : spdy_session_max_recv_window_size(
++          base::proteus::GetConfig().safari_transport
++              ? 10 * 1024 * 1024
++              : kSpdySessionMaxRecvWindowSize),
+       spdy_session_max_queued_capped_frames(kSpdySessionMaxQueuedCappedFrames),
+       time_func(&base::TimeTicks::Now) {
+   enable_early_data =
+diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket_impl.cc
+index f586acfe0f..86a56b9ba0 100644
+--- a/net/socket/ssl_client_socket_impl.cc
++++ b/net/socket/ssl_client_socket_impl.cc
+@@ -17,6 +17,7 @@
+ #include "base/containers/span.h"
+ #include "base/containers/to_vector.h"
+ #include "base/feature_list.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/functional/bind.h"
+ #include "base/functional/callback_helpers.h"
+ #include "base/lazy_instance.h"
+@@ -208,7 +209,8 @@ class SSLClientSocketImpl::SSLContext {
+     SSL_CTX_set_timeout(ssl_ctx_.get(), 1 * 60 * 60 /* one hour */);
+ 
+     SSL_CTX_set_grease_enabled(ssl_ctx_.get(), 1);
+-    if (base::FeatureList::IsEnabled(features::kTlsGreaseSigalgs)) {
++    if (base::FeatureList::IsEnabled(features::kTlsGreaseSigalgs) &&
++        !base::proteus::GetConfig().safari_transport) {
+       SSL_CTX_set_grease_sigalgs_enabled(ssl_ctx_.get(), 1);
+     }
+ 
+@@ -701,8 +703,16 @@ int SSLClientSocketImpl::Init() {
+     return ERR_UNEXPECTED;
+   }
+ 
+-  const std::vector<uint16_t> supported_groups =
++  // Proteus: a Safari profile shakes hands as Safari does (measured from Safari
++  // 27.2 on an iPhone). Read once: the profile does not change while running.
++  const bool safari_transport = base::proteus::GetConfig().safari_transport;
++  std::vector<uint16_t> supported_groups =
+       context_->config().GetSupportedGroups();
++  if (safari_transport) {
++    supported_groups = {SSL_GROUP_X25519_MLKEM768, SSL_GROUP_X25519,
++                        SSL_GROUP_SECP256R1, SSL_GROUP_SECP384R1,
++                        SSL_GROUP_SECP521R1};
++  }
+   if (!SSL_set1_group_ids(ssl_.get(), supported_groups.data(),
+                           supported_groups.size())) {
+     return ERR_UNEXPECTED;
+@@ -772,7 +782,8 @@ int SSLClientSocketImpl::Init() {
+ 
+   // Use BoringSSL defaults, but disable 3DES and HMAC-SHA1 ciphers in ECDSA.
+   // These are the remaining CBC-mode ECDSA ciphers.
+-  std::string command("ALL:!aPSK:!ECDSA+SHA1:!3DES");
++  std::string command(safari_transport ? "ALL:!aPSK"
++                                       : "ALL:!aPSK:!ECDSA+SHA1:!3DES");
+ 
+   if (ssl_config_.require_ecdhe)
+     command.append(":!kRSA");
+@@ -811,6 +822,34 @@ int SSLClientSocketImpl::Init() {
+                                       std::size(kVerifyPrefs))) {
+     return ERR_UNEXPECTED;
+   }
++  if (safari_transport) {
++    // Accepted: Safari's algorithms, without SHA-1. Announced: its list as it
++    // is, which names rsa_pss_rsae_sha384 twice and ends with SHA-1.
++    static const uint16_t kSafariVerifyPrefs[] = {
++        SSL_SIGN_ECDSA_SECP256R1_SHA256, SSL_SIGN_RSA_PSS_RSAE_SHA256,
++        SSL_SIGN_RSA_PKCS1_SHA256,       SSL_SIGN_ECDSA_SECP384R1_SHA384,
++        SSL_SIGN_RSA_PSS_RSAE_SHA384,    SSL_SIGN_RSA_PKCS1_SHA384,
++        SSL_SIGN_RSA_PSS_RSAE_SHA512,    SSL_SIGN_RSA_PKCS1_SHA512,
++    };
++    static const uint16_t kSafariHelloSigalgs[] = {
++        0x0403, 0x0804, 0x0401, 0x0503, 0x0805,
++        0x0805, 0x0501, 0x0806, 0x0601, 0x0201,
++    };
++    static const uint16_t kSafariHelloCiphers[] = {
++        0x1302, 0x1303, 0x1301, 0xc02c, 0xc02b, 0xcca9, 0xc030,
++        0xc02f, 0xcca8, 0xc00a, 0xc009, 0xc014, 0xc013, 0x009d,
++        0x009c, 0x0035, 0x002f, 0xc008, 0xc012, 0x000a,
++    };
++    if (!SSL_set_verify_algorithm_prefs(ssl_.get(), kSafariVerifyPrefs,
++                                        std::size(kSafariVerifyPrefs)) ||
++        !SSL_set_proteus_client_hello(
++            ssl_.get(), kSafariHelloCiphers, std::size(kSafariHelloCiphers),
++            kSafariHelloSigalgs, std::size(kSafariHelloSigalgs))) {
++      return ERR_UNEXPECTED;
++    }
++    // Safari sends no session ticket extension.
++    SSL_set_options(ssl_.get(), SSL_OP_NO_TICKET);
++  }
+ 
+   SSL_set_alps_use_new_codepoint(
+       ssl_.get(),
+@@ -823,7 +862,8 @@ int SSLClientSocketImpl::Init() {
+ 
+     for (NextProto proto : ssl_config_.alpn_protos) {
+       auto iter = ssl_config_.application_settings.find(proto);
+-      if (iter != ssl_config_.application_settings.end()) {
++      if (iter != ssl_config_.application_settings.end() &&
++          !safari_transport) {
+         const char* proto_string = NextProtoToString(proto);
+         if (!SSL_add_application_settings(
+                 ssl_.get(), reinterpret_cast<const uint8_t*>(proto_string),
+@@ -861,10 +901,10 @@ int SSLClientSocketImpl::Init() {
+     return rv;
+   }
+ 
+-  SSL_set_permute_extensions(ssl_.get(), 1);
++  SSL_set_permute_extensions(ssl_.get(), safari_transport ? 0 : 1);
+ 
+   // Configure BoringSSL to send Trust Anchor IDs, if provided.
+-  if (ssl_config_.trust_anchor_ids.has_value()) {
++  if (ssl_config_.trust_anchor_ids.has_value() && !safari_transport) {
+     if (!SSL_set1_requested_trust_anchors(
+             ssl_.get(), ssl_config_.trust_anchor_ids->data(),
+             ssl_config_.trust_anchor_ids->size())) {
+@@ -879,7 +919,8 @@ int SSLClientSocketImpl::Init() {
+   }
+ 
+   // Configure BoringSSL to ask for server padding, if provided.
+-  if (ssl_config_.server_padding_to_request.has_value()) {
++  if (ssl_config_.server_padding_to_request.has_value() &&
++      !safari_transport) {
+     SSL_set_server_padding_request(
+         ssl_.get(), ssl_config_.server_padding_to_request.value());
+   }
+@@ -1819,6 +1860,9 @@ int SSLClientSocketImpl::MapLastOpenSSLError(
+ }
+ 
+ int SSLClientSocketImpl::ConfigureEch() {
++  if (base::proteus::GetConfig().safari_transport) {
++    return OK;
++  }
+   EchMode ech_mode = context_->GetEchMode(host_and_port_.host());
+ 
+   switch (ech_mode) {
+diff --git a/net/spdy/spdy_http_utils.cc b/net/spdy/spdy_http_utils.cc
+index ec5f54d789..a46758f905 100644
+--- a/net/spdy/spdy_http_utils.cc
++++ b/net/spdy/spdy_http_utils.cc
+@@ -5,11 +5,14 @@
+ 
+ #include "net/spdy/spdy_http_utils.h"
+ 
++#include <algorithm>
+ #include <string>
+ #include <string_view>
++#include <utility>
+ #include <vector>
+ 
+ #include "base/check_op.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/feature_list.h"
+ #include "base/strings/strcat.h"
+ #include "base/strings/string_split.h"
+@@ -196,6 +199,49 @@ SpdyHeadersToHttpResponseHeadersUsingBuilder(
+   return response_headers;
+ }
+ 
++namespace {
++
++// Proteus: makes |headers| those of Safari. Its order; for a page load its
++// Accept, not Chrome's; and without the two headers Chrome adds to a page load
++// and Safari does not send.
++void OrderHeadersAsSafari(quiche::HttpHeaderBlock* headers) {
++  static constexpr std::string_view kOrder[] = {
++      ":method",        ":scheme",        ":authority",      ":path",
++      ":protocol",      "sec-fetch-dest", "user-agent",      "accept",
++      "sec-fetch-site", "sec-fetch-mode", "accept-language", "priority",
++      "accept-encoding",
++  };
++  std::vector<std::pair<std::string, std::string>> all;
++  for (const auto& [name, value] : *headers) {
++    if (name == "upgrade-insecure-requests" || name == "sec-fetch-user") {
++      continue;
++    }
++    if (name == "accept" && value.starts_with("text/html,")) {
++      all.emplace_back(
++          std::string(name),
++          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
++      continue;
++    }
++    all.emplace_back(std::string(name), std::string(value));
++  }
++  headers->clear();
++  for (std::string_view wanted : kOrder) {
++    for (const auto& [name, value] : all) {
++      if (name == wanted) {
++        headers->insert({name, value});
++      }
++    }
++  }
++  for (const auto& [name, value] : all) {
++    if (std::ranges::find(kOrder, std::string_view(name)) ==
++        std::ranges::end(kOrder)) {
++      headers->insert({name, value});
++    }
++  }
++}
++
++}  // namespace
++
+ void CreateSpdyHeadersFromHttpRequest(const HttpRequestInfo& info,
+                                       std::optional<RequestPriority> priority,
+                                       const HttpRequestHeaders& request_headers,
+@@ -235,6 +281,9 @@ void CreateSpdyHeadersFromHttpRequest(const HttpRequestInfo& info,
+       AddUniqueSpdyHeader(kHttp2PriorityHeader, serialized_priority, headers);
+     }
+   }
++  if (base::proteus::GetConfig().safari_transport) {
++    OrderHeadersAsSafari(headers);
++  }
+ }
+ 
+ void CreateSpdyHeadersFromHttpRequestForExtendedConnect(
+diff --git a/net/spdy/spdy_session.cc b/net/spdy/spdy_session.cc
+index 616dea66c3..e07602492b 100644
+--- a/net/spdy/spdy_session.cc
++++ b/net/spdy/spdy_session.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "net/spdy/spdy_session.h"
+ 
++#include "base/proteus/proteus_config.h"
++
+ #include <algorithm>
+ #include <array>
+ #include <limits>
+@@ -1108,6 +1110,10 @@ std::unique_ptr<spdy::SpdySerializedFrame> SpdySession::CreateHeaders(
+                     });
+ 
+   spdy::SpdyHeadersIR headers(stream_id, std::move(block));
++  // Proteus: Safari's HEADERS frames carry no priority.
++  if (base::proteus::GetConfig().safari_transport) {
++    has_priority = false;
++  }
+   headers.set_has_priority(has_priority);
+   headers.set_weight(weight);
+   headers.set_parent_stream_id(parent_stream_id);
+@@ -2270,7 +2276,12 @@ void SpdySession::SendInitialData() {
+       settings_map.insert(setting);
+     }
+   }
+-  if (enable_http2_settings_grease_) {
++  // Proteus: Safari announces no header list limit, and no made-up setting.
++  const bool safari_transport = base::proteus::GetConfig().safari_transport;
++  if (safari_transport) {
++    settings_map.erase(spdy::SETTINGS_MAX_HEADER_LIST_SIZE);
++  }
++  if (enable_http2_settings_grease_ && !safari_transport) {
+     spdy::SpdySettingsId greased_id = 0x0a0a +
+                                       0x1000 * base::RandGenerator(0xf + 1) +
+                                       0x0010 * base::RandGenerator(0xf + 1);
+diff --git a/net/ssl/cert_compression.cc b/net/ssl/cert_compression.cc
+index 2016c88da6..1a88c27247 100644
+--- a/net/ssl/cert_compression.cc
++++ b/net/ssl/cert_compression.cc
+@@ -6,7 +6,9 @@
+ 
+ #include <cstdint>
+ 
++#include "base/proteus/proteus_config.h"
+ #include "third_party/boringssl/src/include/openssl/ssl.h"
++#include "third_party/zlib/zlib.h"
+ 
+ #if !defined(NET_DISABLE_BROTLI)
+ #include "third_party/brotli/include/brotli/decode.h"
+@@ -40,9 +42,37 @@ int DecompressBrotliCert(SSL* ssl,
+ }
+ #endif
+ 
++// Proteus: the zlib form (RFC 8879), which is the one Safari offers.
++int DecompressZlibCert(SSL* ssl,
++                       CRYPTO_BUFFER** out,
++                       size_t uncompressed_len,
++                       const uint8_t* in,
++                       size_t in_len) {
++  uint8_t* data;
++  bssl::UniquePtr<CRYPTO_BUFFER> decompressed(
++      CRYPTO_BUFFER_alloc(&data, uncompressed_len));
++  if (!decompressed) {
++    return 0;
++  }
++  uLongf output_size = static_cast<uLongf>(uncompressed_len);
++  if (uncompress(data, &output_size, in, static_cast<uLong>(in_len)) !=
++          Z_OK ||
++      output_size != uncompressed_len) {
++    return 0;
++  }
++  *out = decompressed.release();
++  return 1;
++}
++
+ }  // namespace
+ 
+ void ConfigureCertificateCompression(SSL_CTX* ctx) {
++  if (base::proteus::GetConfig().safari_transport) {
++    SSL_CTX_add_cert_compression_alg(ctx, TLSEXT_cert_compression_zlib,
++                                     nullptr /* compression not supported */,
++                                     DecompressZlibCert);
++    return;
++  }
+ #if !defined(NET_DISABLE_BROTLI)
+   SSL_CTX_add_cert_compression_alg(ctx, TLSEXT_cert_compression_brotli,
+                                    nullptr /* compression not supported */,
+-- 
+2.43.0
+

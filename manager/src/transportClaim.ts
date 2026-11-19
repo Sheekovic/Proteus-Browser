@@ -9,8 +9,12 @@
 //    itself has off. One of them (AddTLSServerHandshakePadding) adds a TLS extension,
 //    0x12e0, that stock Chrome does not send. shapeSwitches() turns it off.
 //  - The claim itself: a profile that says it is a Chrome of another version than the
-//    kernel, or Safari. The kernel has one network stack, and the manager cannot
-//    change it from outside; the report says so instead of hiding it.
+//    kernel. The kernel has one Chrome network stack, and the manager cannot change
+//    it from outside; the report says so instead of hiding it.
+//
+// A Safari profile is different: the kernel (from patch 0028 on) makes Safari's
+// handshake when the profile's configuration asks for it, and the report compares
+// what came out with what Safari on an iPhone was measured to send.
 //
 // The reference shapes below were measured, not looked up: each is what the named
 // stock browser sent to the recorder in transport.ts.
@@ -21,7 +25,7 @@ import type { TransportShape } from './transport.ts';
 export interface Claim {
   /** The browser the profile's User-Agent names. */
   browser: 'Chrome' | 'Safari' | 'unknown';
-  /** Its version as claimed, e.g. "157.0.8103.79" or "18.5". */
+  /** Its version as claimed, e.g. "157.0.8103.79" or "27.2". */
   version: string;
   major: number | null;
   userAgent: string;
@@ -45,7 +49,8 @@ export function claimOf(profile: Pick<Profile, 'userAgent' | 'uaData'>): Claim {
  * Kernel features to switch off so that a profile making `claim` shakes hands as the
  * browser it claims to be does. Decided per claim: today every claim a profile can
  * make needs the same one, because no other difference between versions has been
- * measured (see REFERENCES) and Safari's handshake is out of the kernel's reach.
+ * measured (see REFERENCES); Safari's handshake is asked for in the profile's kernel
+ * configuration instead (kernelConfig.ts).
  */
 export function shapeSwitches(_claim: Claim): string[] {
   // On in Chromium's own trial configuration, off in Chrome: asks servers to pad
@@ -71,6 +76,22 @@ const CHROME_157: Reference = {
                '44cd', 'ca34', 'fe0d', 'ff01'],
 };
 
+/**
+ * Safari on an iPhone, the first connection (no session to resume). Recorded from an
+ * iPhone 17 Pro Max over Wi-Fi. The phone connected to an address, so its hello had no
+ * server name; to a named host, as the recorder is here, Safari adds that one
+ * extension (0x0000), which makes the fingerprint below: the measured one,
+ * t13i2012h2_a09f3c656075_7f0f34a4126d, with "d" for the name and one extension more.
+ */
+const SAFARI_27: Reference = {
+  measuredFrom: 'Safari 27.2, iPhone 17 Pro Max',
+  ja4: 't13d2013h2_a09f3c656075_7f0f34a4126d',
+  http2: '2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p',
+  extensions: ['0000', '0005', '000a', '000b', '000d', '0010', '0012', '0017', '001b', '002b', '002d', '0033', 'ff01'],
+};
+/** The Safari major that reference was measured from. */
+const SAFARI_REFERENCE = 27;
+
 /** The oldest and newest Chrome major the reference is taken to hold for. */
 const CHROME_REFERENCE_FROM = 157;
 const CHROME_REFERENCE_TO = 158;
@@ -87,6 +108,9 @@ export function referenceFor(claim: Claim): Reference | null {
       claim.major >= CHROME_REFERENCE_FROM && claim.major <= CHROME_REFERENCE_TO) {
     return CHROME_157;
   }
+  // One Safari was measured; an older one a profile may claim is held to it too
+  // (the report says so).
+  if (claim.browser === 'Safari') return SAFARI_27;
   return null;
 }
 
@@ -117,8 +141,7 @@ export function reportTransport(profile: Pick<Profile, 'userAgent' | 'uaData' | 
   const notes: string[] = [];
 
   if (claim.browser === 'Safari') {
-    differences.push(`The profile claims Safari ${claim.version}, but the kernel is Chromium ${kernelMajor} and shakes hands as ` +
-        'Chrome does. Safari\'s TLS and HTTP/2 shape cannot be produced without changing the kernel\'s network code.');
+    // Nothing to say from the claim alone: what was produced is compared below.
   } else if (claim.browser === 'unknown') {
     differences.push('The profile\'s User-Agent names no browser this report knows; the kernel shakes hands as ' +
         `Chrome ${kernelMajor} does.`);
@@ -137,12 +160,23 @@ export function reportTransport(profile: Pick<Profile, 'userAgent' | 'uaData' | 
       ].filter(Boolean).join('; ');
       differences.push(`TLS: produced ${produces.tls.ja4}, ${reference.measuredFrom} sends ${reference.ja4}` +
           (detail ? ` (${detail})` : ' (same extensions; the ciphers or signature algorithms differ)') + '.');
+      if (claim.browser === 'Safari' && produces.tls.ja4 === CHROME_157.ja4) {
+        differences.push(`The profile claims Safari ${claim.version}, but this kernel shakes hands as Chrome does: ` +
+            'it is from before Safari\'s handshake was added (kernel patch 0028).');
+      }
     }
     if (produces.http2 !== null && produces.http2.fingerprint !== reference.http2) {
       differences.push(`HTTP/2: produced ${produces.http2.fingerprint}, ${reference.measuredFrom} sends ${reference.http2}.`);
     }
-    if (claim.major !== null && claim.major > CHROME_REFERENCE_FROM) {
+    if (claim.browser === 'Chrome' && claim.major !== null && claim.major > CHROME_REFERENCE_FROM) {
       notes.push(`A stock Chrome ${claim.major} has not been measured: the expected shape is that of ${reference.measuredFrom}.`);
+    }
+    if (claim.browser === 'Safari') {
+      if (claim.major !== SAFARI_REFERENCE) {
+        notes.push(`A Safari ${claim.version} has not been measured: the expected shape is that of ${reference.measuredFrom}.`);
+      }
+      notes.push('Only the handshake is Safari\'s. Over QUIC (HTTP/3) the kernel would be Chrome again, so a Safari ' +
+          'profile does not use it; and the engine behind the handshake is still Chromium\'s.');
     }
   } else if (claim.browser === 'Chrome' && claim.major === kernelMajor) {
     notes.push(`No stock Chrome ${claim.major} has been measured to compare with; the kernel's own version matches the claim.`);

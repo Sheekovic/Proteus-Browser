@@ -41,7 +41,7 @@ from tests.
 - [x] Battery and network information that fit the claimed device
 - [x] A memory value its browser can report, fitting the processor, and checked when set by hand
 - [x] A TLS hello like stock Chrome's: without the experiment a Chromium build adds to it
-- [ ] Safari's TLS and HTTP/2 shape for iPhone profiles (kernel work: today they shake hands as Chrome)
+- [x] Safari's TLS and HTTP/2 shape for iPhone profiles, as recorded from an iPhone (not over HTTP/3, which they do not use)
 - [x] The machine's languages saved in the profile at its first start, so it is the same profile on another computer
 - [ ] The TLS handshake of a non-Chrome identity *(large: another network stack's fingerprint)*
 - [ ] A Firefox kernel *(large: a second engine)*

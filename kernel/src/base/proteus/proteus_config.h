@@ -222,6 +222,13 @@ struct BASE_EXPORT Config {
   bool client_hints = true;
   bool chrome_object = true;
 
+  // The network handshake of that other browser: with |safari_transport| the
+  // TLS ClientHello and the opening of an HTTP/2 connection are the ones Safari
+  // sends (measured from Safari on an iPhone), not Chrome's. A site that
+  // compares the handshake with the User-Agent otherwise sees Chrome under a
+  // Safari name. Read in the network process.
+  bool safari_transport = false;
+
   // The microphones, cameras and speakers of the profile's machine, in the order
   // enumerateDevices() lists them; index 0 is audio input, 1 video input and 2
   // audio output. With |has_media_devices| set, a page learns which kinds exist

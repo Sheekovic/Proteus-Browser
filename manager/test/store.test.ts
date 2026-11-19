@@ -248,7 +248,7 @@ test('an iPhone profile is Safari, not Chrome', async () => {
   for (let i = 0; i < 8; i++) {
     const profile = await store.createProfile({ os: 'ios' });
     assert.match(profile.userAgent,
-        /^Mozilla\/5\.0 \(iPhone; CPU iPhone OS 18_\d like Mac OS X\) AppleWebKit\/605\.1\.15 \(KHTML, like Gecko\) Version\/18\.\d Mobile\/15E148 Safari\/604\.1$/);
+        /^Mozilla\/5\.0 \(iPhone; CPU iPhone OS 18_7 like Mac OS X\) AppleWebKit\/605\.1\.15 \(KHTML, like Gecko\) Version\/27\.2 Mobile\/15E148 Safari\/604\.1$/);
     assert.ok(!profile.userAgent.includes('Chrome'));
     assert.equal(profile.platform, 'iPhone');
     assert.deepEqual(profile.webgl, { vendor: 'Apple Inc.', renderer: 'Apple GPU' });
