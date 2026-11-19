@@ -1,4 +1,4 @@
-From 6fbcb07020960bb081f2e378f9e3ecb058df53d8 Mon Sep 17 00:00:00 2001
+From ca7567508377864a9977149aab290414850940a6 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 16:30:28 +0000
 Subject: [PATCH 09/27] proteus: substitutes for claimed fonts that are not
@@ -89,7 +89,7 @@ index a7cfee8276..7ba3509004 100644
    // direct UDP leaves the machine, so neither a STUN server nor the page can
    // learn the real public or local address.
 diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
-index 9ad316bf01..eb440d2b71 100644
+index dc027d9348..0066dbbb18 100644
 --- a/third_party/blink/renderer/platform/fonts/font_cache.cc
 +++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
 @@ -179,8 +179,14 @@ const SimpleFontData* FontCache::GetFontData(

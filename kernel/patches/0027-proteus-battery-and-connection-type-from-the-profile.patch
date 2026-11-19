@@ -1,4 +1,4 @@
-From 9a17f20e23608c67de2629d5a801d8f7bf13a332 Mon Sep 17 00:00:00 2001
+From 491383e527efa0ef49f83443650d3648dcb91e15 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 22:14:46 +0000
 Subject: [PATCH 27/27] proteus: battery and connection type from the profile
@@ -10,7 +10,7 @@ Subject: [PATCH 27/27] proteus: battery and connection type from the profile
  3 files changed, 51 insertions(+)
 
 diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
-index 6a3c4650a0..5cf804753b 100644
+index fcf03ba0b3..8815cfa330 100644
 --- a/content/child/runtime_features.cc
 +++ b/content/child/runtime_features.cc
 @@ -10,6 +10,7 @@
@@ -21,7 +21,7 @@ index 6a3c4650a0..5cf804753b 100644
  #include "base/logging.h"
  #include "base/memory/stack_allocated.h"
  #include "base/metrics/field_trial.h"
-@@ -605,6 +606,12 @@ void SetRuntimeFeaturesDefaultsAndUpdateFromArgs(
+@@ -607,6 +608,12 @@ void SetRuntimeFeaturesDefaultsAndUpdateFromArgs(
      WebRuntimeFeatures::EnableXSLT(value == "true");
    }
  

@@ -1,4 +1,4 @@
-From 41538cc7bee3f6f702ece6fa5c95c0ec865d0d87 Mon Sep 17 00:00:00 2001
+From 8d5bbc923895f8c5b65c1063fc72b7b472ebb212 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 22:14:35 +0000
 Subject: [PATCH 26/27] proteus: microphones, cameras and speakers from the
@@ -481,7 +481,7 @@ index 0000000000..0474ed9429
 +
 +#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_PROTEUS_MEDIA_DEVICES_H_
 diff --git a/third_party/blink/renderer/modules/mediastream/user_media_processor.cc b/third_party/blink/renderer/modules/mediastream/user_media_processor.cc
-index d2d5ff7800..ba14fe4a35 100644
+index fea395bd22..6673415efd 100644
 --- a/third_party/blink/renderer/modules/mediastream/user_media_processor.cc
 +++ b/third_party/blink/renderer/modules/mediastream/user_media_processor.cc
 @@ -54,6 +54,7 @@
@@ -492,7 +492,7 @@ index d2d5ff7800..ba14fe4a35 100644
  #include "third_party/blink/renderer/modules/mediastream/user_media_client.h"
  #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_processor_options.h"
  #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_source.h"
-@@ -2309,10 +2310,22 @@ MediaStreamSource* UserMediaProcessor::InitializeSourceObject(
+@@ -2310,10 +2311,22 @@ MediaStreamSource* UserMediaProcessor::InitializeSourceObject(
                                             ? MediaStreamSource::kTypeAudio
                                             : MediaStreamSource::kTypeVideo;
  

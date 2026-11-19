@@ -1,4 +1,4 @@
-From 7992dcaa175b5d5e12116ea9213dde18264da1ca Mon Sep 17 00:00:00 2001
+From a3694b777b39cf7fa710dbc20287492865807be9 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 14:07:16 +0000
 Subject: [PATCH 06/27] proteus: screen, languages and time zone overrides
@@ -87,7 +87,7 @@ index 453ea9c221..307b743abd 100644
    bool canvas_noise = false;
  
 diff --git a/chrome/browser/net/profile_network_context_service.cc b/chrome/browser/net/profile_network_context_service.cc
-index ec1e9b7c18..337ae40c13 100644
+index 62ff3787b2..212002505a 100644
 --- a/chrome/browser/net/profile_network_context_service.cc
 +++ b/chrome/browser/net/profile_network_context_service.cc
 @@ -23,6 +23,7 @@
@@ -98,7 +98,7 @@ index ec1e9b7c18..337ae40c13 100644
  #include "base/strings/strcat.h"
  #include "base/strings/string_split.h"
  #include "base/strings/string_util.h"
-@@ -711,6 +712,11 @@ void ProfileNetworkContextService::OnThirdPartyCookieBlockingChanged(
+@@ -713,6 +714,11 @@ void ProfileNetworkContextService::OnThirdPartyCookieBlockingChanged(
  }
  
  std::string ProfileNetworkContextService::ComputeAcceptLanguage() const {

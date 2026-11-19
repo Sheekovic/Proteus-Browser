@@ -1,4 +1,4 @@
-From d574638c39935f2f7b5d95de6a09ca517bad33a6 Mon Sep 17 00:00:00 2001
+From df3d1b865d4f17478028ab4b9fb0acc6d6cfac65 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 13:20:54 +0000
 Subject: [PATCH 04/27] proteus: seed-derived offline audio render noise
@@ -41,7 +41,7 @@ index 2cb67b39e3..3c4d8d4a78 100644
    std::string webgl_vendor;
    std::string webgl_renderer;
 diff --git a/third_party/blink/renderer/modules/webaudio/BUILD.gn b/third_party/blink/renderer/modules/webaudio/BUILD.gn
-index 170ae8040c..9b93ab7905 100644
+index 4841d23321..85a8efc9e2 100644
 --- a/third_party/blink/renderer/modules/webaudio/BUILD.gn
 +++ b/third_party/blink/renderer/modules/webaudio/BUILD.gn
 @@ -12,6 +12,8 @@ blink_modules_sources("webaudio") {
@@ -54,7 +54,7 @@ index 170ae8040c..9b93ab7905 100644
      "audio_buffer_source_handler.h",
      "audio_buffer_source_node.cc",
 diff --git a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
-index baf8b320c6..052ed37c26 100644
+index 7ae88d3b2d..98aa59c50d 100644
 --- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
 +++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
 @@ -43,6 +43,7 @@
@@ -65,14 +65,14 @@ index baf8b320c6..052ed37c26 100644
  #include "third_party/blink/renderer/platform/audio/audio_utilities.h"
  #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
  #include "third_party/blink/renderer/platform/bindings/exception_state.h"
-@@ -578,6 +579,7 @@ void OfflineAudioContext::OnChunkRendered() {
-   Member<AudioBuffer> rendered_buffer = pending_render_targets_.front();
+@@ -583,6 +584,7 @@ void OfflineAudioContext::OnChunkRendered() {
+   Member<AudioBuffer> rendered_buffer = pending_render_targets_.TakeFirst();
  
    CHECK(rendered_buffer);
 +  ProteusApplyAudioNoise(rendered_buffer.Get());
-   // Keep the target queued across `Resolve()` so synchronous thenable getters
-   // can enqueue more chunks without starting a duplicate render.
    resolver->Resolve(rendered_buffer.Get());
+ 
+   if (IsRenderComplete()) {
 diff --git a/third_party/blink/renderer/modules/webaudio/proteus_audio_noise.cc b/third_party/blink/renderer/modules/webaudio/proteus_audio_noise.cc
 new file mode 100644
 index 0000000000..ace5a591ef

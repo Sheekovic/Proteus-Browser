@@ -10,6 +10,7 @@ import { evaluateApart } from './browserControl.ts';
 import { exitAddress, ExitMemory, proxyKey } from './exitMemory.ts';
 import { borrowedLists, listsToKeep, READ_LISTS_SCRIPT } from './hostLists.ts';
 import { buildKernelArgs, buildKernelConfig } from './kernelConfig.ts';
+import { alignToKernel } from './kernelVersion.ts';
 import type { Profile, ProxySettings } from './profile.ts';
 import { lookupOwnAddress, lookupProxyExit, type ProxyExit, withOwnAddress, withProxyExit } from './proxyExit.ts';
 import { needsRelay, startProxyRelay } from './proxyRelay.ts';
@@ -188,8 +189,17 @@ export class Launcher {
     return this.running.size;
   }
 
-  async start(stored: Profile): Promise<ProfileStatus> {
-    if (this.running.has(stored.id)) return this.status(stored.id);
+  /**
+   * `stored` as it has to be to run on this kernel: a Chrome profile made for another
+   * kernel version is moved to this one, and saved that way (kernelVersion.ts).
+   */
+  private async onThisKernel(stored: Profile, kernelVersion: string): Promise<Profile> {
+    const moved = alignToKernel(stored, kernelVersion);
+    return moved ? this.store.updateProfile(stored.id, moved) : stored;
+  }
+
+  async start(given: Profile): Promise<ProfileStatus> {
+    if (this.running.has(given.id)) return this.status(given.id);
 
     const settings = await this.store.getSettings();
     if (settings.kernelPath === '') {
@@ -200,6 +210,7 @@ export class Launcher {
     } catch {
       throw new LaunchError(`Kernel not found at ${settings.kernelPath}`);
     }
+    const stored = await this.onThisKernel(given, settings.kernelVersion);
 
     // Opening the kernel's folder to its sandbox can take a moment the first time;
     // it does not depend on the proxy, so it runs while the proxy is asked.
@@ -422,10 +433,11 @@ export class Launcher {
    * Measured, not assumed: a second, windowless copy of the kernel is started with
    * the profile's settings in a folder of its own and sent to a recorder on this
    * machine (transport.ts). It works the same whether the profile is running or not
-   * and touches neither its browser data nor its tabs. The copy can reach nothing
+   * and touches neither its browser data nor its tabs (a Chrome profile made for
+   * another kernel version is first moved to this one, as a start would). The copy can reach nothing
    * but the recorder: it gets no proxy, and every other name is made unresolvable.
    */
-  async transport(stored: Profile): Promise<TransportReport> {
+  async transport(given: Profile): Promise<TransportReport> {
     const settings = await this.store.getSettings();
     if (settings.kernelPath === '') {
       throw new LaunchError('No kernel is configured. Set kernelPath in the settings first.');
@@ -435,6 +447,8 @@ export class Launcher {
     } catch {
       throw new LaunchError(`Kernel not found at ${settings.kernelPath}`);
     }
+    // Measured as it would be started: on this kernel's version.
+    const stored = await this.onThisKernel(given, settings.kernelVersion);
     const networkSandbox = await this.prepareKernel(settings.kernelPath);
     const dir = await mkdtemp(join(tmpdir(), 'proteus-transport-'));
     const recorder = await startRecorder(TRANSPORT_WAIT_MS);

@@ -1,4 +1,4 @@
-From eb2e4606b4cfb6a24e7d040055f1c28e2b58b82a Mon Sep 17 00:00:00 2001
+From 915b6393d8bd0e680f3db9747586badf0cad5f1c Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 10:47:13 +0000
 Subject: [PATCH 22/27] proteus: profiles of a browser from another vendor
@@ -79,7 +79,7 @@ index 1b4b894460..cfb13f2c12 100644
    bool has_geolocation = false;
    double geolocation_latitude = 0;
 diff --git a/content/browser/client_hints/client_hints.cc b/content/browser/client_hints/client_hints.cc
-index 73ed90c580..c29c3f657c 100644
+index 1eae0a9aa9..ab1cd5c2c3 100644
 --- a/content/browser/client_hints/client_hints.cc
 +++ b/content/browser/client_hints/client_hints.cc
 @@ -4,6 +4,8 @@
@@ -91,7 +91,7 @@ index 73ed90c580..c29c3f657c 100644
  #include <algorithm>
  #include <optional>
  #include <string>
-@@ -804,6 +806,9 @@ bool ShouldAddClientHints(const url::Origin& origin,
+@@ -803,6 +805,9 @@ bool ShouldAddClientHints(const url::Origin& origin,
                            FrameTreeNode* frame_tree_node,
                            ClientHintsControllerDelegate* delegate,
                            const std::optional<GURL> maybe_request_url) {
@@ -135,7 +135,7 @@ index 75d6f9c853..2371df14f7 100644
  }
  
 diff --git a/extensions/renderer/native_extension_bindings_system.cc b/extensions/renderer/native_extension_bindings_system.cc
-index 00e39409e4..e10caa23e2 100644
+index d08766fb3f..c933ab4260 100644
 --- a/extensions/renderer/native_extension_bindings_system.cc
 +++ b/extensions/renderer/native_extension_bindings_system.cc
 @@ -4,6 +4,8 @@
@@ -147,7 +147,7 @@ index 00e39409e4..e10caa23e2 100644
  #include <algorithm>
  #include <optional>
  #include <string_view>
-@@ -614,6 +616,11 @@ void NativeExtensionBindingsSystem::UpdateBindingsForContext(
+@@ -585,6 +587,11 @@ void NativeExtensionBindingsSystem::UpdateBindingsForContext(
      ScriptContext* context) {
    v8::Isolate* isolate = context->isolate();
    v8::HandleScope handle_scope(isolate);
@@ -291,10 +291,10 @@ index d49942426c..c07ea63a57 100644
  
  void WorkerOrWorkletScriptController::DisableEvalInternal(
 diff --git a/third_party/blink/renderer/core/exported/web_view_impl.cc b/third_party/blink/renderer/core/exported/web_view_impl.cc
-index 6c1be31445..7976b9f9e5 100644
+index e66b0cc149..eb96a0dd2b 100644
 --- a/third_party/blink/renderer/core/exported/web_view_impl.cc
 +++ b/third_party/blink/renderer/core/exported/web_view_impl.cc
-@@ -2175,6 +2175,19 @@ static void ProteusApplyMobileEmulation(LocalFrame* frame) {
+@@ -2166,6 +2166,19 @@ static void ProteusApplyMobileEmulation(LocalFrame* frame) {
        !frame->IsOutermostMainFrame()) {
      return;
    }
@@ -314,7 +314,7 @@ index 6c1be31445..7976b9f9e5 100644
    WebViewImpl* view = frame->GetPage()->GetChromeClient().GetWebView();
    if (!view || !view->MainFrameImpl() ||
        view->MainFrameImpl()->GetFrame() != frame ||
-@@ -4054,8 +4067,14 @@ void WebViewImpl::SetOpenedByDOM() {
+@@ -4056,8 +4069,14 @@ void WebViewImpl::SetOpenedByDOM() {
    page_->SetOpenedByDOM();
  }
  

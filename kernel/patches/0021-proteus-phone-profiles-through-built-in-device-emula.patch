@@ -1,4 +1,4 @@
-From 781d1e49e534adea9962eef91bab416140db4d81 Mon Sep 17 00:00:00 2001
+From dbdc9db069ebbcb1a2ccf365363dc7811bce8fb0 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 06:32:07 +0000
 Subject: [PATCH 21/27] proteus: phone profiles through built-in device
@@ -59,7 +59,7 @@ index 9638cdbee4..1b4b894460 100644
    double geolocation_latitude = 0;
    double geolocation_longitude = 0;
 diff --git a/third_party/blink/renderer/core/exported/web_view_impl.cc b/third_party/blink/renderer/core/exported/web_view_impl.cc
-index 5aca41e3ac..6c1be31445 100644
+index 210e182a80..e66b0cc149 100644
 --- a/third_party/blink/renderer/core/exported/web_view_impl.cc
 +++ b/third_party/blink/renderer/core/exported/web_view_impl.cc
 @@ -29,6 +29,9 @@
@@ -72,7 +72,7 @@ index 5aca41e3ac..6c1be31445 100644
  #include <algorithm>
  #include <memory>
  #include <utility>
-@@ -2165,6 +2168,42 @@ std::string WebViewImpl::GetNullFrameReasonForBug1139104() const {
+@@ -2156,6 +2159,42 @@ std::string WebViewImpl::GetNullFrameReasonForBug1139104() const {
    return WebLocalFrameImpl::GetNullFrameReasonForBug1139104(local_frame);
  }
  
@@ -115,7 +115,7 @@ index 5aca41e3ac..6c1be31445 100644
  void WebViewImpl::DidAttachLocalMainFrame() {
    DCHECK(MainFrameImpl());
    DCHECK(!remote_main_frame_host_remote_);
-@@ -2207,6 +2246,12 @@ void WebViewImpl::DidAttachLocalMainFrame() {
+@@ -2198,6 +2237,12 @@ void WebViewImpl::DidAttachLocalMainFrame() {
        local_frame->View()->InitializeRootScroller();
      }
    }
@@ -129,7 +129,7 @@ index 5aca41e3ac..6c1be31445 100644
  
  void WebViewImpl::DidAttachRemoteMainFrame(
 diff --git a/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc b/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
-index eb087d3642..81d19cc290 100644
+index 44e834ea71..55a1d72983 100644
 --- a/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
 +++ b/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
 @@ -30,6 +30,9 @@

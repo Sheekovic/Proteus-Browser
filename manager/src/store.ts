@@ -10,6 +10,8 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import { readKernelVersion } from './kernelVersion.ts';
+
 import { classify, type Collected, identityFromCollected, parseCollected } from './collected.ts';
 import { generateIdentity, hostOs } from './fingerprint.ts';
 import { identityFromPreset } from './presets.ts';
@@ -47,7 +49,7 @@ export interface Settings {
 const SINGLE_LOOKUP_DEFAULT = 'https://ipwho.is/';
 
 const DEFAULT_SETTINGS: Settings = {
-  kernelPath: '', kernelVersion: '158.0.8127.37', extraArgs: [],
+  kernelPath: '', kernelVersion: '157.0.8103.79', extraArgs: [],
   exitLookupUrl: 'https://ipwho.is/ https://api.ip.sb/geoip https://ipapi.co/json/ https://ipinfo.io/json',
   exitWatchMinutes: 10,
   exitCacheMinutes: 30,
@@ -130,6 +132,11 @@ export class Store {
     const settings = { ...DEFAULT_SETTINGS, ...stored };
     // Settings saved when only one service was asked move to the list of them.
     if (settings.exitLookupUrl === SINGLE_LOOKUP_DEFAULT) settings.exitLookupUrl = DEFAULT_SETTINGS.exitLookupUrl;
+    // The kernel says which version it is; the stored value only stands in for a
+    // kernel that cannot be asked (kernelVersion.ts).
+    if (settings.kernelPath !== '') {
+      settings.kernelVersion = (await readKernelVersion(settings.kernelPath)) ?? settings.kernelVersion;
+    }
     return settings;
   }
 
@@ -141,7 +148,7 @@ export class Store {
     }
     if (patch.kernelVersion !== undefined) {
       if (typeof patch.kernelVersion !== 'string' || !/^\d+\.\d+\.\d+\.\d+$/.test(patch.kernelVersion)) {
-        throw new ValidationError('kernelVersion must look like 158.0.8127.37');
+        throw new ValidationError('kernelVersion must look like 157.0.8103.79');
       }
       next.kernelVersion = patch.kernelVersion;
     }

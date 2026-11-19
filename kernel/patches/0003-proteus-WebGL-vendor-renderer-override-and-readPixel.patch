@@ -1,4 +1,4 @@
-From f5b1b6326c817a55b4a8018366c4e530be09b224 Mon Sep 17 00:00:00 2001
+From fc140981c92629f9962533f3eedc073a2ed67e0d Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 13:06:15 +0000
 Subject: [PATCH 03/27] proteus: WebGL vendor/renderer override and readPixels
@@ -49,7 +49,7 @@ index af8a36767e..2cb67b39e3 100644
    std::string serialized;
  };
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
-index 1a00418d11..e1694ce2c1 100644
+index e72f6f7ca6..9add2191d4 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 @@ -30,6 +30,9 @@
@@ -78,7 +78,7 @@ index 1a00418d11..e1694ce2c1 100644
  #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
  #include "third_party/blink/renderer/platform/graphics/paint/paint_canvas.h"
  #include "third_party/blink/renderer/platform/graphics/paint/paint_record_builder.h"
-@@ -4295,6 +4300,12 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+@@ -4219,6 +4224,12 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
        return ScriptValue::CreateNull(script_state->GetIsolate());
      case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:
        if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
@@ -91,7 +91,7 @@ index 1a00418d11..e1694ce2c1 100644
          return WebGLAny(script_state,
                          String(ContextGL()->GetString(GL_RENDERER)));
        }
-@@ -4304,6 +4315,12 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+@@ -4228,6 +4239,12 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
        return ScriptValue::CreateNull(script_state->GetIsolate());
      case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:
        if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
@@ -104,7 +104,7 @@ index 1a00418d11..e1694ce2c1 100644
          return WebGLAny(script_state,
                          String(ContextGL()->GetString(GL_VENDOR)));
        }
-@@ -5451,7 +5468,35 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+@@ -5374,7 +5391,35 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
      if (!binder.Succeeded()) {
        return;
      }

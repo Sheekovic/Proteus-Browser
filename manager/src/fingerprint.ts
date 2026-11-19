@@ -279,7 +279,7 @@ export type GeneratedIdentity = Pick<Profile,
 
 /**
  * Builds a fresh identity for `os`, matching kernel version `kernelVersion`
- * (e.g. "158.0.8127.37") so the user agent agrees with the browser actually running.
+ * (e.g. "157.0.8103.79") so the user agent agrees with the browser actually running.
  */
 export function generateIdentity(os: OsFamily, kernelVersion: string, rng: Rng = cryptoRng): GeneratedIdentity {
   if (os === 'android') return generateAndroidIdentity(kernelVersion, rng);

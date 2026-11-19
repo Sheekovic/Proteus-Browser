@@ -44,7 +44,7 @@ async function observe(label, makeArgs) {
 await observe('bare command line', (dir, proxyUrl) =>
   [`--user-data-dir=${dir}`, `--proxy-server=${proxyUrl}`, '--no-first-run', ...extraArgs]);
 
-const identity = generateIdentity('windows', '158.0.8127.37');
+const identity = generateIdentity('windows', '157.0.8103.79');
 const profile = {
   ...identity, id: 'x', name: 'x', notes: '', createdAt: '', updatedAt: '', languages: [], timezone: '',
   webrtc: 'proxyOnly', webrtcPublicIp: '', geolocation: null, proxy: null, matchProxy: false, startUrl: '',

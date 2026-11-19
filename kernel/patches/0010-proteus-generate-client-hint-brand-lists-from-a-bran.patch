@@ -1,4 +1,4 @@
-From f568e492be9b84c30f9f6c33e3347bf37835fcd6 Mon Sep 17 00:00:00 2001
+From 0fc629dfdd4bbd07173a667726d431db6a3280c6 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 16:48:57 +0000
 Subject: [PATCH 10/27] proteus: generate client hint brand lists from a brand
@@ -41,7 +41,7 @@ index 7ba3509004..674ca2e800 100644
    std::vector<UaBrand> full_version_list;  // Sec-CH-UA-Full-Version-List
    std::string full_version;
 diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
-index 437d74622c..c18990a3ad 100644
+index 83b3c516b9..cd72a2b131 100644
 --- a/components/embedder_support/user_agent_utils.cc
 +++ b/components/embedder_support/user_agent_utils.cc
 @@ -492,17 +492,40 @@ static std::optional<blink::UserAgentMetadata> ProteusUserAgentMetadata(

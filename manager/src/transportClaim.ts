@@ -21,7 +21,7 @@ import type { TransportShape } from './transport.ts';
 export interface Claim {
   /** The browser the profile's User-Agent names. */
   browser: 'Chrome' | 'Safari' | 'unknown';
-  /** Its version as claimed, e.g. "158.0.8127.37" or "18.5". */
+  /** Its version as claimed, e.g. "157.0.8103.79" or "18.5". */
   version: string;
   major: number | null;
   userAgent: string;
@@ -32,7 +32,7 @@ export function claimOf(profile: Pick<Profile, 'userAgent' | 'uaData'>): Claim {
   const userAgent = profile.userAgent;
   const chrome = /\b(?:Chrome|CriOS)\/(\d+)(?:\.[\d.]+)?/.exec(userAgent);
   if (chrome) {
-    // The User-Agent gives only the major version ("158.0.0.0"); the client hints give all of it.
+    // The User-Agent gives only the major version ("157.0.0.0"); the client hints give all of it.
     const full = profile.uaData.fullVersion.startsWith(`${chrome[1]}.`) ? profile.uaData.fullVersion : chrome[0].split('/')[1];
     return { browser: 'Chrome', version: full, major: Number(chrome[1]), userAgent };
   }
@@ -76,10 +76,11 @@ const CHROME_REFERENCE_FROM = 157;
 const CHROME_REFERENCE_TO = 158;
 
 /**
- * The shape the claimed browser makes, when one has been measured for it. Chrome 158
- * has not been measured as a stock browser (stable Chrome was 157 for nearly everyone when
- * this was written, 158 at the start of its rollout); it is held to the shape of 157, which the kernel, built
- * from 158's source with no experiments, reproduces exactly.
+ * The shape the claimed browser makes, when one has been measured for it. Chrome 157
+ * was measured as a stock browser, and the kernel is that release. Chrome 158 has not
+ * been (stable Chrome was 157 for nearly everyone when this was written, 158 at the
+ * start of its rollout); a profile on a 158 kernel is held to the shape of 157, which
+ * a kernel built from 158's source with no experiments reproduced exactly.
  */
 export function referenceFor(claim: Claim): Reference | null {
   if (claim.browser === 'Chrome' && claim.major !== null &&

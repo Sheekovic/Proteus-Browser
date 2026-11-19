@@ -1,4 +1,4 @@
-From 073372e73bf7215f602c5fafeafccb6f0c91beae Mon Sep 17 00:00:00 2001
+From 8427de8947dfab1e5981852fd85227131aeccad8 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 01:46:57 +0000
 Subject: [PATCH 13/27] proteus: noise only device-dependent canvas and audio
@@ -47,10 +47,10 @@ index 72964f48db..c71442f6af 100644
      return true;
  
 diff --git a/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc b/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc
-index cc4bbeeed2..0c2db36d96 100644
+index 8752f04f60..36bd3a7d51 100644
 --- a/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc
 +++ b/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc
-@@ -176,7 +176,7 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
+@@ -179,7 +179,7 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
    // We use pixmap to access the image pixels. Make the image unaccelerated if
    // necessary. May return nullptr if GPU context lost or readback buffer
    // allocation failed.
@@ -60,10 +60,10 @@ index cc4bbeeed2..0c2db36d96 100644
    if (image_) {
      skia_image_ = image_->PaintImageForCurrentFrame().GetSwSkImage();
 diff --git a/third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h b/third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h
-index ef273796db..0e2daafad7 100644
+index 46eac9998c..dab5a2b695 100644
 --- a/third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h
 +++ b/third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h
-@@ -174,6 +174,9 @@ class CORE_EXPORT CanvasRenderingContext
+@@ -167,6 +167,9 @@ class CORE_EXPORT CanvasRenderingContext
  
    virtual bool IsOpaque() const = 0;
  
@@ -74,10 +74,10 @@ index ef273796db..0e2daafad7 100644
    virtual bool IsComposited() const = 0;
  
 diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
-index 38d6023ee7..edd7e72e84 100644
+index 1992a11f6c..a3077360f8 100644
 --- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
 +++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
-@@ -1440,7 +1440,9 @@ String HTMLCanvasElement::ToDataURLInternal(
+@@ -1437,7 +1437,9 @@ String HTMLCanvasElement::ToDataURLInternal(
    scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(source_buffer);
    if (image_bitmap) {
      std::unique_ptr<ImageDataBuffer> data_buffer =
@@ -88,7 +88,7 @@ index 38d6023ee7..edd7e72e84 100644
      if (!data_buffer)
        return String("data:,");
  
-@@ -1541,7 +1543,9 @@ void HTMLCanvasElement::toBlob(V8BlobCallback* callback,
+@@ -1538,7 +1540,9 @@ void HTMLCanvasElement::toBlob(V8BlobCallback* callback,
        ImageEncoderUtils::ToEncodingMimeType(mime_type);
  
    CanvasAsyncBlobCreator* async_creator = nullptr;
@@ -100,7 +100,7 @@ index 38d6023ee7..edd7e72e84 100644
      auto* options = ImageEncodeOptions::Create();
      options->setType(ImageEncoderUtils::MimeTypeName(encoding_mime_type));
 diff --git a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
-index c312b115c9..4d93855069 100644
+index 41ed6d0c21..04175cc2ac 100644
 --- a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
 +++ b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
 @@ -55,6 +55,7 @@
@@ -111,7 +111,7 @@ index c312b115c9..4d93855069 100644
  #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
  #include "third_party/blink/renderer/platform/graphics/static_bitmap_image_transform.h"
  #include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
-@@ -568,7 +569,8 @@ ScriptPromise<Blob> OffscreenCanvas::convertToBlob(
+@@ -586,7 +587,8 @@ ScriptPromise<Blob> OffscreenCanvas::convertToBlob(
    }
  
    base::TimeTicks start_time = base::TimeTicks::Now();
@@ -122,10 +122,10 @@ index c312b115c9..4d93855069 100644
      auto* resolver = MakeGarbageCollected<ScriptPromiseResolver<Blob>>(
          script_state, exception_state.GetContext());
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
-index f1e7d69990..9b245ad416 100644
+index 505e20a95f..5fa78bc048 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
-@@ -577,6 +577,31 @@ void BaseRenderingContext2D::UpdateRecordingLimits(bool is_graphite) {
+@@ -515,6 +515,31 @@ void BaseRenderingContext2D::UpdateRecordingLimits(bool is_graphite) {
  void BaseRenderingContext2D::ResetInternal() {
    Canvas2DRecorderContext::ResetInternal();
    clear_frame_ = true;
@@ -157,7 +157,7 @@ index f1e7d69990..9b245ad416 100644
  }
  
  CanvasRenderingContext2DSettings* BaseRenderingContext2D::getContextAttributes()
-@@ -928,8 +953,9 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
+@@ -866,8 +891,9 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
  
      SkPixmap image_data_pixmap = image_data->GetSkPixmap();
      const bool read_pixels_successful =
@@ -170,10 +170,10 @@ index f1e7d69990..9b245ad416 100644
              image_data_pixmap.info(), image_data_pixmap.writable_addr(),
              image_data_pixmap.rowBytes(), sx, sy);
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h
-index f04d2385d6..d59864b4a6 100644
+index ecf3031e47..1732729d47 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h
-@@ -374,7 +374,26 @@ class MODULES_EXPORT BaseRenderingContext2D
+@@ -375,7 +375,26 @@ class MODULES_EXPORT BaseRenderingContext2D
  
    bool context_restorable_{true};
  
@@ -201,10 +201,10 @@ index f04d2385d6..d59864b4a6 100644
    virtual bool IsHibernating() const { return false; }
    virtual void EnableAccelerationIfPossible() {}
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
-index 96cee8f261..c1896a6b69 100644
+index 0d2d48606e..207b8b1be2 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
-@@ -1746,6 +1746,15 @@ void Canvas2DRecorderContext::fillRect(double x,
+@@ -1724,6 +1724,15 @@ void Canvas2DRecorderContext::fillRect(double x,
    if (!CanvasRenderingContext::ValidateRectForCanvas(x, y, width, height)) {
      return;
    }
@@ -220,7 +220,7 @@ index 96cee8f261..c1896a6b69 100644
  
    if (!GetOrCreatePaintCanvas()) {
      return;
-@@ -1809,6 +1818,7 @@ void Canvas2DRecorderContext::strokeRect(double x,
+@@ -1787,6 +1796,7 @@ void Canvas2DRecorderContext::strokeRect(double x,
    if (!CanvasRenderingContext::ValidateRectForCanvas(x, y, width, height)) {
      return;
    }
@@ -228,7 +228,7 @@ index 96cee8f261..c1896a6b69 100644
  
    if (!GetOrCreatePaintCanvas()) {
      return;
-@@ -2341,6 +2351,9 @@ void Canvas2DRecorderContext::drawImage(CanvasImageSource* image_source,
+@@ -2319,6 +2329,9 @@ void Canvas2DRecorderContext::drawImage(CanvasImageSource* image_source,
  
    ValidateStateStack();
  
@@ -238,7 +238,7 @@ index 96cee8f261..c1896a6b69 100644
    WillDrawImage(image_source, image && image->IsTextureBacked());
  
    if (!origin_tainted_by_content_ && WouldTaintCanvasOrigin(image_source)) {
-@@ -2637,6 +2650,7 @@ void Canvas2DRecorderContext::drawMesh(
+@@ -2615,6 +2628,7 @@ void Canvas2DRecorderContext::drawMesh(
        index_buffer->GetBuffer();
    CHECK_NE(index_data, nullptr);
  
@@ -247,10 +247,10 @@ index 96cee8f261..c1896a6b69 100644
  
    if (!origin_tainted_by_content_ && WouldTaintCanvasOrigin(image_source)) {
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h
-index 620f58d3a3..9440c8c0a7 100644
+index d85e3d2174..48b292f3ac 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h
-@@ -499,6 +499,10 @@ class MODULES_EXPORT Canvas2DRecorderContext : public CanvasPath {
+@@ -497,6 +497,10 @@ class MODULES_EXPORT Canvas2DRecorderContext : public CanvasPath {
    virtual void WillDrawImage(CanvasImageSource*, bool image_is_texture_backed) {
    }
  
@@ -262,10 +262,10 @@ index 620f58d3a3..9440c8c0a7 100644
    // BaseRenderingContext2D.
    CanvasRenderingContext::LostContextMode context_lost_mode_{
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.cc
-index 3e07fa0d7e..5382c9668a 100644
+index df1cbf5937..2d5f8044c4 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_rendering_context_2d.cc
-@@ -487,6 +487,7 @@ MemoryManagedPaintCanvas* CanvasRenderingContext2D::GetOrCreatePaintCanvas() {
+@@ -488,6 +488,7 @@ MemoryManagedPaintCanvas* CanvasRenderingContext2D::GetOrCreatePaintCanvas() {
  void CanvasRenderingContext2D::WillDraw(
      const gfx::Rect& dirty_rect,
      CanvasPerformanceMonitor::DrawType draw_type) {
@@ -274,10 +274,10 @@ index 3e07fa0d7e..5382c9668a 100644
    if (ShouldAntialias()) {
      gfx::Rect inflated_dirty_rect = dirty_rect;
 diff --git a/third_party/blink/renderer/modules/canvas/offscreencanvas2d/offscreen_canvas_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/offscreencanvas2d/offscreen_canvas_rendering_context_2d.cc
-index 8789899689..839de68a8a 100644
+index 1cd25888b8..80630b5dfe 100644
 --- a/third_party/blink/renderer/modules/canvas/offscreencanvas2d/offscreen_canvas_rendering_context_2d.cc
 +++ b/third_party/blink/renderer/modules/canvas/offscreencanvas2d/offscreen_canvas_rendering_context_2d.cc
-@@ -380,6 +380,7 @@ OffscreenCanvasRenderingContext2D::GetOrCreatePaintCanvas() {
+@@ -375,6 +375,7 @@ OffscreenCanvasRenderingContext2D::GetOrCreatePaintCanvas() {
  void OffscreenCanvasRenderingContext2D::WillDraw(
      const gfx::Rect& dirty_rect,
      CanvasPerformanceMonitor::DrawType draw_type) {
@@ -286,10 +286,10 @@ index 8789899689..839de68a8a 100644
    gfx::Rect adjusted_dirty_rect = dirty_rect;
    if (GetState().ShouldAntialias()) {
 diff --git a/third_party/blink/renderer/modules/webaudio/audio_handler.cc b/third_party/blink/renderer/modules/webaudio/audio_handler.cc
-index 2649266d9c..48c5e3040e 100644
+index 2be8ecb55b..fb965b921c 100644
 --- a/third_party/blink/renderer/modules/webaudio/audio_handler.cc
 +++ b/third_party/blink/renderer/modules/webaudio/audio_handler.cc
-@@ -28,6 +28,20 @@ AudioHandler::AudioHandler(NodeType node_type,
+@@ -30,6 +30,20 @@ AudioHandler::AudioHandler(NodeType node_type,
        context_(node.context()),
        deferred_task_handler_(&context_->GetDeferredTaskHandler()) {
    SetNodeType(node_type);
@@ -335,20 +335,20 @@ index 6e7fba4123..168ee34fcc 100644
    // Graph locking.
    scoped_refptr<DeferredTaskHandler> deferred_task_handler_;
 diff --git a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
-index 052ed37c26..38e766ff5e 100644
+index 98aa59c50d..b38c935163 100644
 --- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
 +++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
-@@ -579,7 +579,9 @@ void OfflineAudioContext::OnChunkRendered() {
-   Member<AudioBuffer> rendered_buffer = pending_render_targets_.front();
+@@ -584,7 +584,9 @@ void OfflineAudioContext::OnChunkRendered() {
+   Member<AudioBuffer> rendered_buffer = pending_render_targets_.TakeFirst();
  
    CHECK(rendered_buffer);
 -  ProteusApplyAudioNoise(rendered_buffer.Get());
 +  if (ProteusIsDeviceDependent()) {
 +    ProteusApplyAudioNoise(rendered_buffer.Get());
 +  }
-   // Keep the target queued across `Resolve()` so synchronous thenable getters
-   // can enqueue more chunks without starting a duplicate render.
    resolver->Resolve(rendered_buffer.Get());
+ 
+   if (IsRenderComplete()) {
 diff --git a/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc b/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc
 index 47f60a594b..d73a9cfb49 100644
 --- a/third_party/blink/renderer/platform/graphics/proteus_canvas_noise.cc

@@ -224,8 +224,8 @@ the browser claims. `GET /api/profiles/<id>/transport` measures both and sets th
 beside the claim:
 
 ```json
-{ "claims":   { "browser": "Chrome", "version": "158.0.8127.37", "userAgent": "Mozilla/5.0 …" },
-  "kernel":   { "version": "158.0.8127.37" },
+{ "claims":   { "browser": "Chrome", "version": "157.0.8103.79", "userAgent": "Mozilla/5.0 …" },
+  "kernel":   { "version": "157.0.8103.79" },
   "produces": { "tls":   { "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99", "ciphers": ["1301", "…"], "extensions": ["0000", "…"], "…": "…" },
                 "http2": { "fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p", "settings": [[1, 65536], "…"],
                            "pseudoHeaders": [":method", ":authority", ":scheme", ":path"], "headers": ["sec-ch-ua", "…"] },
@@ -250,26 +250,31 @@ A profile is started so that its handshake is the one its claim goes with
 Google's switch on an experiment Chrome has off (`AddTLSServerHandshakePadding`), which
 adds a TLS extension, `0x12e0`; with it a profile sent
 `t13d1518h2_8daaf6152771_4980c97edce0`. The manager now turns it off. What each
-ready-made setup claims and produces, measured on Windows 11 with kernel 158.0.8127.37:
+ready-made setup claims and produces, measured on Windows 11 with kernel 157.0.8103.79:
 
 | Setup | Claims | TLS (JA4) | HTTP/2 | Agrees |
 | --- | --- | --- | --- | --- |
-| `windows-office-laptop` | Chrome 158.0.8127.37, Windows | `t13d1517h2_8daaf6152771_cb7bf5808d99` | `1:65536;2:0;4:6291456;6:262144\|15663105\|0\|m,a,s,p` | yes |
-| `windows-laptop` | Chrome 158.0.8127.37, Windows | same | same | yes |
-| `windows-desktop` | Chrome 158.0.8127.37, Windows | same | same | yes |
-| `windows-gaming-desktop` | Chrome 158.0.8127.37, Windows | same | same | yes |
-| `macbook-air` | Chrome 158.0.8127.37, macOS | same | same | yes |
-| `macbook-pro-14` | Chrome 158.0.8127.37, macOS | same | same | yes |
-| `linux-desktop` | Chrome 158.0.8127.37, Linux | same | same | yes |
-| `pixel-8` | Chrome 158.0.8127.37, Android | same | same | yes |
-| `galaxy-a34` | Chrome 158.0.8127.37, Android | same | same | yes |
+| `windows-office-laptop` | Chrome 157.0.8103.79, Windows | `t13d1517h2_8daaf6152771_cb7bf5808d99` | `1:65536;2:0;4:6291456;6:262144\|15663105\|0\|m,a,s,p` | yes |
+| `windows-laptop` | Chrome 157.0.8103.79, Windows | same | same | yes |
+| `windows-desktop` | Chrome 157.0.8103.79, Windows | same | same | yes |
+| `windows-gaming-desktop` | Chrome 157.0.8103.79, Windows | same | same | yes |
+| `macbook-air` | Chrome 157.0.8103.79, macOS | same | same | yes |
+| `macbook-pro-14` | Chrome 157.0.8103.79, macOS | same | same | yes |
+| `linux-desktop` | Chrome 157.0.8103.79, Linux | same | same | yes |
+| `pixel-8` | Chrome 157.0.8103.79, Android | same | same | yes |
+| `galaxy-a34` | Chrome 157.0.8103.79, Android | same | same | yes |
 | `iphone-15` | Safari 18.5 or 18.6, iPhone | same: Chrome's, not Safari's | same: Chrome's, not Safari's | **no** |
 
 Nine of them claim the Chrome the kernel is, so they produce one shape: the same as
 stock Chrome 157.0.8103.79 on the same machine, byte for byte in what the fingerprints
-cover. (Stable Chrome was 157 for 99% of its users when this was measured, with 158 at
-the start of its rollout; a stock 158 has not been measured. The kernel is 158's own network code with no experiments.) The version a setup names is the kernel's (`kernelVersion` in
-the settings), so a newer kernel moves claim and shape together. Three things the
+cover. The kernel is that same release: stable Chrome was 157.0.8103.79 for 99% of its
+users when this was measured, with 158 at the start of its rollout, and a browser on
+a version almost nobody has yet stands out by that alone. (An earlier kernel was
+158.0.8127.37; its patch series is in the history of `kernel/patches`.) The version a
+setup names is the kernel's: the manager reads it from the kernel itself, and a Chrome
+profile made for another kernel version is moved to this one the next time it starts
+(only the version changes; the device stays the same). So a newer kernel moves claim
+and shape together. Three things the
 table does not show:
 
 - The reference was measured on Windows only. Chrome uses the same network code on
@@ -285,13 +290,13 @@ in every Chrome; fingerprints taken on a second visit therefore differ from thes
 
 **Memory.** `deviceMemory` is held to what the profile's browser can report:
 `2, 4, 8, 16, 32` for Chrome on a computer and `1, 2, 4, 8` for Chrome on Android
-(checked against an unmodified kernel 158, which reports 32 on a machine with more;
+(checked against an unmodified Chromium 158, which reports 32 on a machine with more;
 Chrome versions before the limit was raised stopped at 8). A value outside that is
 refused with `{"error": …}` naming the accepted ones, when the value or the system is
 set. A generated profile gets a value that fits its processor. Profiles saved earlier
 keep whatever they have.
 
-**Start times.** Measured on Windows 11 with kernel 158: a profile without a proxy
+**Start times.** Measured on Windows 11 with the earlier kernel, 158: a profile without a proxy
 starts in about 1.5 s. Behind a proxy almost all of the time is the exit lookup: 3 s
 to 27 s in our runs through a residential proxy. Once the exit has been the same
 twice it is remembered for `exitCacheMinutes` (30 by default, a setting) and the
@@ -361,7 +366,7 @@ noise seed — not copies of one device.
 
 ## Building the kernel
 
-The kernel is Chromium **158.0.8127.37** (pinned in
+The kernel is Chromium **157.0.8103.79** (pinned in
 [`kernel/CHROMIUM_VERSION`](kernel/CHROMIUM_VERSION)) with the patches in
 [`kernel/patches`](kernel/patches) applied in order.
 

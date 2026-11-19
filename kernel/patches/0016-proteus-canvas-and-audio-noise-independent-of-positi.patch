@@ -1,4 +1,4 @@
-From 55bfd40aef4b454153a3067f90f91bdcb6a8625a Mon Sep 17 00:00:00 2001
+From 1c9c7faed3094506adf13cffe4c7fab9e32cc662 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 02:16:33 +0000
 Subject: [PATCH 16/27] proteus: canvas and audio noise independent of position

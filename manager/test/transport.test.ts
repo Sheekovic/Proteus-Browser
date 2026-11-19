@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { connect as connectHttp2 } from 'node:http2';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 import { generateIdentity } from '../src/fingerprint.ts';
 import { buildKernelArgs } from '../src/kernelConfig.ts';
+import { alignToKernel, readKernelVersion } from '../src/kernelVersion.ts';
 import { Launcher } from '../src/launcher.ts';
 import { listPresets } from '../src/presets.ts';
 import type { Profile } from '../src/profile.ts';
@@ -26,7 +27,8 @@ import {
 import { claimOf, referenceFor, reportTransport, shapeSwitches } from '../src/transportClaim.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const KERNEL = '158.0.8127.37';
+const KERNEL = '157.0.8103.79';
+const NEXT = '158.0.8127.37';
 
 // What stock Chrome 157 sent to the recorder (and the kernel, once the padding
 // experiment is off). An outside fingerprinting service gave the same two strings
@@ -194,7 +196,7 @@ const shapeOf = (ja4: string, extensions: number[], http2: string | null, userAg
 test('what a profile claims to be is read from it, for every system and ready-made setup', async () => {
   for (const os of ['windows', 'macos', 'linux', 'android'] as const) {
     const claim = claimOf(generateIdentity(os, KERNEL));
-    assert.deepEqual([claim.browser, claim.version, claim.major], ['Chrome', KERNEL, 158], os);
+    assert.deepEqual([claim.browser, claim.version, claim.major], ['Chrome', KERNEL, 157], os);
     assert.ok(referenceFor(claim), `${os}: a measured shape to hold it to`);
   }
   const iphone = claimOf(generateIdentity('ios', KERNEL));
@@ -204,7 +206,7 @@ test('what a profile claims to be is read from it, for every system and ready-ma
   assert.equal(claimOf({ userAgent: 'curl/8', uaData: generateIdentity('windows', KERNEL).uaData }).browser, 'unknown');
   // A version the client hints do not back up is taken from the User-Agent.
   const older = { ...generateIdentity('windows', KERNEL) };
-  older.userAgent = older.userAgent.replace('Chrome/158', 'Chrome/150');
+  older.userAgent = older.userAgent.replace('Chrome/157', 'Chrome/150');
   assert.deepEqual([claimOf(older).major, claimOf(older).version], [150, '150.0.0.0']);
 
   // Each ready-made setup names the version its handshake is that of, except the iPhone.
@@ -245,7 +247,12 @@ test('the report says whether the handshake agrees with the claim, and why not',
   assert.deepEqual(agreed.claims, { browser: 'Chrome', version: KERNEL, userAgent: windows.userAgent });
   assert.deepEqual(agreed.kernel, { version: KERNEL });
   assert.deepEqual(agreed.expected, { ja4: STOCK_JA4, http2: CHROME_HTTP2, measuredFrom: 'Chrome 157.0.8103.79, Windows 11' });
-  assert.ok(agreed.notes.some((note) => /stock Chrome 158 has not been measured/.test(note)), 'what the expectation rests on is said');
+  assert.deepEqual(agreed.notes, [], 'the claimed version is the measured one');
+  // The next version, on its own kernel: held to the same shape, and the report says on what grounds.
+  const next = generateIdentity('windows', NEXT);
+  const onNext = reportTransport(next, NEXT, shapeOf(STOCK_JA4, EXTENSIONS, CHROME_HTTP2, next.userAgent));
+  assert.equal(onNext.agrees, true);
+  assert.ok(onNext.notes.some((note) => /stock Chrome 158 has not been measured/.test(note)), 'what the expectation rests on is said');
 
   // The handshake this was written to fix: one extension too many.
   const padded = reportTransport(windows, KERNEL, shapeOf(PADDED_JA4, [...EXTENSIONS, 0x12e0], CHROME_HTTP2, windows.userAgent));
@@ -259,10 +266,10 @@ test('the report says whether the handshake agrees with the claim, and why not',
   assert.match(missing.differences.join(' '), /HTTP\/2: produced 1:65536\|00\|0\|m,s,a,p/);
 
   // A claim the kernel cannot back: another Chrome version, or Safari.
-  const older = { ...windows, userAgent: windows.userAgent.replace('Chrome/158', 'Chrome/150') };
+  const older = { ...windows, userAgent: windows.userAgent.replace('Chrome/157', 'Chrome/150') };
   const stale = reportTransport(older, KERNEL, shapeOf(STOCK_JA4, EXTENSIONS, CHROME_HTTP2, older.userAgent));
   assert.equal(stale.agrees, false);
-  assert.match(stale.differences[0], /claims Chrome 150, but the kernel is Chromium 158/);
+  assert.match(stale.differences[0], /claims Chrome 150, but the kernel is Chromium 157/);
   assert.equal(stale.expected, null, 'no shape was measured for that version');
 
   const iphone = generateIdentity('ios', KERNEL);
@@ -387,4 +394,83 @@ test('a kernel that cannot be measured is an error with a reason, not a guess', 
   } finally {
     await store.updateSettings({ kernelPath: join(dir, 'kernel-placeholder') });
   }
+});
+
+// --- The kernel's own version, and profiles made for another one -------------------
+
+test('the kernel says which version it is', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'proteus-kernel-version-'));
+  try {
+    const kernel = join(folder, 'chrome.exe');
+    assert.equal(await readKernelVersion(kernel, 'win32'), undefined, 'no such kernel');
+    await writeFile(kernel, '');
+    assert.equal(await readKernelVersion(kernel, 'win32'), undefined, 'nothing beside it to tell');
+    // A Chromium build on Windows has a file named after its version beside the executable.
+    await writeFile(join(folder, '157.0.8103.79.manifest'), '');
+    await writeFile(kernel, 'replaced');
+    await utimes(kernel, new Date(), new Date(Date.now() + 5000));
+    assert.equal(await readKernelVersion(kernel, 'win32'), '157.0.8103.79');
+
+    // The settings report it, whatever was stored, so nobody has to keep the two in step.
+    const settingsStore = new Store(join(folder, 'data'));
+    await settingsStore.updateSettings({ kernelPath: kernel, kernelVersion: '158.0.8127.37' });
+    assert.equal((await settingsStore.getSettings()).kernelVersion, '157.0.8103.79');
+    const made = await settingsStore.createProfile({ name: 'On this kernel', os: 'windows', matchProxy: false });
+    assert.match(made.userAgent, /Chrome\/157\.0\.0\.0/);
+    assert.equal(made.uaData.fullVersion, '157.0.8103.79');
+    // A kernel that cannot be asked leaves the stored value in charge: the last one read.
+    await settingsStore.updateSettings({ kernelPath: join(folder, 'elsewhere', 'chrome.exe') });
+    assert.equal((await settingsStore.getSettings()).kernelVersion, '157.0.8103.79');
+    await settingsStore.updateSettings({ kernelVersion: '160.0.1.2' });
+    assert.equal((await settingsStore.getSettings()).kernelVersion, '160.0.1.2');
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test('a Chrome profile made for another kernel is moved to this one, and nothing else is', () => {
+  const made = generateIdentity('windows', NEXT);
+  const moved = alignToKernel(made, KERNEL);
+  assert.ok(moved);
+  assert.equal(moved.userAgent, made.userAgent.replace('Chrome/158.0.0.0', 'Chrome/157.0.0.0'));
+  assert.deepEqual(moved.uaData, { ...made.uaData, fullVersion: KERNEL });
+  assert.equal(alignToKernel({ ...made, ...moved }, KERNEL), null, 'already there');
+  assert.equal(alignToKernel(made, NEXT), null);
+  // The same major, another build: the full version follows.
+  assert.equal(alignToKernel(made, '158.0.8127.99')?.uaData.fullVersion, '158.0.8127.99');
+
+  const phone = generateIdentity('android', NEXT);
+  assert.match(alignToKernel(phone, KERNEL)!.userAgent, /Chrome\/157\.0\.0\.0 Mobile Safari/);
+  // Safari stays Safari, and a browser with a version number of its own is left alone.
+  assert.equal(alignToKernel(generateIdentity('ios', NEXT), KERNEL), null);
+  assert.equal(alignToKernel({ ...made, userAgent: made.userAgent + ' Edg/158.0.3900.1' }, KERNEL), null);
+
+  // Brand lists written out by hand keep their made-up entry.
+  const lists = { ...made, uaData: { ...made.uaData,
+    brands: [{ brand: 'Not_A Brand', version: '24' }, { brand: 'Chromium', version: '158' }, { brand: 'Google Chrome', version: '158' }],
+    fullVersionList: [{ brand: 'Not_A Brand', version: '24.0.0.0' }, { brand: 'Chromium', version: NEXT }] } };
+  const renumbered = alignToKernel(lists, KERNEL)!.uaData;
+  assert.deepEqual(renumbered.brands.map((b) => b.version), ['24', '157', '157']);
+  assert.deepEqual(renumbered.fullVersionList.map((b) => b.version), ['24.0.0.0', KERNEL]);
+});
+
+test('starting or measuring a profile made for another kernel saves it on this one', async () => {
+  const made = (await api('POST', '/api/profiles', { name: 'From the other kernel', os: 'windows', matchProxy: false })).body;
+  const other = generateIdentity('windows', NEXT);
+  await store.updateProfile(made.id, { userAgent: other.userAgent, uaData: other.uaData });
+  assert.match((await api('GET', `/api/profiles/${made.id}`)).body.userAgent, /Chrome\/158/);
+
+  const report = (await api('GET', `/api/profiles/${made.id}/transport`)).body;
+  assert.deepEqual([report.claims.browser, report.claims.version], ['Chrome', KERNEL]);
+  assert.ok(!report.differences.some((d: string) => /claims Chrome/.test(d)), 'no longer a claim the kernel cannot back');
+  const saved = (await api('GET', `/api/profiles/${made.id}`)).body;
+  assert.match(saved.userAgent, /Chrome\/157\.0\.0\.0/);
+  assert.equal(saved.uaData.fullVersion, KERNEL);
+  assert.equal(saved.seed, made.seed, 'the same device');
+  assert.deepEqual(saved.screen, made.screen);
+
+  // An iPhone profile is started as it is.
+  const iphone = (await api('POST', '/api/profiles', { name: 'iPhone', os: 'ios', matchProxy: false })).body;
+  await api('GET', `/api/profiles/${iphone.id}/transport`);
+  assert.equal((await api('GET', `/api/profiles/${iphone.id}`)).body.updatedAt, iphone.updatedAt);
 });

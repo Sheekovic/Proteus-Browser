@@ -1,4 +1,4 @@
-From b847df1440c6f6f4914281fc659a5f9add90d715 Mon Sep 17 00:00:00 2001
+From 6e3d240db68e1312872b13b223b4638af204fe18 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 11:38:58 +0000
 Subject: [PATCH 01/27] proteus: profile config loader, hardwareConcurrency and
@@ -16,10 +16,10 @@ Subject: [PATCH 01/27] proteus: profile config loader, hardwareConcurrency and
  create mode 100644 base/proteus/proteus_config.h
 
 diff --git a/base/BUILD.gn b/base/BUILD.gn
-index c71d7a6434..291083e277 100644
+index 2587bd828b..be5ef5369c 100644
 --- a/base/BUILD.gn
 +++ b/base/BUILD.gn
-@@ -277,6 +277,8 @@ component("base") {
+@@ -273,6 +273,8 @@ component("base") {
      "barrier_closure.h",
      "base64.cc",
      "base64.h",
@@ -214,7 +214,7 @@ index 0000000000..ddcfe54110
 +
 +#endif  // BASE_PROTEUS_PROTEUS_CONFIG_H_
 diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
-index 565bd580ba..9579a3284c 100644
+index 1defcfa514..e54da9559f 100644
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
 @@ -41,6 +41,7 @@
@@ -225,7 +225,7 @@ index 565bd580ba..9579a3284c 100644
  #include "base/stl_util.h"
  #include "base/strings/strcat.h"
  #include "base/strings/string_number_conversions.h"
-@@ -3097,6 +3098,13 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
+@@ -3095,6 +3096,13 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
      base::CommandLine* command_line,
      int child_process_id) {
    crash_keys::AppendStringAnnotationsCommandLineSwitch(command_line);

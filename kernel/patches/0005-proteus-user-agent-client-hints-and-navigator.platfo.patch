@@ -1,4 +1,4 @@
-From 7baf94cf4a7dbfd8c76e995c91e41bea8a5327ea Mon Sep 17 00:00:00 2001
+From 9429500cea8b6c04fbd8201c09ab5a7f8ec58bb3 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 13:41:08 +0000
 Subject: [PATCH 05/27] proteus: user agent, client hints and
@@ -157,7 +157,7 @@ index 3c4d8d4a78..453ea9c221 100644
    bool canvas_noise = false;
  
 diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
-index 833293873f..437d74622c 100644
+index bf4a8960a0..83b3c516b9 100644
 --- a/components/embedder_support/user_agent_utils.cc
 +++ b/components/embedder_support/user_agent_utils.cc
 @@ -18,6 +18,7 @@

@@ -174,7 +174,7 @@ const DEVICE_MEMORY_VALUES = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
 /**
  * The values navigator.deviceMemory can have in the browser a profile of `os` presents
  * itself as. Chrome rounds the machine's memory down to a power of two and clamps it:
- * to 2-32 on a computer and to 1-8 on a phone. (Measured: an unmodified kernel 158 on a
+ * to 2-32 on a computer and to 1-8 on a phone. (Measured: an unmodified Chromium 158 on a
  * Windows machine with 93 GB reports 32. Older Chrome versions stopped at 8.) Safari
  * has no such value, so an iPhone profile's is never shown to a page.
  */

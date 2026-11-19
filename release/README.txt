@@ -23,7 +23,7 @@ http://127.0.0.1:5310/api and the MCP endpoint at http://127.0.0.1:5310/mcp.
 
 WHAT IS IN THIS FOLDER
 
-  kernel/     the browser: Chromium 158 with the Proteus patches
+  kernel/     the browser: Chromium 157 with the Proteus patches
   manager/    the app that stores profiles and starts the kernel
   node/       the Node.js runtime the manager runs on
   licenses/   licences of the software included

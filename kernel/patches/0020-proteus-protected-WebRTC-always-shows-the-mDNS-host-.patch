@@ -1,4 +1,4 @@
-From fd85edced71e349b195952f7799f442e6634a83e Mon Sep 17 00:00:00 2001
+From 59b1e2f08ca858f7a1ae4fabbc863a4e6d45efda Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 04:05:32 +0000
 Subject: [PATCH 20/27] proteus: protected WebRTC always shows the mDNS host

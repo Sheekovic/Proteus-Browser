@@ -32,7 +32,11 @@ EXPL=$(run identity.html --proteus-config="$WORK/explicit.json")
 PB=$(decode "$(field "$PLAIN" chBrands)")
 B158=$(decode "$(field "$C158" chBrands)"); F158=$(decode "$(field "$C158" chFullList)")
 B157=$(decode "$(field "$C157" chBrands)"); F157=$(decode "$(field "$C157" chFullList)")
-echo "plain (Chromium 158) : $PB"
+# The version the kernel itself is, and the generated list for a profile of that version.
+OWN=$(echo "$PB" | tr ',' '
+' | grep '^Chromium/' | cut -d/ -f2)
+case "$OWN" in 157) SAME=$B157 ;; *) SAME=$B158 ;; esac
+echo "plain (Chromium $OWN) : $PB"
 echo "Chrome 158 brands    : $B158"
 echo "Chrome 158 full list : $F158"
 echo "Chrome 157 brands    : $B157"
@@ -45,7 +49,7 @@ GREASE=$(echo "$PB" | tr ',' '\n' | grep -v '^Chromium/')
 check  "three brands are reported"                    "$(count "$B158")" 3
 check  "Chromium with the major version"              "$(has "$B158" "Chromium/158")" yes
 check  "the profile's brand with the major version"   "$(has "$B158" "Google Chrome/158")" yes
-check  "the same GREASE brand a stock 158 build sends" "$(has "$B158" "$GREASE")" yes
+check  "the same GREASE brand a stock build of the kernel's version sends" "$(has "$SAME" "$GREASE")" yes
 check  "full version list carries the full version"   "$(has "$F158" "Google Chrome/158.0.8127.37")" yes
 check  "full version list has three entries"          "$(count "$F158")" 3
 check  "worker sees the same platform"                "$(field "$C158" workerChPlatform)" "Windows"

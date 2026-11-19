@@ -252,7 +252,7 @@ export const TOOLS: readonly Tool[] = [
     description: 'Changes manager settings.',
     inputSchema: object({
       kernelPath: text('Path of the kernel program (chrome / chrome.exe).'),
-      kernelVersion: text('Version of that kernel, e.g. 158.0.8127.37.'),
+      kernelVersion: text('Version of that kernel, e.g. 157.0.8103.79. Read from the kernel itself when it can be.'),
       extraArgs: { type: 'array', items: { type: 'string' }, description: 'Extra arguments for every launch.' },
       exitLookupUrl: text('Services asked for a proxy\'s exit address and time zone, separated by spaces; empty turns the lookup off.'),
       exitWatchMinutes: { type: 'number', description: 'How often, in minutes, a running profile\'s proxy exit is looked at again; 0 turns that off.' },

@@ -25,7 +25,7 @@ MESSAGE=${3:-}
 SRC="$ROOT/chromium/src"
 # The commit the patch series starts from, and the Windows toolchain package the
 # cross-build uses (upstream's hash, and the hash of the package made on this server).
-BASE_COMMIT=b8c2be851f
+BASE_COMMIT=6dc9bc3bda
 TOOLCHAIN_UPSTREAM=3bfcb536c8
 TOOLCHAIN_OURS=e1fc4eb033
 

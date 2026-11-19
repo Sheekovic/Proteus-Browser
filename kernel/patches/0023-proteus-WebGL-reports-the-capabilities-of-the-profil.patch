@@ -1,4 +1,4 @@
-From aabc9e2466e3e0ee506a8789ec24baf2c6d8c2c2 Mon Sep 17 00:00:00 2001
+From e04f79a65a8203be6018b22e9375c3a336ef0060 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 15:00:45 +0000
 Subject: [PATCH 23/27] proteus: WebGL reports the capabilities of the
@@ -123,7 +123,7 @@ index 9eb36fe26c..f9a3507e1d 100644
      case GL_SHADING_LANGUAGE_VERSION: {
        return WebGLAny(
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
-index dfaa5396de..1733d0e254 100644
+index 9604982f10..c68e8a117c 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 @@ -42,6 +42,7 @@
@@ -134,7 +134,7 @@ index dfaa5396de..1733d0e254 100644
  #include "base/proteus/proteus_config.h"
  #include "base/strings/stringprintf.h"
  #include "base/synchronization/lock.h"
-@@ -3926,8 +3927,79 @@ bool WebGLRenderingContextBase::ExtensionTracker::MatchesName(
+@@ -3850,8 +3851,79 @@ bool WebGLRenderingContextBase::ExtensionTracker::MatchesName(
    return false;
  }
  
@@ -214,7 +214,7 @@ index dfaa5396de..1733d0e254 100644
    if (tracker->Draft() &&
        !RuntimeEnabledFeatures::WebGLDraftExtensionsEnabled())
      return false;
-@@ -4091,6 +4163,13 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+@@ -4015,6 +4087,13 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
                                                      GLenum pname) {
    if (isContextLost())
      return ScriptValue::CreateNull(script_state->GetIsolate());
@@ -228,7 +228,7 @@ index dfaa5396de..1733d0e254 100644
    const int kIntZero = 0;
    switch (pname) {
      case GL_ACTIVE_TEXTURE:
-@@ -4624,6 +4703,17 @@ WebGLShaderPrecisionFormat* WebGLRenderingContextBase::getShaderPrecisionFormat(
+@@ -4548,6 +4627,17 @@ WebGLShaderPrecisionFormat* WebGLRenderingContextBase::getShaderPrecisionFormat(
    GLint precision = 0;
    ContextGL()->GetShaderPrecisionFormat(shader_type, precision_type, range,
                                          &precision);
@@ -247,10 +247,10 @@ index dfaa5396de..1733d0e254 100644
                                                            precision);
  }
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h
-index 016013bb54..e29acf9f5f 100644
+index add96cfd87..76851e7ef6 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h
-@@ -318,6 +318,17 @@ class MODULES_EXPORT WebGLRenderingContextBase
+@@ -317,6 +317,17 @@ class MODULES_EXPORT WebGLRenderingContextBase
                                                          GLenum attachment,
                                                          GLenum pname);
    virtual ScriptValue getParameter(ScriptState*, GLenum pname);
