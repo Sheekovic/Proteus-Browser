@@ -339,6 +339,7 @@ try {
   // And in what the page finds: none of the interfaces Chrome has and Safari does not.
   const phoneSurface = await readPage(iphoneStatus.debuggerUrl, `${pagesUrl}/members.html`);
   check('iPhone: none of the interfaces only Chrome has', phoneSurface.globals, 'none');
+  check('iPhone: nor in a worker (what Safari has there stays)', phoneSurface.workerGlobals, 'FileSystemSyncAccessHandle,fetch');
   check('iPhone: no WebXR or WebUSB interface', `${phoneSurface.xr}/${phoneSurface.usb}`, '0/0');
   check('iPhone: its screen has no members for several screens', phoneSurface.screenKeys, 'none');
   check('iPhone: what Safari has is still there', phoneSurface.kept, 'XMLHttpRequest,URL,Element,fetch,EventTarget');
@@ -446,12 +447,12 @@ try {
   const android = await api('POST', '/api/profiles', { name: 'Android', os: 'android' });
   const androidStatus = await api('POST', `/api/profiles/${android.id}/start`);
   const androidSurface = await readPage(androidStatus.debuggerUrl, `${pagesUrl}/members.html`);
-  check('Android: no colour picker, screens list or always-on-top window', androidSurface.globals, 'showOpenFilePicker,IdleDetector');
+  check('Android: no colour picker or always-on-top window', androidSurface.globals, 'showOpenFilePicker,getScreenDetails,IdleDetector');
   check('Android: it is still Chrome (WebUSB is there)', androidSurface.usb !== '0', true);
-  check('Android: its screen has no members for several screens', androidSurface.screenKeys, 'none');
+  check('Android: one screen, with the members a phone has for several', `${androidSurface.extended} ${androidSurface.screenKeys}`, 'false isExtended,onchange');
   const androidOnly = await evaluateIn(androidStatus.debuggerUrl, `${pagesUrl}/members.html`,
-      `['contacts' in navigator, 'NDEFReader' in window, 'keyboard' in navigator, 'hid' in navigator].join()`);
-  check('Android: contacts and NFC, no keyboard map or HID', androidOnly, 'true,true,false,false');
+      `['contacts' in navigator, 'NDEFReader' in window, 'BarcodeDetector' in window, 'keyboard' in navigator, 'hid' in navigator, 'HIDDevice' in window].join()`);
+  check('Android: contacts, NFC and barcodes, the keyboard map, no HID', androidOnly, 'true,true,true,true,false,false');
   await api('POST', `/api/profiles/${android.id}/stop`);
   await api('DELETE', `/api/profiles/${android.id}`);
 

@@ -1,3 +1,4 @@
+import { safariReading } from '../src/surface.ts';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -264,11 +265,14 @@ test('an iPhone profile is Safari, not Chrome', async () => {
     assert.equal(config.clientHints, false);
     assert.equal(config.chromeObject, false);
     assert.ok(!('uaData' in config) && !('deviceMemory' in config));
-    for (const name of ['userAgentData', 'connection', 'getBattery', 'deviceMemory']) {
+    assert.ok(config.hide.Navigator.includes('getBattery'));
+    for (const name of ['userAgentData', 'connection', 'deviceMemory']) {
       assert.ok(config.hide.Navigator.includes(name) && config.hide.WorkerNavigator.includes(name), name);
     }
     assert.equal(config.mobile.pdfViewer, true);
-    assert.ok(Buffer.byteLength(JSON.stringify(config)) < 12_000);
+    // With what Safari lacks, read from a phone, it is the largest configuration there
+    // is; a start accepts 16,000 bytes.
+    assert.ok(Buffer.byteLength(JSON.stringify(config)) < 14_000, `${Buffer.byteLength(JSON.stringify(config))} bytes`);
   }
   // None of this reaches a Chrome profile.
   const config = buildKernelConfig(await store.createProfile({ os: 'android' }));
@@ -278,32 +282,50 @@ test('an iPhone profile is Safari, not Chrome', async () => {
 });
 
 test('a phone profile has no more of the web than its browser does', async () => {
-  // Safari: none of Chrome's own interfaces, in the page or on its screen.
+  // Safari: what the kernel has and a real iPhone's Safari was read not to have.
   const iphone = await store.createProfile({ os: 'ios' });
   const safari = buildKernelConfig(iphone).hide;
-  for (const name of ['EyeDropper', 'showOpenFilePicker', 'USB*', 'XR*', 'NavigatorUAData']) {
-    assert.ok(safari.globalThis.includes(name), name);
+  const hides = (name: string) => safari.globalThis.includes(name) ||
+      safari.globalThis.some((entry: string) => entry.endsWith('*') && name.startsWith(entry.slice(0, -1)));
+  for (const name of ['EyeDropper', 'showOpenFilePicker', 'USBDevice', 'XRSession', 'NavigatorUAData', 'Notification',
+                      'PushManager', 'IdleDetector', 'Temporal', 'CloseWatcher', 'requestIdleCallback']) {
+    assert.ok(hides(name), name);
   }
   assert.deepEqual(safari.Screen, ['isExtended', 'onchange']);
-  assert.ok(safari.Navigator.includes('userAgentData'), 'beside the Navigator members');
-  // What Safari has must not be in the list: a missing interface shows as much as an extra one.
-  for (const name of ['fetch', 'Worker', 'SharedWorker', 'PaymentRequest', 'ServiceWorker', 'KeyboardEvent', 'XMLHttpRequest',
-                      'webkitSpeechRecognition', 'FileSystemHandle', 'Notification', 'ScreenOrientation', 'X*', 'S*', 'Key*']) {
-    assert.ok(!safari.globalThis.includes(name), name);
+  for (const name of ['userAgentData', 'connection', 'getBattery', 'bluetooth', 'usb', 'getUserMedia', 'gpu']) {
+    assert.ok(safari.Navigator.includes(name), name);
   }
+  // What that Safari has is in no list: a missing interface shows as much as an extra one.
+  for (const name of ['fetch', 'Worker', 'SharedWorker', 'PaymentRequest', 'ServiceWorker', 'KeyboardEvent', 'XMLHttpRequest',
+                      'webkitSpeechRecognition', 'FileSystemHandle', 'ScreenOrientation', 'GPUDevice', 'WebTransport',
+                      'requestAnimationFrame', 'CSSStyleSheet', 'HTMLElement', 'Promise', 'Intl']) {
+    assert.ok(!hides(name), name);
+  }
+  for (const name of ['share', 'canShare', 'wakeLock', 'mediaSession', 'credentials', 'clipboard', 'geolocation', 'userAgent']) {
+    assert.ok(!safari.Navigator.includes(name), name);
+  }
+  // Kept although Safari lacks it: without it the kernel could not play video in pieces.
+  assert.ok(!hides('MediaSource') && !hides('SourceBuffer'));
+  const reading = safariReading();
+  assert.match(reading.readFrom, /iPhone; CPU iPhone OS .* Version\/[\d.]+ Mobile/);
+  assert.ok(reading.cannotAdd.globals > 0 && reading.notHidden.members > 0, 'what the list cannot do is said');
   assert.ok(!buildKernelArgs(iphone, { userDataDir: 'u', configFile: 'c' }, []).some((a) => a.startsWith('--enable-blink-features=')));
 
-  // Chrome on a phone: no keyboard map, screens or HID; contacts and NFC instead.
+  // Chrome on a phone, as one was read: no colour picker, HID or local fonts, but it
+  // does have the keyboard map and the list of screens; and what only a phone has.
   const phone = await store.createProfile({ os: 'android' });
   const android = buildKernelConfig(phone).hide;
-  assert.ok(android.Navigator.includes('keyboard') && android.Navigator.includes('hid'));
-  assert.ok(!android.Navigator.includes('userAgentData') && !android.Navigator.includes('usb'), 'it is still Chrome');
-  assert.ok(android.globalThis.includes('EyeDropper') && !android.globalThis.includes('USB*'));
-  assert.deepEqual(android.Screen, ['isExtended', 'onchange']);
-  assert.ok(buildKernelArgs(phone, { userDataDir: 'u', configFile: 'c' }, []).includes('--enable-blink-features=ContactsManager,WebNFC'));
+  assert.deepEqual(android.Navigator, ['hid', 'registerProtocolHandler', 'unregisterProtocolHandler']);
+  assert.ok(!('Screen' in android), 'a phone has the members for several screens');
+  for (const name of ['EyeDropper', 'HID*', 'queryLocalFonts', 'CaptureController', 'LanguageModel']) assert.ok(android.globalThis.includes(name), name);
+  for (const name of ['USB*', 'Keyboard', 'KeyboardLayoutMap', 'getScreenDetails', 'Notification', 'showOpenFilePicker']) {
+    assert.ok(!android.globalThis.includes(name), name);
+  }
+  assert.ok(buildKernelArgs(phone, { userDataDir: 'u', configFile: 'c' }, [])
+      .includes('--enable-blink-features=ContactsManager,ContactsManagerExtraProperties,WebNFC,ContentIndex,DigitalGoods,BarcodeDetector'));
   // Every name is one the kernel's check of a member name lets through, and a pattern is a prefix.
   for (const list of [safari.globalThis, android.globalThis]) {
-    for (const name of list) assert.match(name, /^[A-Za-z][A-Za-z0-9]{1,}\*?$/, name);
+    for (const name of list) assert.match(name, /^[A-Za-z_$][A-Za-z0-9_$]{1,}\*?$/, name);
   }
   for (const os of ['windows', 'macos', 'linux'] as const) {
     assert.ok(!buildKernelArgs(await store.createProfile({ os }), { userDataDir: 'u', configFile: 'c' }, [])
@@ -336,7 +358,7 @@ test('an Android profile is one real phone model, consistently', async () => {
     assert.deepEqual(config.fonts, profile.fonts);
     assert.ok('Roboto' in (config.fontAliases as object), 'with stand-ins, since the machine lacks them');
     assert.deepEqual(config.mobile, profile.mobile);
-    assert.ok(Buffer.byteLength(JSON.stringify(config)) < 12_000);
+    assert.ok(Buffer.byteLength(JSON.stringify(config)) < 14_000);
   }
   // Desktop profiles are untouched, and bad phone settings are refused.
   const desktop = await store.createProfile({ os: 'windows' });

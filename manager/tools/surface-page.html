@@ -1,0 +1,80 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What this browser has</title>
+<style>
+  body { font: 17px/1.5 -apple-system, system-ui, sans-serif; margin: 24px; }
+  #state { font-weight: 600; }
+  small { color: #666; }
+</style>
+<h1>What this browser has</h1>
+<p id="state">Reading…</p>
+<p><small>This page lists the names of the interfaces and functions this browser offers to
+web pages (nothing about you, your files or your history) and sends the list to the
+computer that served it.</small></p>
+<script>
+// Reads what a page finds in this browser: the members of the global object, the
+// members of every interface, and the same inside a worker. Names only.
+const own = (object) => { try { return Object.getOwnPropertyNames(object).sort(); } catch { return []; } };
+
+function readScope(scope) {
+  const globals = own(scope);
+  const interfaces = {};
+  for (const name of globals) {
+    let value;
+    try { value = scope[name]; } catch { continue; }
+    if (typeof value !== 'function') continue;
+    let prototype;
+    try { prototype = value.prototype; } catch { continue; }
+    if (prototype === undefined || prototype === null || typeof prototype !== 'object') continue;
+    // Only interfaces: classes of the language itself (Array, Map, …) are the same everywhere.
+    if (!/^[A-Z]/.test(name)) continue;
+    interfaces[name] = {
+      members: own(prototype).filter((member) => member !== 'constructor'),
+      statics: own(value).filter((member) => !['length', 'name', 'prototype', 'arguments', 'caller'].includes(member)),
+    };
+  }
+  return { globals, interfaces };
+}
+
+const workerSource = `
+  const own = (object) => { try { return Object.getOwnPropertyNames(object).sort(); } catch { return []; } };
+  ${readScope.toString()}
+  postMessage(readScope(self));`;
+
+(async () => {
+  const state = document.getElementById('state');
+  const reading = {
+    userAgent: navigator.userAgent,
+    secure: window.isSecureContext,
+    at: new Date().toISOString(),
+    page: readScope(window),
+    // Instances hold what prototypes do not: the members a browser puts on the object itself.
+    instances: { navigator: own(navigator), screen: own(screen), document: own(document), window: own(window).length },
+    worker: null,
+    css: ['selector(:has(a))', 'anchor-name: --a', 'view-transition-name: a', 'field-sizing: content', 'text-wrap: pretty',
+          'appearance: base-select', 'reading-flow: flex-visual', '-webkit-touch-callout: none', '-webkit-app-region: drag']
+        .filter((rule) => { try { return CSS.supports(rule); } catch { return false; } }),
+  };
+  try {
+    reading.worker = await new Promise((resolve, reject) => {
+      const worker = new Worker(URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' })));
+      worker.onmessage = (event) => resolve(event.data);
+      worker.onerror = (event) => reject(new Error(event.message || 'worker failed'));
+      setTimeout(() => reject(new Error('worker gave no answer')), 8000);
+    });
+  } catch (error) {
+    reading.workerError = String(error.message || error);
+  }
+  const count = Object.keys(reading.page.interfaces).length;
+  state.textContent = `Read ${reading.page.globals.length} names and ${count} interfaces. Sending…`;
+  try {
+    const response = await fetch('/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reading) });
+    if (!response.ok) throw new Error('the computer answered ' + response.status);
+    state.textContent = `Done. ${reading.page.globals.length} names and ${count} interfaces were sent` +
+        (reading.secure ? '.' : ' (this page was not opened securely, so some are missing).') + ' You can close this page.';
+  } catch (error) {
+    state.textContent = 'Read, but sending failed: ' + error.message;
+  }
+})();
+</script>

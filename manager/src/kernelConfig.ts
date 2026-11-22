@@ -5,7 +5,6 @@ import { hiddenFor, phoneOnlyFeatures } from './surface.ts';
 import { createHash } from 'node:crypto';
 
 import { buildFontSubstitutes } from './fontSubstitutes.ts';
-import { SAFARI_MISSING } from './ios.ts';
 import type { Profile } from './profile.ts';
 import { claimOf, shapeSwitches } from './transportClaim.ts';
 
@@ -88,7 +87,6 @@ export function buildKernelConfig(profile: Profile, now: number = Date.now()): R
     config.transport = 'safari';
     config.clientHints = false;
     config.chromeObject = false;
-    config.hide = { ...hidden, Navigator: SAFARI_MISSING, WorkerNavigator: SAFARI_MISSING };
     if (profile.mobile !== null) config.mobile = { ...profile.mobile, pdfViewer: true };
   }
   if (profile.geolocation !== null) config.geolocation = profile.geolocation;

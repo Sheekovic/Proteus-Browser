@@ -28,7 +28,11 @@ const EXPECT = {
     const names = (failed[2] || '').split('; ').filter(Boolean);
     // The table is written for desktop Chrome. A phone has no plugins or desktop
     // languages list, and Safari has no window.chrome: those rows are not tells there.
-    const allowed = os === 'ios' ? ['Chrome'] : os === 'android' ? ['Plugins Length', 'Plugins is of type PluginArray', 'Chrome'] : [];
+    // Nor is "Permissions" for Safari: that row compares Notification.permission with
+    // the permission query, and Safari on an iPhone was read to have no Notification
+    // in a page (only a site added to the Home Screen gets one), so the row fails on
+    // the phone itself.
+    const allowed = os === 'ios' ? ['Chrome', 'Permissions'] : os === 'android' ? ['Plugins Length', 'Plugins is of type PluginArray', 'Chrome'] : [];
     return names.every((name) => allowed.some((a) => name.includes(a))) ? 'ok' : 'bad';
   },
   browserscan: (text) => {

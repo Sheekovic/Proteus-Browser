@@ -6,7 +6,7 @@
 // published point sizes.
 //
 // The kernel is still Chromium. It reports Safari's identity and lacks the members
-// Safari lacks (see SAFARI_MISSING), but it remains Chromium's engine underneath:
+// Safari was read not to have (surface.ts), but it remains Chromium's engine underneath:
 // a site that probes engine behaviour itself can still tell.
 
 import type { GeneratedIdentity, Rng } from './fingerprint.ts';
@@ -52,23 +52,6 @@ export const IOS_FONTS: readonly string[] = [
  * the screen while they are all showing.
  */
 const BARS_HEIGHT = 190;
-
-/**
- * Members of Navigator that Chrome has and Safari on iOS 18 does not. The kernel
- * removes them from the page's and the workers' navigator (names an interface does
- * not have are ignored).
- */
-export const SAFARI_MISSING: readonly string[] = [
-  'userAgentData', 'connection', 'getBattery', 'deviceMemory', 'gpu', 'bluetooth', 'usb', 'hid', 'serial',
-  'keyboard', 'scheduling', 'presentation', 'managed', 'ink', 'virtualKeyboard', 'windowControlsOverlay',
-  'login', 'devicePosture', 'storageBuckets', 'xr', 'getInstalledRelatedApps', 'setAppBadge', 'clearAppBadge',
-  'vibrate', 'doNotTrack', 'registerProtocolHandler', 'unregisterProtocolHandler', 'requestMIDIAccess',
-  'getUserMedia', 'webkitGetUserMedia', 'webkitTemporaryStorage', 'webkitPersistentStorage',
-  'joinAdInterestGroup', 'leaveAdInterestGroup', 'updateAdInterestGroups', 'clearOriginJoinedAdInterestGroups',
-  'runAdAuction', 'adAuctionComponents', 'createAuctionNonce', 'canLoadAdAuctionFencedFrame',
-  'getInterestGroupAdAuctionData', 'deprecatedReplaceInURN', 'deprecatedURNToURL',
-  'deprecatedRunAdAuctionEnforcesKAnonymity', 'protectedAudience',
-];
 
 /** A fresh Safari-on-iPhone identity. */
 export function generateIosIdentity(rng: Rng, screen?: readonly [number, number]): GeneratedIdentity {

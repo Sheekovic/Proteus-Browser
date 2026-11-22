@@ -541,17 +541,25 @@ Worth knowing before relying on it:
   plausible computer, not a record of one; a profile made from a device's own reading
   is. A Linux identity still names a card without its capabilities and reports the
   machine's own: the readings have none complete for Linux.
-- **What a phone profile lacks is a list, not a reading.** The kernel is desktop
-  Chrome. For an iPhone profile it removes the interfaces Chrome has and Safari does
-  not (`EyeDropper`, `showOpenFilePicker`, WebUSB, WebXR, …), and for an Android one
-  those of a computer's keyboard, screens and windows; an Android profile also gets
-  `navigator.contacts` and `NDEFReader`. The lists
-  ([`surface.ts`](manager/src/surface.ts)) hold what the browsers' documentation is
-  sure of and were not read from a phone, so something Safari lacks may still be
-  there, and `navigator.gpu` is still hidden although Safari now has it.
-- **The second screen is the machine's.** A computer profile says it has one screen
-  (`screen.isExtended` is false) whatever is plugged into the machine; a phone profile
-  has no such member at all.
+- **A phone profile has what its browser was read to have, as far as removing goes.**
+  The kernel is desktop Chrome. What it offers a page was compared, name by name, with
+  what Safari on an iPhone 17 Pro Max and Chrome on a Galaxy offer
+  ([`read-surface.mjs`](manager/tools/read-surface.mjs) serves the page that reads it).
+  An iPhone profile now hides the 291 members of the global object that Safari lacks
+  (`EyeDropper`, `Notification`, `requestIdleCallback`, WebUSB, WebXR, …; all but
+  `MediaSource` and its buffers, kept so that video in pieces still plays) and 177
+  members of the interfaces pages look at first. What is left: 248 members of less
+  looked-at interfaces, for which the kernel's configuration has no room; the 99 names
+  Safari has and the kernel does not (`ApplePaySession`, `GestureEvent`, …), which
+  cannot be added from outside; and `navigator.gpu`, hidden although Safari has it,
+  because the kernel's would describe this machine's graphics card. An Android profile
+  hides what the phone was read not to have and is a computer's by nature, and has
+  `navigator.contacts`, `NDEFReader`, `BarcodeDetector` and the like switched on; the
+  phone's Chrome was 152, five versions behind the kernel, so the eight names that may
+  simply be newer were left alone.
+- **The second screen is the machine's.** A profile says it has one screen
+  (`screen.isExtended` is false) whatever is plugged into the machine; an iPhone
+  profile has no such member at all, as Safari has none.
 - **A profile's window is drawn at the profile's scale.** A screen comes with the
   pixel ratio it was read at (1536 by 864 is a 1920 by 1080 panel at 125%, a Mac's is
   2), and the browser is started at that ratio so that what a page reads agrees with

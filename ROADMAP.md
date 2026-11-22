@@ -43,8 +43,9 @@ from tests.
 - [ ] The same for Linux and for phones *(needs: readings; the published ones have none complete)*
 - [x] Screens from readings, each with the pixel ratio it was read at, and the browser started at that ratio
 - [ ] Card, screen, memory and fonts from one reading, so an identity is one computer's and not a plausible mix *(needs: whole readings; the published model keeps them apart)*
-- [x] A phone profile without the interfaces only desktop Chrome has, and an iPhone one without Chrome's own (from documentation)
-- [ ] The same from a reading of the phone's browser, so nothing is missed *(needs: the collector page opened on the phone)*
+- [x] An iPhone profile without what Safari was read not to have, and an Android one without what a phone's Chrome was read not to have
+- [ ] The members of every interface, not only the most looked-at *(needs: a smaller way to tell the kernel, or more room)*
+- [ ] The Android list from a phone whose Chrome is the kernel's version *(needs: the page opened on such a phone)*
 - [x] One screen, whatever the machine has; a Mac's work area below its menu bar
 - [x] A camera picture from a video file instead of the machine's camera, with a silent microphone
 - [x] Battery and network information that fit the claimed device
