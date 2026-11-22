@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
-import { findKernel, openCommand } from '../src/bundled.ts';
+import { appWindowArguments, findKernel, openCommand } from '../src/bundled.ts';
+import { buildKernelArgs, DO_NOT_DE_ELEVATE } from '../src/kernelConfig.ts';
+import { Store } from '../src/store.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'proteus-bundled-'));
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -39,4 +41,13 @@ test('the UI is opened with the system\'s own command', () => {
   assert.deepEqual(openCommand(url, 'win32'), ['cmd', '/c', 'start', '', url]);
   assert.deepEqual(openCommand(url, 'darwin'), ['open', url]);
   assert.deepEqual(openCommand(url, 'linux'), ['xdg-open', url]);
+});
+
+test('a kernel started as administrator stays the process that was started', async () => {
+  // Without this Chrome starts itself again without the rights and ends: the manager
+  // took that for its window being closed and stopped.
+  assert.ok(appWindowArguments('http://127.0.0.1:5310', join(root, 'data')).includes(DO_NOT_DE_ELEVATE));
+  const store = new Store(join(root, 'store'));
+  const profile = await store.createProfile({ name: 'one', os: 'windows' });
+  assert.ok(buildKernelArgs(profile, { userDataDir: 'u', configFile: 'c' }, []).includes(DO_NOT_DE_ELEVATE));
 });

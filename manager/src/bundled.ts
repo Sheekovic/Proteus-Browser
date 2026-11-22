@@ -30,6 +30,9 @@ export function appWindowArguments(url: string, dataDir: string): string[] {
     `--app=${url}`, `--user-data-dir=${join(dataDir, 'manager-window')}`, '--window-size=1180,800',
     '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-component-update',
     '--disable-sync', '--disable-default-apps', '--no-pings',
+    // Started as administrator, the process must stay the window: the manager ends
+    // when it does (see DO_NOT_DE_ELEVATE in kernelConfig.ts).
+    '--do-not-de-elevate',
   ];
 }
 

@@ -138,6 +138,15 @@ const QUIET_DISABLED_FEATURES = [
   'Prewarm', 'AimEnabled', 'AimServerEligibilityEnabled', 'AimServerRequestOnStartupEnabled', 'DnsOverHttpsUpgrade',
 ];
 
+/**
+ * Started "as administrator" on Windows, Chrome starts itself again without those
+ * rights and the process that was started ends at once. Whoever started it then
+ * believes the browser was closed: the manager stopped itself and left its window
+ * with nothing to connect to, and a profile was reported as stopped while it ran.
+ * With this the process that was started is the browser. Other systems ignore it.
+ */
+export const DO_NOT_DE_ELEVATE = '--do-not-de-elevate';
+
 /** Command-line arguments for launching the kernel with `profile`. */
 export function buildKernelArgs(profile: Profile, paths: LaunchPaths, extraArgs: readonly string[]): string[] {
   const args = [
@@ -148,6 +157,7 @@ export function buildKernelArgs(profile: Profile, paths: LaunchPaths, extraArgs:
     '--remote-debugging-port=0',
     '--no-first-run',
     '--no-default-browser-check',
+    DO_NOT_DE_ELEVATE,
     // The window must fit the screen the profile claims to have.
     // A phone's page area is emulated inside the window, which only has to be roomy
     // enough to show it under the browser's own toolbar.
