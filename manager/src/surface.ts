@@ -14,12 +14,10 @@
 // lacks stays missing), and the member lists are cut to the room the kernel's
 // configuration has, most looked-at interfaces first (the file says how much was left).
 //
-// What Chrome on a phone lacks was read from one too (a Galaxy, Chrome 152), but that
-// Chrome was five versions older than the kernel, and what a newer Chrome has gained
-// cannot be told from what a phone lacks. So the Android list holds, of what the
-// reading shows, only what is a computer's by its nature (picking a colour off the
-// screen, sharing a window, the fonts and HID devices of the machine, the built-in
-// language models); the rest waits for a reading of the kernel's own version.
+// What Chrome on a phone lacks was read the same way (android-surface.json), from a
+// Galaxy before and after its Chrome was updated: version 152 and version 158, one
+// older and one newer than the kernel. A name is hidden only when neither has it, so
+// what Chrome gained or dropped between the two is left as the kernel has it.
 
 import { readFileSync } from 'node:fs';
 
@@ -45,16 +43,7 @@ export function safariReading(): Pick<SurfaceDifference, 'readFrom' | 'notHidden
   return { readFrom: SAFARI.readFrom, notHidden: { ...SAFARI.notHidden }, cannotAdd: { ...SAFARI.cannotAdd } };
 }
 
-// What desktop Chrome has for a computer, and Chrome on a phone was read not to have.
-// (A phone's Chrome does have the keyboard map, the list of screens and the window
-// controls overlay, though they are of little use there.)
-const ANDROID_LACKS_GLOBALS: readonly string[] = [
-  'EyeDropper', 'documentPictureInPicture', 'DocumentPictureInPicture', 'DocumentPictureInPictureEvent',
-  'queryLocalFonts', 'FontData', 'HID*', 'CaptureController', 'CropTarget', 'RestrictionTarget',
-  'FileSystemObserver', 'PressureObserver', 'PressureRecord',
-  'Translator', 'Summarizer', 'LanguageDetector', 'LanguageModel',
-];
-const ANDROID_LACKS_NAVIGATOR: readonly string[] = ['hid', 'registerProtocolHandler', 'unregisterProtocolHandler'];
+const ANDROID: SurfaceDifference = JSON.parse(readFileSync(new URL('./android-surface.json', import.meta.url), 'utf8'));
 
 /**
  * What to remove for a profile of `os`. Nothing for a computer: the kernel is that
@@ -62,9 +51,7 @@ const ANDROID_LACKS_NAVIGATOR: readonly string[] = ['hid', 'registerProtocolHand
  */
 export function hiddenFor(os: OsFamily): HiddenMembers {
   if (os === 'ios') return { globalThis: SAFARI.globals, ...SAFARI.members };
-  if (os === 'android') {
-    return { globalThis: ANDROID_LACKS_GLOBALS, Navigator: ANDROID_LACKS_NAVIGATOR };
-  }
+  if (os === 'android') return { globalThis: ANDROID.globals, ...ANDROID.members };
   return {};
 }
 

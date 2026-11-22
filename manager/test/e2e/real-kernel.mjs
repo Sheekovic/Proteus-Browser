@@ -447,12 +447,12 @@ try {
   const android = await api('POST', '/api/profiles', { name: 'Android', os: 'android' });
   const androidStatus = await api('POST', `/api/profiles/${android.id}/start`);
   const androidSurface = await readPage(androidStatus.debuggerUrl, `${pagesUrl}/members.html`);
-  check('Android: no colour picker or always-on-top window', androidSurface.globals, 'showOpenFilePicker,getScreenDetails,IdleDetector');
+  check('Android: no always-on-top window', androidSurface.globals, 'EyeDropper,showOpenFilePicker,getScreenDetails,IdleDetector');
   check('Android: it is still Chrome (WebUSB is there)', androidSurface.usb !== '0', true);
   check('Android: one screen, with the members a phone has for several', `${androidSurface.extended} ${androidSurface.screenKeys}`, 'false isExtended,onchange');
   const androidOnly = await evaluateIn(androidStatus.debuggerUrl, `${pagesUrl}/members.html`,
-      `['contacts' in navigator, 'NDEFReader' in window, 'BarcodeDetector' in window, 'keyboard' in navigator, 'hid' in navigator, 'HIDDevice' in window].join()`);
-  check('Android: contacts, NFC and barcodes, the keyboard map, no HID', androidOnly, 'true,true,true,true,false,false');
+      `['contacts' in navigator, 'NDEFReader' in window, 'BarcodeDetector' in window, 'keyboard' in navigator, 'queryLocalFonts' in window, 'getDisplayMedia' in navigator.mediaDevices, 'LanguageModel' in window].join()`);
+  check('Android: contacts, NFC, barcodes and the keyboard map; no local fonts, screen sharing or language model', androidOnly, 'true,true,true,true,false,false,false');
   await api('POST', `/api/profiles/${android.id}/stop`);
   await api('DELETE', `/api/profiles/${android.id}`);
 

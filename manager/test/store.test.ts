@@ -311,16 +311,20 @@ test('a phone profile has no more of the web than its browser does', async () =>
   assert.ok(reading.cannotAdd.globals > 0 && reading.notHidden.members > 0, 'what the list cannot do is said');
   assert.ok(!buildKernelArgs(iphone, { userDataDir: 'u', configFile: 'c' }, []).some((a) => a.startsWith('--enable-blink-features=')));
 
-  // Chrome on a phone, as one was read: no colour picker, HID or local fonts, but it
-  // does have the keyboard map and the list of screens; and what only a phone has.
+  // Chrome on a phone, as one was read before and after an update: no window sharing,
+  // local fonts or built-in language models; it does have the keyboard map, the list of
+  // screens, the colour picker and HID. And what only a phone has is switched on.
   const phone = await store.createProfile({ os: 'android' });
   const android = buildKernelConfig(phone).hide;
-  assert.deepEqual(android.Navigator, ['hid', 'registerProtocolHandler', 'unregisterProtocolHandler']);
+  assert.deepEqual(android.Navigator, ['registerProtocolHandler', 'unregisterProtocolHandler']);
   assert.ok(!('Screen' in android), 'a phone has the members for several screens');
-  for (const name of ['EyeDropper', 'HID*', 'queryLocalFonts', 'CaptureController', 'LanguageModel']) assert.ok(android.globalThis.includes(name), name);
-  for (const name of ['USB*', 'Keyboard', 'KeyboardLayoutMap', 'getScreenDetails', 'Notification', 'showOpenFilePicker']) {
+  for (const name of ['queryLocalFonts', 'CaptureController', 'LanguageModel', 'documentPictureInPicture', 'PressureObserver']) {
+    assert.ok(android.globalThis.includes(name), name);
+  }
+  for (const name of ['USB*', 'EyeDropper', 'HID*', 'HIDDevice', 'Keyboard', 'getScreenDetails', 'Notification', 'showOpenFilePicker']) {
     assert.ok(!android.globalThis.includes(name), name);
   }
+  assert.deepEqual(android.MediaDevices, ['getDisplayMedia', 'setCaptureHandleConfig'], 'a phone cannot share its screen with a page');
   assert.ok(buildKernelArgs(phone, { userDataDir: 'u', configFile: 'c' }, [])
       .includes('--enable-blink-features=ContactsManager,ContactsManagerExtraProperties,WebNFC,ContentIndex,DigitalGoods,BarcodeDetector'));
   // Every name is one the kernel's check of a member name lets through, and a pattern is a prefix.

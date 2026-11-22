@@ -1,8 +1,9 @@
-// Builds manager/src/safari-surface.json: what the kernel has and Safari on an iPhone
-// does not, from readings made with read-surface.mjs. An iPhone profile hides exactly
-// this (surface.ts), so a page finds no interface in it that the phone's Safari lacks.
+// Builds manager/src/safari-surface.json and manager/src/android-surface.json: what the
+// kernel has and Safari on an iPhone, or Chrome on an Android phone, does not, from
+// readings made with read-surface.mjs. A phone profile hides exactly this
+// (surface.ts), so a page finds no interface in it that the phone's browser lacks.
 //
-// usage: node build-surface.mjs <reading of the real browser> <reading of the kernel> [more kernel readings...]
+// usage: node build-surface.mjs <safari|android> <reading of the real browser> [more...] --kernel <reading of the kernel> [more...]
 //   The kernel readings are of profiles on this kernel (a computer one, and a phone
 //   one, which has a few more members): whatever any of them has and the real browser
 //   has not is to be hidden.
@@ -17,24 +18,49 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const [realFile, ...kernelFiles] = process.argv.slice(2);
-if (!realFile || kernelFiles.length === 0) {
-  console.error('usage: node build-surface.mjs <reading of the real browser> <reading of the kernel> [more...]');
+const [which, ...files] = process.argv.slice(2);
+const split = files.indexOf('--kernel');
+const realFiles = split < 0 ? [] : files.slice(0, split);
+const kernelFiles = split < 0 ? [] : files.slice(split + 1);
+if (!['safari', 'android'].includes(which) || realFiles.length === 0 || kernelFiles.length === 0) {
+  console.error('usage: node build-surface.mjs <safari|android> <reading of the real browser> [more...] --kernel <reading of the kernel> [more...]');
   process.exit(2);
 }
-const real = JSON.parse(readFileSync(realFile, 'utf8'));
+const reals = realFiles.map((file) => JSON.parse(readFileSync(file, 'utf8')));
 const kernels = kernelFiles.map((file) => JSON.parse(readFileSync(file, 'utf8')));
-if (!real.secure) throw new Error('the real browser was not read on a secure page: much would be missing');
+if (reals.some((reading) => !reading.secure)) throw new Error('a real browser was not read on a secure page: much would be missing');
+
+// Several readings of the real browser (two versions of it, one older and one newer
+// than the kernel) count as one that has whatever any of them has: a name is hidden
+// only when none has it, so what one version gained or dropped is left alone.
+function together(scopeName) {
+  const parts = reals.map((reading) => reading[scopeName]).filter(Boolean);
+  if (parts.length === 0) return null;
+  const interfaces = {};
+  for (const part of parts) {
+    for (const [name, entry] of Object.entries(part.interfaces)) {
+      interfaces[name] ??= { members: [], statics: [] };
+      interfaces[name].members = [...new Set([...interfaces[name].members, ...entry.members])];
+      interfaces[name].statics = [...new Set([...interfaces[name].statics, ...entry.statics])];
+    }
+  }
+  return { globals: [...new Set(parts.flatMap((part) => part.globals))], interfaces };
+}
+const real = {
+  page: together('page'), worker: together('worker'),
+  userAgent: reals.map((reading) => reading.userAgent).join(' | '),
+  at: reals.map((reading) => reading.at).sort().at(-1),
+};
 
 /** Room for the member lists, in bytes of JSON. */
 const MEMBER_BUDGET = 3400;
 // What Safari lacks and the profile keeps, because without it the kernel could not do
 // what Safari does another way: play video in pieces (Safari has ManagedMediaSource,
 // the kernel only this).
-const KEEP = new Set(['MediaSource', 'SourceBuffer', 'SourceBufferList']);
+const KEEP = new Set(which === 'safari' ? ['MediaSource', 'SourceBuffer', 'SourceBufferList'] : []);
 // What Safari has and the profile hides all the same, because the kernel's would
 // answer as the machine's graphics card and not an iPhone's.
-const HIDE_ANYWAY = { Navigator: ['gpu'], WorkerNavigator: ['gpu'] };
+const HIDE_ANYWAY = which === 'safari' ? { Navigator: ['gpu'], WorkerNavigator: ['gpu'] } : {};
 // The interfaces a page that judges a browser looks at first.
 const FIRST = ['Navigator', 'WorkerNavigator', 'Screen', 'Document', 'Element', 'HTMLElement', 'HTMLCanvasElement',
   'CanvasRenderingContext2D', 'OffscreenCanvasRenderingContext2D', 'HTMLMediaElement', 'HTMLVideoElement', 'HTMLIFrameElement',
@@ -121,7 +147,7 @@ const out = {
   globals,
   members,
 };
-const target = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'safari-surface.json');
+const target = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', `${which}-surface.json`);
 writeFileSync(target, JSON.stringify(out, null, 1) + '\n');
 console.log(`members of the global object to hide: ${extra.length}, written as ${globals.length} entries (${patterns.length} beginnings), ` +
     `${Buffer.byteLength(JSON.stringify(globals))} bytes`);

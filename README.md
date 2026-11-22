@@ -553,10 +553,12 @@ Worth knowing before relying on it:
   Safari has and the kernel does not (`ApplePaySession`, `GestureEvent`, …), which
   cannot be added from outside; and `navigator.gpu`, hidden although Safari has it,
   because the kernel's would describe this machine's graphics card. An Android profile
-  hides what the phone was read not to have and is a computer's by nature, and has
-  `navigator.contacts`, `NDEFReader`, `BarcodeDetector` and the like switched on; the
-  phone's Chrome was 152, five versions behind the kernel, so the eight names that may
-  simply be newer were left alone.
+  was compared with a Galaxy's Chrome before and after an update (152 and 158, one
+  older and one newer than the kernel) and hides what neither has (window sharing,
+  local fonts, the built-in language models, …), with `navigator.contacts`,
+  `NDEFReader`, `BarcodeDetector` and the like switched on. Read back on the kernel,
+  its global object has the same names as the phone's Chrome 158, in a page and in a
+  worker; 14 members of interfaces that the phone has are still missing.
 - **The second screen is the machine's.** A profile says it has one screen
   (`screen.isExtended` is false) whatever is plugged into the machine; an iPhone
   profile has no such member at all, as Safari has none.

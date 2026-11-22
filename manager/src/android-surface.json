@@ -1,0 +1,67 @@
+{
+ "note": "Made by manager/tools/build-surface.mjs from a reading of the real browser. Not edited by hand.",
+ "readFrom": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36 | Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Mobile Safari/537.36",
+ "readAt": "2026-11-22T11:42:00.805Z",
+ "kernel": "157, 27.2",
+ "kept": [],
+ "hiddenAnyway": {},
+ "notHidden": {
+  "members": 0,
+  "interfaces": 0
+ },
+ "cannotAdd": {
+  "globals": 17
+ },
+ "globals": [
+  "CaptureController",
+  "CropTarget",
+  "DocumentPictureInPicture",
+  "DocumentPictureInPictureEvent",
+  "FileSystemObserver",
+  "FontData",
+  "LanguageModel",
+  "PressureObserver",
+  "PressureRecord",
+  "RestrictionTarget",
+  "SpeechRecognitionPhrase",
+  "Summarizer",
+  "Translator",
+  "documentPictureInPicture",
+  "queryLocalFonts"
+ ],
+ "members": {
+  "Navigator": [
+   "registerProtocolHandler",
+   "unregisterProtocolHandler"
+  ],
+  "Element": [
+   "ariaActionsElements"
+  ],
+  "HTMLMediaElement": [
+   "setSinkId",
+   "sinkId"
+  ],
+  "MediaDevices": [
+   "getDisplayMedia",
+   "setCaptureHandleConfig"
+  ],
+  "BrowserCaptureMediaStreamTrack": [
+   "cropTo",
+   "restrictTo"
+  ],
+  "MediaStreamTrack": [
+   "getCaptureHandle",
+   "oncapturehandlechange"
+  ],
+  "SpeechRecognition": [
+   "phrases",
+   "unspokenPunctuation"
+  ],
+  "ElementInternals": [
+   "ariaActionsElements"
+  ],
+  "SerialPort": [
+   "connected"
+  ]
+ }
+}
