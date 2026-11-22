@@ -256,7 +256,10 @@ for (const [os, platformName] of Object.entries(PLATFORMS)) {
     if (os !== 'linux' && s.availHeight === s.height) { drop(os, 'screen: nothing on it'); continue; }
     // Seen once or twice among hundreds: as likely a test machine as a person's.
     if (weight < 0.004) { drop(os, 'screen: rare'); continue; }
-    list.push({ width: s.width, height: s.height, availWidth: s.availWidth, availHeight: s.availHeight,
+    // A Mac's work area starts below its menu bar; elsewhere it starts at the top.
+    const top = Number.isInteger(s.availTop) && s.availTop > 0 && s.availTop <= s.height - s.availHeight ? { availTop: s.availTop } : {};
+    if (os === 'macos' && !('availTop' in top)) { drop(os, 'screen: no menu bar'); continue; }
+    list.push({ width: s.width, height: s.height, availWidth: s.availWidth, availHeight: s.availHeight, ...top,
                 colorDepth: s.colorDepth, devicePixelRatio: ratio, weight: Math.round(weight * 1e4) / 1e4 });
   }
   screens[os] = list;

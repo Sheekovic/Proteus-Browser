@@ -88,6 +88,8 @@ struct BASE_EXPORT ScreenData {
   int avail_width = 0;
   int avail_height = 0;
   int color_depth = 24;
+  // Where the work area starts from the top: the height of a Mac's menu bar.
+  int avail_top = 0;
 };
 
 // Per-profile identity settings. Every field is optional; an absent field means
@@ -210,7 +212,11 @@ struct BASE_EXPORT Config {
   // Identity of a browser from another vendor. |vendor| replaces
   // navigator.vendor when not empty. |hidden_members| lists, per interface
   // name ("Navigator", "WorkerNavigator", ...), members that browser does not
-  // have; they are removed from the interface in every script context.
+  // have; they are removed from the interface in every script context. The
+  // interface name "globalThis" stands for the global object itself, whose
+  // members are the interfaces (EyeDropper) and the window's own functions
+  // (showOpenFilePicker); there a name ending in * removes every member that
+  // starts with what is before it.
   // |client_hints| false sends no client hint request headers at all and
   // |chrome_object| false leaves pages without window.chrome.
   struct HiddenMembers {

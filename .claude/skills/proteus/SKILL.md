@@ -62,6 +62,9 @@ curl -s -X POST http://127.0.0.1:5310/api/profiles -H 'Content-Type: application
   "startUrl": "https://example.com/"
 }'
 
+# "cameraFile": "C:\\videos\\room.y4m" makes pages that are allowed the camera get that
+# video (.y4m or .mjpeg, on this machine) and a silent microphone, not the machine's own.
+
 # Change (takes effect at the next start), give a new device identity, copy, delete
 curl -s -X PATCH  http://127.0.0.1:5310/api/profiles/<id> -H 'Content-Type: application/json' -d '{"timezone": "Europe/Berlin"}'
 curl -s -X POST   http://127.0.0.1:5310/api/profiles/<id>/regenerate -H 'Content-Type: application/json' -d '{}'
@@ -126,7 +129,12 @@ clients expect).
 Starting opens a real browser window on the user's screen and returns the status:
 
 - `debuggerUrl` - a DevTools (CDP) endpoint, for Playwright, Puppeteer or any CDP
-  client (`chromium.connectOverCDP(debuggerUrl)`).
+  client. Connect to the running browser, never start another one:
+  `chromium.connectOverCDP(debuggerUrl)` and use `browser.contexts()[0]` (a new
+  context has none of the profile's cookies); with Puppeteer
+  `puppeteer.connect({ browserURL: debuggerUrl, defaultViewport: null })` (without
+  `defaultViewport: null` the page area becomes 800 by 600). Read from pages; do not
+  call a page's own functions, which see the caller in their stack.
 - `proxyExit` - the address the proxy comes out on, with `exitSeenAt`. With
   `matchProxy` on it is always there and the browser was matched to it; with it off
   nobody is asked at a start, and it is what the last proxy check found, if anything.

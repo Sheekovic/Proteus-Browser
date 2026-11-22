@@ -64,6 +64,7 @@ const PROFILE_FIELDS: Json = {
   geolocation: { type: ['object', 'null'], description: 'Position reported to sites allowed to ask, or null for the machine\'s.',
                  properties: { latitude: { type: 'number' }, longitude: { type: 'number' }, accuracy: { type: 'number' } } },
   startUrl: text('Page opened when the profile starts.'),
+  cameraFile: text('Path of a .y4m or .mjpeg video on this machine, shown to pages as the picture of the camera (the microphone is then silent). Empty: the camera of the machine.'),
 };
 
 /** The DevTools address of a running profile; a clear error when it is not running. */
@@ -94,7 +95,8 @@ async function statusReply(context: McpContext, id: string) {
 function summary(profile: Awaited<ReturnType<typeof profileWithStatus>>) {
   return {
     id: profile.id, name: profile.name, tags: profile.tags, os: profile.os, state: profile.status.state,
-    screen: `${profile.screen.width}x${profile.screen.height}`, timezone: profile.timezone,
+    screen: `${profile.screen.width}x${profile.screen.height}` +
+        (profile.screen.devicePixelRatio ? ` @${profile.screen.devicePixelRatio}x` : ''), timezone: profile.timezone,
     proxy: profile.proxy ? `${profile.proxy.type}://${profile.proxy.host}:${profile.proxy.port}` : null,
     // Where the proxy comes out (running), or came out the last time it was asked (stopped).
     ...(profile.status.proxyExit ? { proxyExit: profile.status.proxyExit } : {}),

@@ -21,6 +21,26 @@ import { allowSandboxToReadKernel } from './winSandbox.ts';
 
 export class LaunchError extends Error {}
 
+/** One second of silence as a WAV file: 16-bit, one channel, 48,000 samples a second. */
+export function silentWav(): Buffer {
+  const rate = 48_000;
+  const data = Buffer.alloc(rate * 2);
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write('WAVEfmt ', 8, 'ascii');
+  header.writeUInt32LE(16, 16);        // size of the format block
+  header.writeUInt16LE(1, 20);         // PCM
+  header.writeUInt16LE(1, 22);         // channels
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate * 2, 28);  // bytes a second
+  header.writeUInt16LE(2, 32);         // bytes a sample frame
+  header.writeUInt16LE(16, 34);        // bits a sample
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(data.length, 40);
+  return Buffer.concat([header, data]);
+}
+
 export interface ProfileStatus {
   state: 'stopped' | 'running';
   pid?: number;
@@ -274,6 +294,19 @@ export class Launcher {
     }
     await writeFile(configFile, config, 'utf8');
 
+    // A camera picture from a file: the file must be there, and beside it goes a
+    // second of silence for the microphone (the kernel's stand-in would beep).
+    let silenceFile: string | undefined;
+    if (profile.cameraFile) {
+      try {
+        await access(profile.cameraFile);
+      } catch {
+        throw new LaunchError(`The camera picture of this profile, ${profile.cameraFile}, is not there.`);
+      }
+      silenceFile = join(profileDir, 'silence.wav');
+      await writeFile(silenceFile, silentWav());
+    }
+
     // A port file left over from an earlier run would point at a dead port.
     const portFile = join(userDataDir, 'DevToolsActivePort');
     await rm(portFile, { force: true });
@@ -288,7 +321,7 @@ export class Launcher {
       await relay?.close();
       throw error;
     }
-    const args = buildKernelArgs(profile, { userDataDir, configFile, proxyServer, networkSandbox }, settings.extraArgs);
+    const args = buildKernelArgs(profile, { userDataDir, configFile, proxyServer, networkSandbox, silenceFile }, settings.extraArgs);
     const child = this.spawnKernel(settings.kernelPath, args);
 
     const spawned = new Promise<void>((resolve, reject) => {

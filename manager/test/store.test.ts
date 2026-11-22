@@ -272,7 +272,43 @@ test('an iPhone profile is Safari, not Chrome', async () => {
   }
   // None of this reaches a Chrome profile.
   const config = buildKernelConfig(await store.createProfile({ os: 'android' }));
-  for (const key of ['vendor', 'clientHints', 'chromeObject', 'hide']) assert.ok(!(key in config), key);
+  for (const key of ['vendor', 'clientHints', 'chromeObject']) assert.ok(!(key in config), key);
+  const desktop = buildKernelConfig(await store.createProfile({ os: 'windows' }));
+  assert.ok(!('hide' in desktop), 'the Chrome of a computer is what the kernel is: nothing is hidden');
+});
+
+test('a phone profile has no more of the web than its browser does', async () => {
+  // Safari: none of Chrome's own interfaces, in the page or on its screen.
+  const iphone = await store.createProfile({ os: 'ios' });
+  const safari = buildKernelConfig(iphone).hide;
+  for (const name of ['EyeDropper', 'showOpenFilePicker', 'USB*', 'XR*', 'NavigatorUAData']) {
+    assert.ok(safari.globalThis.includes(name), name);
+  }
+  assert.deepEqual(safari.Screen, ['isExtended', 'onchange']);
+  assert.ok(safari.Navigator.includes('userAgentData'), 'beside the Navigator members');
+  // What Safari has must not be in the list: a missing interface shows as much as an extra one.
+  for (const name of ['fetch', 'Worker', 'SharedWorker', 'PaymentRequest', 'ServiceWorker', 'KeyboardEvent', 'XMLHttpRequest',
+                      'webkitSpeechRecognition', 'FileSystemHandle', 'Notification', 'ScreenOrientation', 'X*', 'S*', 'Key*']) {
+    assert.ok(!safari.globalThis.includes(name), name);
+  }
+  assert.ok(!buildKernelArgs(iphone, { userDataDir: 'u', configFile: 'c' }, []).some((a) => a.startsWith('--enable-blink-features=')));
+
+  // Chrome on a phone: no keyboard map, screens or HID; contacts and NFC instead.
+  const phone = await store.createProfile({ os: 'android' });
+  const android = buildKernelConfig(phone).hide;
+  assert.ok(android.Navigator.includes('keyboard') && android.Navigator.includes('hid'));
+  assert.ok(!android.Navigator.includes('userAgentData') && !android.Navigator.includes('usb'), 'it is still Chrome');
+  assert.ok(android.globalThis.includes('EyeDropper') && !android.globalThis.includes('USB*'));
+  assert.deepEqual(android.Screen, ['isExtended', 'onchange']);
+  assert.ok(buildKernelArgs(phone, { userDataDir: 'u', configFile: 'c' }, []).includes('--enable-blink-features=ContactsManager,WebNFC'));
+  // Every name is one the kernel's check of a member name lets through, and a pattern is a prefix.
+  for (const list of [safari.globalThis, android.globalThis]) {
+    for (const name of list) assert.match(name, /^[A-Za-z][A-Za-z0-9]{1,}\*?$/, name);
+  }
+  for (const os of ['windows', 'macos', 'linux'] as const) {
+    assert.ok(!buildKernelArgs(await store.createProfile({ os }), { userDataDir: 'u', configFile: 'c' }, [])
+        .some((a) => a.startsWith('--enable-blink-features=')), os);
+  }
 });
 
 test('an Android profile is one real phone model, consistently', async () => {

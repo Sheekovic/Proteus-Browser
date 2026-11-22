@@ -62,6 +62,23 @@ async function api(method, path, body) {
   return data;
 }
 
+/** Opens `url` in a new tab of the running kernel and returns what `expression` gives there. */
+async function evaluateIn(debuggerUrl, url, expression) {
+  const tab = await (await fetch(`${debuggerUrl}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' })).json();
+  await delay(1500);
+  const socket = new WebSocket(tab.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener('open', resolve, { once: true });
+    socket.addEventListener('error', () => reject(new Error('could not connect to the tab')), { once: true });
+  });
+  const reply = await new Promise((resolve) => {
+    socket.addEventListener('message', (event) => resolve(JSON.parse(event.data)), { once: true });
+    socket.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, returnByValue: true } }));
+  });
+  socket.close();
+  return reply.result?.result?.value;
+}
+
 /** Opens `url` in a new tab of the running kernel and returns the fields of its RESULT line. */
 async function readPage(debuggerUrl, url) {
   const tab = await (await fetch(`${debuggerUrl}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' })).json();
@@ -319,6 +336,12 @@ try {
   check('iPhone: the TLS hello is Safari\'s', phoneTransport.produces.tls.ja4, 't13d2013h2_a09f3c656075_7f0f34a4126d');
   check('iPhone: the HTTP/2 opening is Safari\'s', phoneTransport.produces.http2?.fingerprint, '2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p');
   check('iPhone: handshake and claim agree', `${phoneTransport.agrees} ${phoneTransport.differences.join(' ')}`.trim(), 'true');
+  // And in what the page finds: none of the interfaces Chrome has and Safari does not.
+  const phoneSurface = await readPage(iphoneStatus.debuggerUrl, `${pagesUrl}/members.html`);
+  check('iPhone: none of the interfaces only Chrome has', phoneSurface.globals, 'none');
+  check('iPhone: no WebXR or WebUSB interface', `${phoneSurface.xr}/${phoneSurface.usb}`, '0/0');
+  check('iPhone: its screen has no members for several screens', phoneSurface.screenKeys, 'none');
+  check('iPhone: what Safari has is still there', phoneSurface.kept, 'XMLHttpRequest,URL,Element,fetch,EventTarget');
   await api('POST', `/api/profiles/${iphone.id}/stop`);
   await api('DELETE', `/api/profiles/${iphone.id}`);
 
@@ -409,6 +432,28 @@ try {
   check('transport: the request carried the profile\'s User-Agent', transport.produces.userAgent, profile.userAgent);
   check('transport: handshake and claim agree', `${transport.agrees} ${transport.differences.join(' ')}`.trim(), 'true');
   check('transport: measuring left the profile running', (await api('GET', `/api/profiles/${profile.id}`)).state, 'running');
+
+  // A computer's Chrome keeps everything the kernel has, and has one screen whatever
+  // this machine has plugged in.
+  const running = await api('GET', `/api/profiles/${profile.id}/status`);
+  const surface = await readPage(running.debuggerUrl, `${pagesUrl}/members.html`);
+  check('surface: a computer profile keeps the interfaces of Chrome', surface.globals,
+        'EyeDropper,showOpenFilePicker,getScreenDetails,IdleDetector,documentPictureInPicture');
+  check('surface: one screen', surface.extended, 'false');
+
+  // Chrome on a phone: not what a computer's keyboard, screens and windows bring, and
+  // the two interfaces only a phone has.
+  const android = await api('POST', '/api/profiles', { name: 'Android', os: 'android' });
+  const androidStatus = await api('POST', `/api/profiles/${android.id}/start`);
+  const androidSurface = await readPage(androidStatus.debuggerUrl, `${pagesUrl}/members.html`);
+  check('Android: no colour picker, screens list or always-on-top window', androidSurface.globals, 'showOpenFilePicker,IdleDetector');
+  check('Android: it is still Chrome (WebUSB is there)', androidSurface.usb !== '0', true);
+  check('Android: its screen has no members for several screens', androidSurface.screenKeys, 'none');
+  const androidOnly = await evaluateIn(androidStatus.debuggerUrl, `${pagesUrl}/members.html`,
+      `['contacts' in navigator, 'NDEFReader' in window, 'keyboard' in navigator, 'hid' in navigator].join()`);
+  check('Android: contacts and NFC, no keyboard map or HID', androidOnly, 'true,true,false,false');
+  await api('POST', `/api/profiles/${android.id}/stop`);
+  await api('DELETE', `/api/profiles/${android.id}`);
 
   for (const id of [profile.id, other.id]) {
     const stopped = await api('POST', `/api/profiles/${id}/stop`);

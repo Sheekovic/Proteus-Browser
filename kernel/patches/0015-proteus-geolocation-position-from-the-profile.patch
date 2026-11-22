@@ -1,7 +1,7 @@
 From 92f0a6f991f4b42bc9006e166176ab6a7f20495d Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 02:11:58 +0000
-Subject: [PATCH 15/28] proteus: geolocation position from the profile
+Subject: [PATCH 15/29] proteus: geolocation position from the profile
 
 ---
  base/proteus/proteus_config.cc                | 13 +++++++++++

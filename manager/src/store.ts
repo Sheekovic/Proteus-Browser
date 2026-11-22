@@ -91,7 +91,7 @@ async function writeJson(file: string, value: unknown): Promise<void> {
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** Values for fields added after a profile was saved, so older profiles keep loading. */
-const FIELD_DEFAULTS: Pick<Profile, 'webrtc' | 'webrtcPublicIp' | 'fonts' | 'voices' | 'webgpu' | 'matchProxy' | 'geolocation' | 'mobile' | 'webglCaps' | 'tags' | 'mediaDevices'> = {
+const FIELD_DEFAULTS: Pick<Profile, 'webrtc' | 'webrtcPublicIp' | 'fonts' | 'voices' | 'webgpu' | 'matchProxy' | 'geolocation' | 'mobile' | 'webglCaps' | 'tags' | 'mediaDevices' | 'cameraFile'> = {
   webrtc: 'proxyOnly',
   webrtcPublicIp: '',
   fonts: [],
@@ -104,6 +104,7 @@ const FIELD_DEFAULTS: Pick<Profile, 'webrtc' | 'webrtcPublicIp' | 'fonts' | 'voi
   webglCaps: null,
   tags: [],
   mediaDevices: null,
+  cameraFile: '',
 };
 
 function withDefaults(stored: Profile): Profile {
@@ -295,6 +296,7 @@ export class Store {
       proxy: null,
       matchProxy: true,
       startUrl: '',
+      cameraFile: '',
       ...(fromDevice ?? generateIdentity(os, settings.kernelVersion)),
       ...input,
       id: randomUUID(),
@@ -332,7 +334,7 @@ export class Store {
     return this.createProfile({
       name: `${source.name} copy`.slice(0, 200), notes: source.notes, tags: [...source.tags], os: source.os,
       languages: [...source.languages], timezone: source.timezone, webrtc: source.webrtc,
-      proxy: source.proxy ? { ...source.proxy } : null, matchProxy: source.matchProxy, startUrl: source.startUrl,
+      proxy: source.proxy ? { ...source.proxy } : null, matchProxy: source.matchProxy, startUrl: source.startUrl, cameraFile: source.cameraFile,
     });
   }
 

@@ -1,7 +1,7 @@
 From ca7567508377864a9977149aab290414850940a6 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 16:30:28 +0000
-Subject: [PATCH 09/28] proteus: substitutes for claimed fonts that are not
+Subject: [PATCH 09/29] proteus: substitutes for claimed fonts that are not
  installed
 
 ---

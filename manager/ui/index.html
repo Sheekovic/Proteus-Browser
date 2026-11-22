@@ -273,6 +273,8 @@
         <label>Kernel version<input name="kernelVersion" placeholder="157.0.8103.79"></label>
         <label>Extra launch arguments (space separated)<input name="extraArgs"></label>
       </div>
+      <p class="hint"><button class="button small" type="button" id="check-update">Check for a newer version</button>
+        <span id="update-result"></span></p>
       <h2 style="margin-top:20px">Proxies</h2>
       <p class="hint">Before a profile with a proxy starts, Proteus asks through that proxy where it comes out, and matches the
         browser's time zone, location and WebRTC address to it.</p>
@@ -356,6 +358,9 @@
     <fieldset>
       <legend>Start</legend>
       <label>Start page<input name="startUrl" placeholder="https://example.com"></label>
+      <label>Camera picture<input name="cameraFile" placeholder="C:\videos\room.y4m">
+        <small>A .y4m or .mjpeg video that pages allowed to use the camera get instead of this machine's camera; the microphone is then silent. Empty: the machine's own.</small>
+      </label>
     </fieldset>
   </form>
   <footer>
@@ -452,7 +457,10 @@ function profileCard(p, index) {
 
   const facts = el('dl', 'facts');
   const fact = (name, value) => { const dd = el('dd', '', value); dd.title = value; facts.append(el('dt', '', name), dd); };
-  fact('Screen', `${p.screen.width} × ${p.screen.height}`);
+  // A computer's screen comes with the scale its system shows things at; a phone's
+  // pixel ratio is part of its emulation.
+  const scale = p.mobile ? p.mobile.deviceScaleFactor : p.screen.devicePixelRatio;
+  fact('Screen', `${p.screen.width} × ${p.screen.height}` + (scale ? ` at ${Math.round(scale * 100)}%` : ''));
   fact('Graphics', (p.webgl.renderer || 'this computer’s').replace(/^ANGLE \((.*)\)$/, '$1'));
   fact('Time zone', p.timezone || 'this computer’s');
   fact('Proxy', p.proxy ? `${p.proxy.type}://${p.proxy.host}:${p.proxy.port}` : 'none');
@@ -617,6 +625,7 @@ function drawer(open, profile = null) {
       f.languages.value = profile.languages.join(', ');
       f.timezone.value = profile.timezone;
       f.startUrl.value = profile.startUrl;
+      f.cameraFile.value = profile.cameraFile || '';
       f.webrtc.value = profile.webrtc;
       f.webrtcPublicIp.value = profile.webrtcPublicIp;
       f.matchProxy.checked = profile.matchProxy;
@@ -673,6 +682,25 @@ $('check-proxy').addEventListener('click', async () => {
   }
 });
 
+// Asks GitHub, and only when this is pressed.
+$('check-update').addEventListener('click', async () => {
+  const result = $('update-result');
+  result.textContent = 'Asking…';
+  try {
+    const update = await api('GET', '/api/update');
+    result.textContent = update.message + ' ';
+    if (update.newer) {
+      const link = el('a', '', 'Where to get it');
+      link.href = update.page;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      result.append(link);
+    }
+  } catch (error) {
+    result.textContent = error.message;
+  }
+});
+
 $('new-profile').addEventListener('click', () => drawer(true));
 $('new-profile-empty').addEventListener('click', () => drawer(true));
 $('drawer-cancel').addEventListener('click', () => drawer(false));
@@ -699,6 +727,7 @@ $('create').addEventListener('submit', async (event) => {
     languages: f.languages.value.split(',').map((s) => s.trim()).filter(Boolean),
     timezone: f.timezone.value.trim(),
     startUrl: f.startUrl.value.trim(),
+    cameraFile: f.cameraFile.value.trim(),
     tags: f.tags.value.split(',').map((s) => s.trim()).filter(Boolean),
     matchProxy: f.matchProxy.checked,
   };

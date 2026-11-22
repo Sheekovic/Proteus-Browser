@@ -1,0 +1,190 @@
+From dfa82d413979584efde6b20c5e08675939fc4e38 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Sun, 22 Nov 2026 10:13:40 +0000
+Subject: [PATCH 29/29] proteus: what a profile's browser has, beyond navigator
+
+---
+ base/proteus/proteus_config.cc                |  4 +++
+ base/proteus/proteus_config.h                 |  8 ++++-
+ .../bindings/core/v8/local_window_proxy.cc    | 36 +++++++++++++++++++
+ .../v8/worker_or_worklet_script_controller.cc | 36 +++++++++++++++++++
+ .../blink/renderer/core/frame/screen.cc       |  7 ++--
+ 5 files changed, 88 insertions(+), 3 deletions(-)
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index c914c979ca..cc046dcf97 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -156,6 +156,10 @@ Config LoadConfig() {
+     data.avail_width = screen->FindInt("availWidth").value_or(data.width);
+     data.avail_height = screen->FindInt("availHeight").value_or(data.height);
+     data.color_depth = screen->FindInt("colorDepth").value_or(24);
++    const int avail_top = screen->FindInt("availTop").value_or(0);
++    if (avail_top > 0 && avail_top <= data.height - data.avail_height) {
++      data.avail_top = avail_top;
++    }
+     if (data.width > 0 && data.height > 0) {
+       config.screen = data;
+     }
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index 73db6e8d40..42cd03d8dd 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -88,6 +88,8 @@ struct BASE_EXPORT ScreenData {
+   int avail_width = 0;
+   int avail_height = 0;
+   int color_depth = 24;
++  // Where the work area starts from the top: the height of a Mac's menu bar.
++  int avail_top = 0;
+ };
+ 
+ // Per-profile identity settings. Every field is optional; an absent field means
+@@ -210,7 +212,11 @@ struct BASE_EXPORT Config {
+   // Identity of a browser from another vendor. |vendor| replaces
+   // navigator.vendor when not empty. |hidden_members| lists, per interface
+   // name ("Navigator", "WorkerNavigator", ...), members that browser does not
+-  // have; they are removed from the interface in every script context.
++  // have; they are removed from the interface in every script context. The
++  // interface name "globalThis" stands for the global object itself, whose
++  // members are the interfaces (EyeDropper) and the window's own functions
++  // (showOpenFilePicker); there a name ending in * removes every member that
++  // starts with what is before it.
+   // |client_hints| false sends no client hint request headers at all and
+   // |chrome_object| false leaves pages without window.chrome.
+   struct HiddenMembers {
+diff --git a/third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc b/third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc
+index d9a08dc01a..e5841a000e 100644
+--- a/third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc
++++ b/third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc
+@@ -32,6 +32,8 @@
+ 
+ #include "base/proteus/proteus_config.h"
+ 
++#include <string>
++#include <string_view>
+ #include <tuple>
+ 
+ #include "base/debug/crash_logging.h"
+@@ -255,6 +257,40 @@ static void ProteusHideWindowMembers(v8::Isolate* isolate,
+   v8::Local<v8::String> prototype_key =
+       v8::String::NewFromUtf8Literal(isolate, "prototype");
+   for (const auto& entry : hidden) {
++    if (entry.interface_name == "globalThis") {
++      v8::Local<v8::Object> global = context->Global();
++      for (const std::string& member : entry.members) {
++        if (member.back() != '*') {
++          v8::Local<v8::String> key;
++          if (v8::String::NewFromUtf8(isolate, member.c_str()).ToLocal(&key)) {
++            std::ignore = global->Delete(context, key);
++          }
++          continue;
++        }
++        const std::string prefix = member.substr(0, member.size() - 1);
++        v8::Local<v8::Array> names;
++        if (prefix.empty() ||
++            !global
++                 ->GetPropertyNames(context, v8::KeyCollectionMode::kOwnOnly,
++                                    v8::SKIP_SYMBOLS,
++                                    v8::IndexFilter::kSkipIndices)
++                 .ToLocal(&names)) {
++          continue;
++        }
++        for (uint32_t i = 0; i < names->Length(); ++i) {
++          v8::Local<v8::Value> key;
++          if (!names->Get(context, i).ToLocal(&key) || !key->IsString()) {
++            continue;
++          }
++          v8::String::Utf8Value text(isolate, key);
++          if (*text && std::string_view(*text, text.length())
++                           .starts_with(prefix)) {
++            std::ignore = global->Delete(context, key);
++          }
++        }
++      }
++      continue;
++    }
+     v8::Local<v8::String> name;
+     v8::Local<v8::Value> constructor;
+     v8::Local<v8::Value> prototype;
+diff --git a/third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.cc b/third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.cc
+index c07ea63a57..93474a1532 100644
+--- a/third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.cc
++++ b/third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.cc
+@@ -33,6 +33,8 @@
+ #include "base/proteus/proteus_config.h"
+ 
+ #include <memory>
++#include <string>
++#include <string_view>
+ #include <tuple>
+ 
+ #include "base/debug/crash_logging.h"
+@@ -125,6 +127,40 @@ static void ProteusHideWorkerMembers(v8::Isolate* isolate,
+   v8::Local<v8::String> prototype_key =
+       v8::String::NewFromUtf8Literal(isolate, "prototype");
+   for (const auto& entry : hidden) {
++    if (entry.interface_name == "globalThis") {
++      v8::Local<v8::Object> global = context->Global();
++      for (const std::string& member : entry.members) {
++        if (member.back() != '*') {
++          v8::Local<v8::String> key;
++          if (v8::String::NewFromUtf8(isolate, member.c_str()).ToLocal(&key)) {
++            std::ignore = global->Delete(context, key);
++          }
++          continue;
++        }
++        const std::string prefix = member.substr(0, member.size() - 1);
++        v8::Local<v8::Array> names;
++        if (prefix.empty() ||
++            !global
++                 ->GetPropertyNames(context, v8::KeyCollectionMode::kOwnOnly,
++                                    v8::SKIP_SYMBOLS,
++                                    v8::IndexFilter::kSkipIndices)
++                 .ToLocal(&names)) {
++          continue;
++        }
++        for (uint32_t i = 0; i < names->Length(); ++i) {
++          v8::Local<v8::Value> key;
++          if (!names->Get(context, i).ToLocal(&key) || !key->IsString()) {
++            continue;
++          }
++          v8::String::Utf8Value text(isolate, key);
++          if (*text && std::string_view(*text, text.length())
++                           .starts_with(prefix)) {
++            std::ignore = global->Delete(context, key);
++          }
++        }
++      }
++      continue;
++    }
+     v8::Local<v8::String> name;
+     v8::Local<v8::Value> constructor;
+     v8::Local<v8::Value> prototype;
+diff --git a/third_party/blink/renderer/core/frame/screen.cc b/third_party/blink/renderer/core/frame/screen.cc
+index 80a8ee8550..8540bce61a 100644
+--- a/third_party/blink/renderer/core/frame/screen.cc
++++ b/third_party/blink/renderer/core/frame/screen.cc
+@@ -140,8 +140,8 @@ int Screen::availLeft() const {
+ int Screen::availTop() const {
+   if (!DomWindow())
+     return 0;
+-  if (base::proteus::GetConfig().screen) {
+-    return 0;
++  if (const auto& forced = base::proteus::GetConfig().screen) {
++    return forced->avail_top;
+   }
+   return GetRect(/*available=*/true).y();
+ }
+@@ -187,6 +187,9 @@ bool Screen::isExtended() const {
+           network::mojom::PermissionsPolicyFeature::kWindowManagement)) {
+     return false;
+   }
++  if (base::proteus::GetConfig().screen) {
++    return false;
++  }
+ 
+   return GetScreenInfo().is_extended;
+ }
+-- 
+2.43.0
+

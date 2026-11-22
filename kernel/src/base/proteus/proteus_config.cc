@@ -156,6 +156,10 @@ Config LoadConfig() {
     data.avail_width = screen->FindInt("availWidth").value_or(data.width);
     data.avail_height = screen->FindInt("availHeight").value_or(data.height);
     data.color_depth = screen->FindInt("colorDepth").value_or(24);
+    const int avail_top = screen->FindInt("availTop").value_or(0);
+    if (avail_top > 0 && avail_top <= data.height - data.avail_height) {
+      data.avail_top = avail_top;
+    }
     if (data.width > 0 && data.height > 0) {
       config.screen = data;
     }

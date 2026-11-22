@@ -8,6 +8,9 @@ https://github.com/Sheekovic/Proteus-Browser
 START
 
   Windows   double-click "Start Proteus.cmd"
+            or "Install Proteus.cmd" first: it puts a copy in your own programs
+            folder with a shortcut in the Start menu and on the desktop (no
+            administrator rights; remove it again under "Installed apps")
   Linux     ./start-proteus.sh
 
 The Proteus window opens. Create a profile there and press Start: a browser

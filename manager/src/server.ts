@@ -1,6 +1,7 @@
 // The local HTTP API and the web UI it serves.
 //
 //   GET    /api/health
+//   GET    /api/update                   is there a newer release? (asks GitHub; only when called)
 //   GET    /api/settings                 PUT /api/settings
 //   GET    /api/profiles                 POST /api/profiles
 //   GET    /api/profiles/:id             PATCH /api/profiles/:id      DELETE /api/profiles/:id
@@ -51,6 +52,7 @@ import { type Profile, validateProxy, ValidationError } from './profile.ts';
 import { toProfileInput } from './profileInput.ts';
 import { checkProxy } from './proxyExit.ts';
 import { NotFoundError, type Store, type StoredFingerprint } from './store.ts';
+import { bundleVersion, checkForUpdate } from './update.ts';
 
 class HttpError extends Error {
   readonly status: number;
@@ -65,7 +67,7 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 /** What the API offers, for GET /api. */
 const ROUTES = [
-  'GET /api/health', 'GET /api/settings', 'PUT /api/settings', 'POST /api/proxy/check', 'GET /api/presets',
+  'GET /api/health', 'GET /api/update', 'GET /api/settings', 'PUT /api/settings', 'POST /api/proxy/check', 'GET /api/presets',
   'GET /api/profiles', 'POST /api/profiles', 'GET /api/profiles/:id', 'PATCH /api/profiles/:id', 'DELETE /api/profiles/:id',
   'GET /api/profiles/:id/status', 'POST /api/profiles/:id/start', 'POST /api/profiles/:id/stop', 'GET /api/profiles/:id/transport', 'POST /api/profiles/:id/regenerate', 'POST /api/profiles/:id/duplicate', 'POST /api/profiles/bulk',
   'GET /api/profiles/:id/tabs', 'POST /api/profiles/:id/tabs', 'DELETE /api/profiles/:id/tabs/:tab',
@@ -186,6 +188,10 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
     }
     if (method === 'GET' && path === '/api/health') {
       return sendJson(response, 200, { ok: true, name: 'proteus-manager' });
+    }
+    // Asked for by the user, never by the manager itself: it contacts GitHub.
+    if (method === 'GET' && path === '/api/update') {
+      return sendJson(response, 200, await checkForUpdate(bundleVersion(join(uiDir, '..'))));
     }
     if (path === '/api/profiles/bulk' && method === 'POST') {
       const made = await createProfiles(store, (await readJsonBody(request)) as BulkRequest);

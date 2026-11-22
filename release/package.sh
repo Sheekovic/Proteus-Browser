@@ -42,6 +42,10 @@ common() {  # common <bundle dir>
   cp "$STAGE/LICENSE" "$dir/LICENSE.txt"
   sed "s/@VERSION@/$VERSION/g" "$STAGE/release/README.txt" > "$dir/README.txt"
   cp "$SRC/LICENSE" "$dir/licenses/Chromium-LICENSE.txt"
+  # Licences of what the manager includes (the readings its identities are drawn from).
+  cp "$STAGE/manager/licenses/"* "$dir/licenses/"
+  # Which version this folder is: the manager reads it when asked whether there is a newer one.
+  echo "$VERSION" > "$dir/VERSION.txt"
 }
 
 # --- Windows
@@ -58,6 +62,10 @@ cp "$WORK"/node-win/node-*/node.exe "$WIN/node/"
 cp "$WORK"/node-win/node-*/LICENSE "$WIN/licenses/Node.js-LICENSE.txt"
 # CRLF line endings, as Windows' command interpreter expects.
 sed 's/\r$//; s/$/\r/' "$STAGE/release/Start Proteus.cmd" > "$WIN/Start Proteus.cmd"
+sed 's/\r$//; s/$/\r/' "$STAGE/release/Install Proteus.cmd" > "$WIN/Install Proteus.cmd"
+sed 's/\r$//; s/$/\r/' "$STAGE/release/install.ps1" > "$WIN/install.ps1"
+# The icon of the shortcuts an install makes.
+cp "$STAGE/branding/proteus.ico" "$WIN/proteus.ico"
 (cd "$WORK/win" && zip -q -r -9 "$OUT/Proteus-$VERSION-win-x64.zip" Proteus)
 
 # --- Linux

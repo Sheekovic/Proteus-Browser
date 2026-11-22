@@ -1,0 +1,40 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<body>
+<!-- Holds the load event until the checks below have finished. -->
+<img src="/slow?ms=3000" alt="">
+<script>
+// Emits one line of key=value pairs: which members of the global object are there,
+// and what the screen says of itself.
+const NAMES = ['EyeDropper', 'showOpenFilePicker', 'getScreenDetails', 'IdleDetector', 'documentPictureInPicture'];
+const has = (scope, names) => names.filter(
+    name => name in scope || Object.getOwnPropertyDescriptor(scope, name) !== undefined).join(',') || 'none';
+const prefixed = (scope, prefix) => Object.getOwnPropertyNames(scope).filter(name => name.startsWith(prefix)).length;
+(async () => {
+  const out = [];
+  out.push('globals=' + has(window, NAMES));
+  out.push('listed=' + Object.getOwnPropertyNames(window).some(name => NAMES.includes(name)));
+  out.push('xr=' + prefixed(window, 'XR'));
+  out.push('usb=' + prefixed(window, 'USB'));
+  // Names that start the same but are not asked for stay.
+  out.push('kept=' + has(window, ['XMLHttpRequest', 'URL', 'Element', 'fetch', 'EventTarget']));
+  out.push('typeofEyeDropper=' + typeof window.EyeDropper);
+
+  const frame = document.createElement('iframe');
+  document.body.appendChild(frame);
+  out.push('frameGlobals=' + has(frame.contentWindow, NAMES));
+  out.push('frameXr=' + prefixed(frame.contentWindow, 'XR'));
+
+  out.push('workerGlobals=' + await new Promise(resolve => {
+    const source = `postMessage(['IdleDetector', 'USB', 'FileSystemSyncAccessHandle', 'fetch'].filter(n => n in self).join(',') || 'none')`;
+    const worker = new Worker(URL.createObjectURL(new Blob([source])));
+    worker.onmessage = event => resolve(event.data);
+    worker.onerror = () => resolve('error');
+  }));
+
+  out.push('extended=' + screen.isExtended);
+  out.push('avail=' + [screen.availLeft, screen.availTop, screen.availWidth, screen.availHeight].join('/'));
+  out.push('screenKeys=' + (['isExtended', 'onchange'].filter(name => name in screen).join(',') || 'none'));
+  document.body.innerText = 'RESULT ' + out.join(' ');
+})();
+</script>

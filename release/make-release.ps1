@@ -52,7 +52,7 @@ if (-not $Fetch) {
   Remove-Item $kernelTar, $bundleTar -ErrorAction SilentlyContinue
   tar -cf $kernelTar -C "$repo\kernel" src tests -C "$repo\kernel\scripts" edits
   if ($LASTEXITCODE -ne 0) { throw 'tar failed' }
-  tar -cf $bundleTar -C $repo --exclude 'manager/test' manager release LICENSE
+  tar -cf $bundleTar -C $repo --exclude 'manager/test' manager release LICENSE branding/proteus.ico
   if ($LASTEXITCODE -ne 0) { throw 'tar failed' }
   scp @ssh -q $kernelTar "${h}:/opt/proteus/stage.tar"
   if ($LASTEXITCODE -ne 0) { throw 'upload failed' }

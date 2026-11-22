@@ -320,6 +320,43 @@ profile runs, the manager asks its browser which languages (and, for profiles sa
 by early versions, voices) it reported and saves them in the profile, so that it
 reports the same on any computer afterwards.
 
+### Puppeteer and Playwright
+
+A started profile is driven by connecting to its `debuggerUrl`. The profile was
+started by the manager, without the switches those libraries start a browser with, so
+what a page looks at stays a person's browser:
+
+```js
+// Puppeteer. defaultViewport: null leaves the window as it is; without it Puppeteer
+// sets the page area to 800 by 600, whatever the profile's screen.
+const browser = await puppeteer.connect({ browserURL: status.debuggerUrl, defaultViewport: null });
+
+// Playwright. Use the context that is there: a new one would be a browser without
+// the profile's cookies.
+const browser = await chromium.connectOverCDP(status.debuggerUrl);
+const page = await browser.contexts()[0].newPage();
+```
+
+[`manager/test/e2e/automation.mjs`](manager/test/e2e/automation.mjs) checks it on the
+real kernel, with a page that looks for what detection scripts look for. Driven by
+either library, on kernel 157.0.8103.79: `navigator.webdriver` is false, nothing the
+page logs is read by the debugger client (the page's own getter is not run), no names
+are left on the page, the page area and pixel ratio stay the profile's, and a click is
+the browser's own, placed on the screen where the window is, after the pointer moved
+there. Two things are the script's own business. A function of the page that the
+script calls sees the caller in its stack (`pptr:evaluate` for Puppeteer, an `eval`
+frame for Playwright), so a script should read from a page and not call into it. And
+how fast and how straight the pointer moves is the library's, not a hand's. Selenium
+was not measured: it needs a driver program of the kernel's version.
+
+### A camera picture from a file
+
+A page that is allowed the camera gets this machine's camera. A profile can show a
+video file instead: set `cameraFile` to the path of a `.y4m` or `.mjpeg` file (in the
+profile's settings, or through the API). The page then gets the file's picture, in a
+loop, and a silent microphone; the devices keep the names the profile gives them. The
+user is still asked before a page gets either.
+
 ### MCP (for AI assistants)
 
 The manager is also a [Model Context Protocol](https://modelcontextprotocol.io)
@@ -442,6 +479,15 @@ python kernel/tests/serve.py kernel/tests 8793 &
 node manager/test/e2e/real-kernel.mjs <path to chrome> http://127.0.0.1:8793
 ```
 
+**Automation** — drives a profile with Puppeteer and with Playwright and prints what
+a page can tell (see [Puppeteer and Playwright](#puppeteer-and-playwright)). The two
+libraries are not part of this repository:
+
+```bash
+mkdir libraries && cd libraries && npm init -y && npm install puppeteer-core playwright-core && cd ..
+node manager/test/e2e/automation.mjs <path to chrome> libraries
+```
+
 **Detection sites** — runs fresh Windows, Android and iPhone profiles past public
 detection sites and compares each verdict with the expected one, so that a regression
 (or a site getting stricter) is noticed. It needs the network and takes a while; run
@@ -495,6 +541,17 @@ Worth knowing before relying on it:
   plausible computer, not a record of one; a profile made from a device's own reading
   is. A Linux identity still names a card without its capabilities and reports the
   machine's own: the readings have none complete for Linux.
+- **What a phone profile lacks is a list, not a reading.** The kernel is desktop
+  Chrome. For an iPhone profile it removes the interfaces Chrome has and Safari does
+  not (`EyeDropper`, `showOpenFilePicker`, WebUSB, WebXR, …), and for an Android one
+  those of a computer's keyboard, screens and windows; an Android profile also gets
+  `navigator.contacts` and `NDEFReader`. The lists
+  ([`surface.ts`](manager/src/surface.ts)) hold what the browsers' documentation is
+  sure of and were not read from a phone, so something Safari lacks may still be
+  there, and `navigator.gpu` is still hidden although Safari now has it.
+- **The second screen is the machine's.** A computer profile says it has one screen
+  (`screen.isExtended` is false) whatever is plugged into the machine; a phone profile
+  has no such member at all.
 - **A profile's window is drawn at the profile's scale.** A screen comes with the
   pixel ratio it was read at (1536 by 864 is a 1920 by 1080 panel at 125%, a Mac's is
   2), and the browser is started at that ratio so that what a page reads agrees with

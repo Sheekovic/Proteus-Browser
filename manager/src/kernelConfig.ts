@@ -1,6 +1,7 @@
 // Translates a profile into what the Proteus kernel consumes: the JSON file read
 // through --proteus-config, and the command line for the browser process.
 
+import { hiddenFor, phoneOnlyFeatures } from './surface.ts';
 import { createHash } from 'node:crypto';
 
 import { buildFontSubstitutes } from './fontSubstitutes.ts';
@@ -71,6 +72,10 @@ export function buildKernelConfig(profile: Profile, now: number = Date.now()): R
   // gives no upper speed. Desktop Chrome has neither value, and Safari (below) has
   // no navigator.connection or navigator.getBattery at all.
   if (profile.os === 'android') config.connection = { type: 'wifi' };
+  // What desktop Chrome has and the profile's browser does not (surface.ts). A kernel
+  // from before patch 0029 knows only interface names and leaves the rest.
+  const hidden = hiddenFor(profile.os);
+  if (Object.keys(hidden).length > 0) config.hide = hidden;
   if (profile.os === 'ios') {
     // Safari: Apple's vendor string, no client hints in script or in requests, no
     // window.chrome, none of the Navigator members Safari lacks, and (unlike an
@@ -83,7 +88,7 @@ export function buildKernelConfig(profile: Profile, now: number = Date.now()): R
     config.transport = 'safari';
     config.clientHints = false;
     config.chromeObject = false;
-    config.hide = { Navigator: SAFARI_MISSING, WorkerNavigator: SAFARI_MISSING };
+    config.hide = { ...hidden, Navigator: SAFARI_MISSING, WorkerNavigator: SAFARI_MISSING };
     if (profile.mobile !== null) config.mobile = { ...profile.mobile, pdfViewer: true };
   }
   if (profile.geolocation !== null) config.geolocation = profile.geolocation;
@@ -102,6 +107,11 @@ export interface LaunchPaths {
    * value: the local relay of a proxy that needs a login.
    */
   proxyServer?: string;
+  /**
+   * A sound file of silence, for a profile whose camera picture comes from a file:
+   * its microphone plays this.
+   */
+  silenceFile?: string;
   /**
    * False when the kernel's sandboxed network service could not be given access to
    * the kernel's own files (see winSandbox.ts). It would die at start and take the
@@ -160,6 +170,15 @@ export function buildKernelArgs(profile: Profile, paths: LaunchPaths, extraArgs:
   // Pages test for touch by looking for touch events, which exist from the start
   // only when asked for here.
   if (profile.mobile !== null) args.push('--touch-events=enabled');
+  // A camera picture from a file: the kernel's stand-in devices take the place of the
+  // machine's (their names are still the profile's), the picture is the file's and
+  // the microphone plays a file of silence, where the stand-in would beep.
+  if (profile.cameraFile) {
+    args.push('--use-fake-device-for-media-stream', `--use-file-for-fake-video-capture=${profile.cameraFile}`);
+    if (paths.silenceFile !== undefined) args.push(`--use-file-for-fake-audio-capture=${paths.silenceFile}`);
+  }
+  const phoneOnly = phoneOnlyFeatures(profile.os);
+  if (phoneOnly.length > 0) args.push(`--enable-blink-features=${phoneOnly.join(',')}`);
   args.push(...QUIET_START_ARGS);
   // The handshake must be that of the browser the profile claims to be (transportClaim.ts).
   const disabled = [...QUIET_DISABLED_FEATURES, ...shapeSwitches(claimOf(profile))];

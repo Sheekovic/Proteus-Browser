@@ -344,8 +344,11 @@ function buildUaData(os: DesktopOs, kernelVersion: string, rng: Rng): UaData {
 export type ChosenScreen = readonly [number, number, number, number?, number?];
 
 /** The screen of a ready-made setup. */
-function screenOf([width, height, bar, ratio = 1, depth = 24]: ChosenScreen): ScreenInfo {
-  return { width, height, availWidth: width, availHeight: height - bar, colorDepth: depth, devicePixelRatio: ratio };
+function screenOf([width, height, bar, ratio = 1, depth = 24]: ChosenScreen, os: DesktopOs): ScreenInfo {
+  const screen: ScreenInfo = { width, height, availWidth: width, availHeight: height - bar, colorDepth: depth, devicePixelRatio: ratio };
+  // A Mac's bar is the menu bar, at the top: the work area starts below it.
+  if (os === 'macos' && bar > 0) screen.availTop = bar;
+  return screen;
 }
 
 // --- Screens as they were read from real computers ---------------------------------------
@@ -393,9 +396,9 @@ export function readScreenCount(os: DesktopOs): number {
 
 /** The screen a setup names, or one that was read, as likely as it was seen; a common one without readings. */
 function chooseScreen(os: DesktopOs, renderer: string, rng: Rng, chosen?: ChosenScreen): ScreenInfo {
-  if (chosen) return screenOf(chosen);
+  if (chosen) return screenOf(chosen, os);
   const read = screensFor(os, renderer);
-  if (read.length === 0) return screenOf(pick(rng, SCREENS[os]));
+  if (read.length === 0) return screenOf(pick(rng, SCREENS[os]), os);
   const { weight: _weight, ...screen } = pickWeighted(rng, read, read.map((reading) => reading.weight));
   return screen;
 }

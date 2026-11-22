@@ -1,7 +1,7 @@
 From 0d710e5c927cea57c9e3d00763028e7da827c150 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 19:12:44 +0000
-Subject: [PATCH 25/28] proteus: the browser calls itself Proteus
+Subject: [PATCH 25/29] proteus: the browser calls itself Proteus
 
 ---
  chrome/app/theme/chromium/BRANDING | 4 ++--

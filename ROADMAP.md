@@ -33,6 +33,8 @@ from tests.
 - [ ] The Linux sandbox helper's install step, run for real *(needs: leave to change AppArmor on a test machine)*
 - [x] A check of the public detection sites that judges every verdict, to run by hand or from a scheduler, so a regression is noticed
 - [ ] Windows 10, macOS hosts *(needs: machines)*
+- [x] A check that Puppeteer and Playwright, driving a profile, leave nothing a page can tell them by
+- [ ] The same for Selenium *(needs: a driver program of the kernel's version)*
 
 ## 4. A kernel that gives less away
 
@@ -41,6 +43,10 @@ from tests.
 - [ ] The same for Linux and for phones *(needs: readings; the published ones have none complete)*
 - [x] Screens from readings, each with the pixel ratio it was read at, and the browser started at that ratio
 - [ ] Card, screen, memory and fonts from one reading, so an identity is one computer's and not a plausible mix *(needs: whole readings; the published model keeps them apart)*
+- [x] A phone profile without the interfaces only desktop Chrome has, and an iPhone one without Chrome's own (from documentation)
+- [ ] The same from a reading of the phone's browser, so nothing is missed *(needs: the collector page opened on the phone)*
+- [x] One screen, whatever the machine has; a Mac's work area below its menu bar
+- [x] A camera picture from a video file instead of the machine's camera, with a silent microphone
 - [x] Battery and network information that fit the claimed device
 - [x] A memory value its browser can report, fitting the processor, and checked when set by hand
 - [x] A TLS hello like stock Chrome's: without the experiment a Chromium build adds to it
@@ -53,7 +59,10 @@ from tests.
 
 - [x] Preview bundles for Windows and Linux that run as they are
 - [ ] An optimised "official" build *(in progress: `server-build.sh <target> ... official` builds it next to the fast one)*
-- [ ] An installer, and a signed one *(needs: a code-signing certificate)*
+- [x] An installer in the Windows bundle: a copy under the user's programs, shortcuts, an entry to remove it (no administrator rights)
+- [ ] A signed one *(needs: a code-signing certificate)*
+- [x] "Is there a newer version?", asked of GitHub when the user asks
+- [ ] Fetching and putting in place the newer version from inside the app
 - [x] Release builds made by one command on the build server (`release/make-release.ps1`)
 
 ## Done before this list existed

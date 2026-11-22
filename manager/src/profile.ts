@@ -64,6 +64,8 @@ export interface ScreenInfo {
    * scale of the machine the profile runs on; a phone's is in `mobile`.
    */
   devicePixelRatio?: number;
+  /** Where the work area starts from the top: the height of a Mac's menu bar. Absent means 0. */
+  availTop?: number;
 }
 
 export interface ProxySettings {
@@ -167,6 +169,12 @@ export interface Profile {
   matchProxy: boolean;
   /** Page opened when the profile starts. Empty means the kernel's default. */
   startUrl: string;
+  /**
+   * A video file a page gets as the camera's picture, when it is allowed the camera:
+   * the path of a .y4m or .mjpeg file on this machine. Empty means the machine's own
+   * camera. With a file the microphone is silent, not the machine's.
+   */
+  cameraFile: string;
 }
 
 /** The fields a caller may set when creating or editing a profile. */
@@ -310,6 +318,9 @@ export function validateProfile(profile: Profile, chosen: { deviceMemory?: boole
       !(typeof s.devicePixelRatio === 'number' && s.devicePixelRatio >= 1 && s.devicePixelRatio <= 4)) {
     fail('screen.devicePixelRatio must be a number from 1 to 4');
   }
+  if (s.availTop !== undefined && !isIntInRange(s.availTop, 0, s.height - s.availHeight)) {
+    fail('screen.availTop must fit between the work area and the screen');
+  }
   if (profile.mobile !== null) {
     const m = profile.mobile;
     if (!isPlainObject(m) || !isIntInRange(m.viewWidth, 200, s.width) || !isIntInRange(m.viewHeight, 200, s.height) ||
@@ -380,5 +391,9 @@ export function validateProfile(profile: Profile, chosen: { deviceMemory?: boole
   checkString(profile.startUrl, 'startUrl', 2000);
   if (profile.startUrl !== '' && !/^https?:\/\//i.test(profile.startUrl)) {
     fail('startUrl must start with http:// or https://');
+  }
+  checkString(profile.cameraFile, 'cameraFile', 1000);
+  if (profile.cameraFile !== '' && !/\.(y4m|mjpeg)$/i.test(profile.cameraFile)) {
+    fail('cameraFile must be the path of a .y4m or .mjpeg file, or empty');
   }
 }

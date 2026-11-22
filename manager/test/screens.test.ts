@@ -14,7 +14,7 @@ const KERNEL = '157.0.8103.79';
 const file = JSON.parse(readFileSync(new URL('../src/screens.json', import.meta.url), 'utf8'));
 const profileOf = (identity: object): Profile => ({
   ...identity, id: 'x', name: 'n', notes: '', createdAt: '', updatedAt: '', languages: [], timezone: '',
-  webrtc: 'proxyOnly', webrtcPublicIp: '', geolocation: null, proxy: null, matchProxy: false, startUrl: '', tags: [],
+  webrtc: 'proxyOnly', webrtcPublicIp: '', geolocation: null, proxy: null, matchProxy: false, startUrl: '', tags: [], cameraFile: '',
 } as unknown as Profile);
 const scaleOf = (profile: Profile) =>
   buildKernelArgs(profile, { userDataDir: 'u', configFile: 'c' }, []).find((arg) => arg.startsWith('--force-device-scale-factor='));

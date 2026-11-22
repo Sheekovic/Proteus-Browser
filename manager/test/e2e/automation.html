@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>What a page can tell about automation</title>
+<button id="target" style="position:absolute;left:300px;top:200px;width:160px;height:60px">target</button>
+<script>
+// What a detection script looks at to tell a browser driven by a program from one
+// driven by a person. Everything is collected into window.signals, which the test
+// reads at the end.
+const signals = { webdriver: navigator.webdriver, serialised: 0, globals: [], stack: null, click: null };
+
+// A debugger client that has asked for console messages makes the browser serialise
+// what is logged; reading a property while doing so runs the page's getter.
+function probeSerialisation() {
+  const error = new Error('probe');
+  Object.defineProperty(error, 'stack', { get() { signals.serialised++; return ''; } });
+  console.debug(error);
+}
+probeSerialisation();
+setInterval(probeSerialisation, 400);
+
+// Names automation libraries and drivers are known to leave on the page.
+function probeGlobals() {
+  const pattern = /playwright|puppeteer|__pw|cdc_|\$cdc|selenium|webdriver|__nightmare|phantom|domAutomation/i;
+  const found = new Set();
+  for (const name of Object.getOwnPropertyNames(window)) if (pattern.test(name)) found.add('window.' + name);
+  for (const name of Object.getOwnPropertyNames(document)) if (pattern.test(name)) found.add('document.' + name);
+  for (const attribute of document.documentElement.getAttributeNames()) if (pattern.test(attribute)) found.add('html@' + attribute);
+  signals.globals = [...found].filter((name) => name !== 'window.webdriver');
+}
+probeGlobals();
+setInterval(probeGlobals, 400);
+
+// A page function a driver's script may call: the stack shows who called.
+window.whoCalls = () => { signals.stack = new Error().stack; return 'called'; };
+
+// A click: made by the browser itself (trusted), and placed on the screen where the
+// window is, not at the page's own coordinates.
+document.getElementById('target').addEventListener('click', (event) => {
+  signals.click = {
+    trusted: event.isTrusted,
+    client: [event.clientX, event.clientY],
+    screen: [event.screenX, event.screenY],
+    // Where the page's corner is on the screen, as far as a page can tell.
+    windowAt: [window.screenX, window.screenY],
+    chrome: [window.outerWidth - window.innerWidth, window.outerHeight - window.innerHeight],
+    pointerType: event.pointerType,
+  };
+});
+let moves = 0;
+document.addEventListener('mousemove', () => { signals.moves = ++moves; });
+
+const view = () => ({ inner: [innerWidth, innerHeight], outer: [outerWidth, outerHeight], ratio: devicePixelRatio,
+                      screen: [screen.width, screen.height], touch: navigator.maxTouchPoints, agent: navigator.userAgent });
+// As the page starts, when a script that judges a visitor usually runs, and a second later.
+signals.view = view();
+signals.visibleAtStart = document.visibilityState;
+setTimeout(() => { signals.viewLater = view(); }, 1000);
+window.signals = signals;
+// Also in the title, which can be read without attaching a debugger to the page.
+setInterval(() => { document.title = JSON.stringify({ serialised: signals.serialised, outer: signals.view.outer, visible: signals.visibleAtStart }); }, 300);
+</script>
