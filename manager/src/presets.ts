@@ -36,7 +36,7 @@ const PRESETS: readonly Preset[] = [
   {
     id: 'windows-office-laptop', name: 'Windows office laptop', os: 'windows',
     description: 'A 15-inch business laptop: full HD at 125% scaling, Intel graphics, 8 GB.',
-    device: { screen: [1536, 864, 48], gpu: d3d11('Intel', 'Intel(R) UHD Graphics 620 (0x00005917)', 'gen-9'), cores: 8, memory: 8 },
+    device: { screen: [1536, 864, 48, 1.25], gpu: d3d11('Intel', 'Intel(R) UHD Graphics 620 (0x00005917)', 'gen-9'), cores: 8, memory: 8 },
   },
   {
     id: 'windows-laptop', name: 'Windows laptop', os: 'windows',
@@ -56,12 +56,12 @@ const PRESETS: readonly Preset[] = [
   {
     id: 'macbook-air', name: 'MacBook Air', os: 'macos',
     description: 'A 13-inch MacBook Air with the M1 chip, 8 GB.',
-    device: { screen: [1440, 900, 25], gpu: metal('Apple M1'), cores: 8, memory: 8 },
+    device: { screen: [1440, 900, 25, 2, 30], gpu: metal('Apple M1'), cores: 8, memory: 8 },
   },
   {
     id: 'macbook-pro-14', name: 'MacBook Pro 14"', os: 'macos',
     description: 'A 14-inch MacBook Pro with the M3 Pro chip, 18 GB (which a browser reports as 16).',
-    device: { screen: [1512, 982, 38], gpu: metal('Apple M3 Pro'), cores: 12, memory: 16 },
+    device: { screen: [1512, 982, 38, 2, 30], gpu: metal('Apple M3 Pro'), cores: 12, memory: 16 },
   },
   {
     id: 'linux-desktop', name: 'Linux desktop', os: 'linux',

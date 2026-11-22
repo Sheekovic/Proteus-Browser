@@ -39,7 +39,8 @@ from tests.
 - [x] Media devices: the number, kind and names of cameras, microphones and speakers from the profile
 - [x] Generated Windows and Mac identities with a graphics card's real capabilities, from published readings of real browsers
 - [ ] The same for Linux and for phones *(needs: readings; the published ones have none complete)*
-- [ ] Screens, and the fonts beside a card, from readings too, so an identity is one computer's and not a plausible mix
+- [x] Screens from readings, each with the pixel ratio it was read at, and the browser started at that ratio
+- [ ] Card, screen, memory and fonts from one reading, so an identity is one computer's and not a plausible mix *(needs: whole readings; the published model keeps them apart)*
 - [x] Battery and network information that fit the claimed device
 - [x] A memory value its browser can report, fitting the processor, and checked when set by hand
 - [x] A TLS hello like stock Chrome's: without the experiment a Chromium build adds to it

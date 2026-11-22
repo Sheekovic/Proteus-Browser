@@ -274,6 +274,10 @@ function phoneSettings(c: Collected, screen: ScreenInfo, barsHeight: number): No
 export function identityFromCollected(c: Collected, kernelVersion: string): GeneratedIdentity {
   const { os, browser } = classify(c);
   const screen: ScreenInfo = { ...c.screen, colorDepth: COLOR_DEPTHS.includes(c.screen.colorDepth) ? c.screen.colorDepth : 24 };
+  // A computer's pixel ratio goes with its screen size; a phone's is in `mobile`.
+  if (os !== 'android' && os !== 'ios' && c.devicePixelRatio >= 1 && c.devicePixelRatio <= 4) {
+    screen.devicePixelRatio = Math.round(c.devicePixelRatio * 1000) / 1000;
+  }
   const cores = Math.min(256, Math.max(1, c.hardwareConcurrency || 4));
   const voices = withinBudget(c.voices, voiceCost, VOICE_BUDGET);
   const webgl = c.webgl ?? { vendor: '', renderer: '' };

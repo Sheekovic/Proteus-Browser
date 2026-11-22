@@ -1,6 +1,9 @@
 // Builds manager/src/gpus.json: graphics cards as Chrome reported them on real
 // computers, each with what it can do (WebGL limits, extensions, shader precision),
 // its WebGPU names, and the processors it was seen with.
+// And manager/src/screens.json: the screens Chrome reported, each with the pixel
+// ratio it was read with (a screen of 1536 by 864 is a 1920 by 1080 one at 1.25, and
+// is not found at 1).
 //
 // The readings are Scrapfly's, published with daijro's fingerprint-generator ("fpgen",
 // https://github.com/scrapfly/fingerprint-generator, Apache License 2.0) as a Bayesian
@@ -8,7 +11,7 @@
 // tool takes, per card, the capabilities most often seen with it. Nothing is invented
 // here: a card whose reading lacks something is left out, not filled in.
 //
-// usage: node build-gpus.mjs <directory>
+// usage: node build-readings.mjs <directory>
 //   The directory holds the unpacked model release (fingerprint-network.json.zst,
 //   values.json.zst, values.dat.zst), from
 //   https://github.com/scrapfly/fingerprint-generator/releases (this file was written
@@ -20,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 
 const dir = process.argv[2];
-if (!dir) { console.error('usage: node build-gpus.mjs <directory of the model release>'); process.exit(2); }
+if (!dir) { console.error('usage: node build-readings.mjs <directory of the model release>'); process.exit(2); }
 const MODEL = process.argv[3] ?? 'model-2/2026';
 
 const unpack = (name) => zlib.zstdDecompressSync(readFileSync(join(dir, name)), { maxOutputLength: 1 << 30 });
@@ -139,7 +142,7 @@ const chrome = tokenOf('browser', 'Chrome');
 const out = {
   source: 'Scrapfly fingerprint-generator (https://github.com/scrapfly/fingerprint-generator), Apache License 2.0',
   model: MODEL,
-  note: 'Made by manager/tools/build-gpus.mjs. Graphics cards as Chrome reported them on real computers, ' +
+  note: 'Made by manager/tools/build-readings.mjs. Graphics cards as Chrome reported them on real computers, ' +
         'each with the capabilities most often read with it. Not edited by hand.',
   caps: [],
   gpus: {},
@@ -202,6 +205,73 @@ for (const [os, platformName] of Object.entries(PLATFORMS)) {
   }
   out.gpus[os] = list;
 }
+
+// --- Screens ---------------------------------------------------------------------------
+// The model has, per screen, the windows that were seen on it, each with its pixel
+// ratio. A browser zoomed in or out reports another ratio on the same screen, so the
+// ratio of a screen is the one most of its readings agree on; a screen whose readings
+// do not agree is left out.
+const RATIOS = [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 3];
+// Laptop and monitor panels, in their own pixels (rounded to eight, as the sizes a
+// page sees are whole numbers).
+const PANELS = new Set([
+  '1280x720', '1280x800', '1368x768', '1440x900', '1600x900', '1680x1048', '1920x1080', '1920x1200',
+  '2160x1440', '2256x1504', '2400x1600', '2560x1080', '2560x1440', '2560x1600', '2880x1800', '2880x1920',
+  '3000x2000', '3200x1800', '3200x2000', '3440x1440', '3840x1600', '3840x2160', '3840x2400', '5120x1440',
+]);
+const screens = {};
+for (const [os, platformName] of Object.entries(PLATFORMS)) {
+  const platform = tokenOf('platformInfo', platformName);
+  const list = [];
+  for (const [screenToken, weight] of given('screen', chrome, platform)) {
+    const s = value(screenToken);
+    const whole = [s?.width, s?.height, s?.availWidth, s?.availHeight, s?.colorDepth].every(Number.isInteger);
+    if (!whole) { drop(os, 'screen: incomplete'); continue; }
+    // A second monitor, a screen stood on end, and sizes no monitor has.
+    if (s.availLeft !== 0) { drop(os, 'screen: not the main one'); continue; }
+    if (s.width < s.height || s.width < 1280 || s.height < 720 || s.width > 5120) { drop(os, 'screen: unusual size'); continue; }
+    if (s.availWidth > s.width || s.availHeight > s.height || s.availHeight < s.height - 160 || s.availWidth < s.width - 160) {
+      drop(os, 'screen: unusual work area'); continue;
+    }
+    if (![24, 30].includes(s.colorDepth)) { drop(os, 'screen: unusual depth'); continue; }
+    const ratios = new Map();
+    let total = 0;
+    const windows = nodes.get('window').conditionalProbabilities?.[chrome]?.[platform]?.[screenToken] ?? {};
+    for (const byOrientation of Object.values(windows)) {
+      for (const [windowToken, share] of Object.entries(byOrientation)) {
+        const ratio = value(windowToken)?.devicePixelRatio;
+        ratios.set(ratio, (ratios.get(ratio) ?? 0) + share);
+        total += share;
+      }
+    }
+    const [ratio, share] = [...ratios].sort((a, b) => b[1] - a[1])[0] ?? [];
+    if (!RATIOS.includes(ratio) || share / total < 0.6) { drop(os, 'screen: no agreed pixel ratio'); continue; }
+    // The readings include servers and virtual machines, whose screens are any size
+    // and have nothing on them. On Windows a person's screen is a panel that is sold,
+    // once its size is multiplied by the ratio; there and on a Mac the taskbar or the
+    // menu bar takes part of it.
+    if (os === 'windows' && !PANELS.has(`${Math.round(s.width * ratio / 8) * 8}x${Math.round(s.height * ratio / 8) * 8}`)) {
+      drop(os, 'screen: not a panel that is sold'); continue;
+    }
+    if (os !== 'linux' && s.availHeight === s.height) { drop(os, 'screen: nothing on it'); continue; }
+    // Seen once or twice among hundreds: as likely a test machine as a person's.
+    if (weight < 0.004) { drop(os, 'screen: rare'); continue; }
+    list.push({ width: s.width, height: s.height, availWidth: s.availWidth, availHeight: s.availHeight,
+                colorDepth: s.colorDepth, devicePixelRatio: ratio, weight: Math.round(weight * 1e4) / 1e4 });
+  }
+  screens[os] = list;
+}
+const screensTarget = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'screens.json');
+writeFileSync(screensTarget, `{
+  "source": ${JSON.stringify(out.source)},
+  "model": ${JSON.stringify(out.model)},
+  "note": "Made by manager/tools/build-readings.mjs. Screens as Chrome reported them on real computers, each with the pixel ratio it was read with. Not edited by hand.",
+  "screens": {
+${Object.entries(screens).map(([os, list]) => `  ${JSON.stringify(os)}: [\n${list.map((item) => '    ' + JSON.stringify(item)).join(',\n')}\n  ]`).join(',\n')}
+  }
+}
+`);
+for (const [os, list] of Object.entries(screens)) console.log(`${os}: ${list.length} screens`);
 
 const target = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'gpus.json');
 // One card or table per line: readable in a diff, and a third of the size of indented JSON.

@@ -147,6 +147,12 @@ export function buildKernelArgs(profile: Profile, paths: LaunchPaths, extraArgs:
         ? `--window-size=${Math.max(520, profile.mobile.viewWidth + 40)},${profile.mobile.viewHeight + 140}`
         : `--window-size=${profile.screen.availWidth},${profile.screen.availHeight}`,
   ];
+  // A computer's pixel ratio is the scale its system shows things at. The browser is
+  // started at the profile's, so everything that follows from it (the ratio a page
+  // reads, media queries, how text is laid out) is that scale's and not the host's.
+  if (profile.mobile === null && profile.screen.devicePixelRatio !== undefined) {
+    args.push(`--force-device-scale-factor=${profile.screen.devicePixelRatio}`);
+  }
   if (profile.languages.length > 0) {
     // Sets the locale Intl formats with; navigator.languages comes from the config.
     args.push(`--lang=${profile.languages[0]}`);

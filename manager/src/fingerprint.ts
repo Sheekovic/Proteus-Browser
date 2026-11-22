@@ -84,7 +84,7 @@ const GPUS: Record<DesktopOs, readonly Gpu[]> = {
 };
 
 // --- Graphics cards as they were read from real computers --------------------------------
-// gpus.json (made by tools/build-gpus.mjs from readings Scrapfly published) lists, per
+// gpus.json (made by tools/build-readings.mjs from readings Scrapfly published) lists, per
 // system, cards as Chrome reported them, each with what it can do and the processors
 // it was seen with. A new Windows or Mac identity takes one of them, as likely as it
 // was seen, so its card answers with that card's own limits and extensions. The file
@@ -340,15 +340,69 @@ function buildUaData(os: DesktopOs, kernelVersion: string, rng: Rng): UaData {
   };
 }
 
-/** The screen of [width, height, taskbar or dock height]. */
-function screenOf([width, height, bar]: readonly [number, number, number]): ScreenInfo {
-  return { width, height, availWidth: width, availHeight: height - bar, colorDepth: 24 };
+/** A screen a ready-made setup names: [width, height, taskbar or dock height, pixel ratio, colour depth]. */
+export type ChosenScreen = readonly [number, number, number, number?, number?];
+
+/** The screen of a ready-made setup. */
+function screenOf([width, height, bar, ratio = 1, depth = 24]: ChosenScreen): ScreenInfo {
+  return { width, height, availWidth: width, availHeight: height - bar, colorDepth: depth, devicePixelRatio: ratio };
+}
+
+// --- Screens as they were read from real computers ---------------------------------------
+// screens.json (made by tools/build-readings.mjs, from the same readings as the cards)
+// lists the screens Chrome reported, each with its work area, colour depth and the
+// pixel ratio it was read with. Size and ratio belong together: 1536 by 864 is a
+// 1920 by 1080 laptop panel at 125%, and is not found at 100%.
+
+interface ScreenReading extends ScreenInfo {
+  devicePixelRatio: number;
+  weight: number;
+}
+const SCREEN_READINGS = (JSON.parse(readFileSync(new URL('./screens.json', import.meta.url), 'utf8')) as {
+  screens: Partial<Record<DesktopOs, ScreenReading[]>>;
+}).screens;
+
+// Which Macs have which built-in screen (in the sizes a page sees). A size not listed
+// is a monitor plugged in, which any Mac can have; a desktop Mac has nothing else.
+const MAC_SCREENS: Record<string, RegExp> = {
+  '1280x800': /Apple M[12],/,                       // 13-inch Air and Pro, scaled
+  '1440x900': /Apple M[12],/,                       // 13-inch Air (M1) and Pro
+  '1470x956': /Apple M[2-9],/,                      // 13-inch Air from the M2
+  '1710x1107': /Apple M[2-9],/,                     // 15-inch Air
+  '1710x1112': /Apple M[2-9],/,
+  '1512x982': /Apple M(\d (Pro|Max)|[3-9]),/,       // 14-inch Pro
+  '1728x1117': /Apple M\d (Pro|Max),/,              // 16-inch Pro
+  '1800x1169': /Apple M\d (Pro|Max),/,              // 14-inch Pro, scaled
+  '2056x1329': /Apple M\d (Pro|Max),/,              // 16-inch Pro, scaled
+};
+
+/** The screens a computer with the card `renderer` can have, among those that were read. */
+function screensFor(os: DesktopOs, renderer: string): ScreenReading[] {
+  const all = SCREEN_READINGS[os] ?? [];
+  if (os !== 'macos') return all;
+  return all.filter((screen) => {
+    const builtIn = MAC_SCREENS[`${screen.width}x${screen.height}`];
+    return builtIn ? builtIn.test(renderer) : true;
+  });
+}
+
+/** How many screens with a reading a new identity for `os` is drawn from. */
+export function readScreenCount(os: DesktopOs): number {
+  return (SCREEN_READINGS[os] ?? []).length;
+}
+
+/** The screen a setup names, or one that was read, as likely as it was seen; a common one without readings. */
+function chooseScreen(os: DesktopOs, renderer: string, rng: Rng, chosen?: ChosenScreen): ScreenInfo {
+  if (chosen) return screenOf(chosen);
+  const read = screensFor(os, renderer);
+  if (read.length === 0) return screenOf(pick(rng, SCREENS[os]));
+  const { weight: _weight, ...screen } = pickWeighted(rng, read, read.map((reading) => reading.weight));
+  return screen;
 }
 
 /** The parts of a desktop identity a ready-made setup (presets.ts) fixes instead of leaving to chance. */
 export interface DesktopChoice {
-  /** [width, height, taskbar or dock height] */
-  screen?: readonly [number, number, number];
+  screen?: ChosenScreen;
   gpu?: Gpu;
   cores?: number;
   memory?: number;
@@ -407,7 +461,7 @@ export function generateDesktopIdentity(os: DesktopOs, kernelVersion: string, rn
     uaData,
     hardwareConcurrency: choice.cores ?? machine.cores,
     deviceMemory: choice.memory ?? machine.memory,
-    screen: screenOf(choice.screen ?? pick(rng, SCREENS[os])),
+    screen: chooseScreen(os, gpu.renderer, rng, choice.screen),
     mobile: null,
     webgl: { vendor: gpu.vendor, renderer: gpu.renderer },
     // The card's own capabilities when a reading names it; without one the kernel

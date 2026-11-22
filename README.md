@@ -488,11 +488,18 @@ Worth knowing before relying on it:
 - **A generated identity is put together, not copied from one computer.** A new
   Windows or Mac identity takes a graphics card that Chrome reported on a real
   computer, with that card's own WebGL limits, extensions, shader precision and WebGPU
-  names, and a processor it was seen with (178 cards on Windows, 16 Apple chips). The
-  screen, the memory and the fonts are chosen beside it from what is common, so the
-  whole is a plausible computer, not a record of one; a profile made from a device's
-  own reading is. A Linux identity still names a card without its capabilities and
-  reports the machine's own: the readings have none complete for Linux.
+  names, and a processor it was seen with (178 cards on Windows, 16 Apple chips). Its
+  screen is one that was read as well, with its work area, colour depth and pixel ratio
+  (22 on Windows, 37 on a Mac, 22 on Linux). But card and screen are drawn each on its
+  own, and the memory and the fonts are chosen from what is common, so the whole is a
+  plausible computer, not a record of one; a profile made from a device's own reading
+  is. A Linux identity still names a card without its capabilities and reports the
+  machine's own: the readings have none complete for Linux.
+- **A profile's window is drawn at the profile's scale.** A screen comes with the
+  pixel ratio it was read at (1536 by 864 is a 1920 by 1080 panel at 125%, a Mac's is
+  2), and the browser is started at that ratio so that what a page reads agrees with
+  it. On your monitor that makes a profile's window look larger or smaller than your
+  other programs. A profile made before this has no ratio and uses the machine's.
 - **A limit is a claim.** A page that actually allocates beyond a claimed limit
   succeeds if the real hardware allows it.
 - **Two things still come from the machine a profile runs on.** The stand-in fonts
@@ -527,7 +534,7 @@ The graphics cards a new identity is drawn from
 browsers that Scrapfly published with
 [fingerprint-generator](https://github.com/scrapfly/fingerprint-generator) under the
 Apache License 2.0 ([its text](manager/licenses/fingerprint-generator-LICENSE.txt)).
-[`manager/tools/build-gpus.mjs`](manager/tools/build-gpus.mjs) makes the file from a
+[`manager/tools/build-readings.mjs`](manager/tools/build-readings.mjs) makes the file from a
 release of that model: per card, the capabilities most often read with it, leaving
 out software renderers, virtual machines and readings that lack something. On the
 computer this was written on, the file's entry for its own card matched what the

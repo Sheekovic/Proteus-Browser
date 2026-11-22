@@ -58,6 +58,12 @@ export interface ScreenInfo {
   availWidth: number;
   availHeight: number;
   colorDepth: number;
+  /**
+   * window.devicePixelRatio on a computer: the scale the system shows things at, which
+   * goes with the size (1536 by 864 is a 1920 by 1080 panel at 1.25). Absent means the
+   * scale of the machine the profile runs on; a phone's is in `mobile`.
+   */
+  devicePixelRatio?: number;
 }
 
 export interface ProxySettings {
@@ -300,6 +306,10 @@ export function validateProfile(profile: Profile, chosen: { deviceMemory?: boole
     fail('screen.availWidth / availHeight must fit inside the screen');
   }
   if (![24, 30, 32, 48].includes(s.colorDepth)) fail('screen.colorDepth must be 24, 30, 32 or 48');
+  if (s.devicePixelRatio !== undefined &&
+      !(typeof s.devicePixelRatio === 'number' && s.devicePixelRatio >= 1 && s.devicePixelRatio <= 4)) {
+    fail('screen.devicePixelRatio must be a number from 1 to 4');
+  }
   if (profile.mobile !== null) {
     const m = profile.mobile;
     if (!isPlainObject(m) || !isIntInRange(m.viewWidth, 200, s.width) || !isIntInRange(m.viewHeight, 200, s.height) ||

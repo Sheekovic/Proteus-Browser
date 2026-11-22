@@ -76,7 +76,8 @@ test('a Windows Chrome fingerprint becomes a Chrome profile of the kernel versio
   assert.equal(identity.uaData.platformVersion, '19.0.0');
   assert.equal(identity.hardwareConcurrency, 12);
   assert.equal(identity.deviceMemory, 16);
-  assert.deepEqual(identity.screen, { width: 1920, height: 1200, availWidth: 1920, availHeight: 1152, colorDepth: 24 });
+  assert.deepEqual(identity.screen, { width: 1920, height: 1200, availWidth: 1920, availHeight: 1152, colorDepth: 24, devicePixelRatio: 1.25 },
+      'the screen with the pixel ratio it was read at');
   assert.match(identity.webgl.renderer, /Iris\(R\) Xe/);
   assert.deepEqual(identity.webgpu, { vendor: 'intel', architecture: 'gen-12lp' });
   assert.deepEqual(identity.fonts, ['Arial', 'Calibri', 'Segoe UI', 'Aptos']);
