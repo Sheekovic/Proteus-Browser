@@ -197,8 +197,8 @@ test('a card\'s WebGL capabilities travel from the reading to the kernel config'
   const profile = await store.createProfile({ name: 'Caps' }, stored.id);
   assert.deepEqual(profile.webglCaps, caps());
   assert.deepEqual(buildKernelConfig(profile).webglCaps, caps());
-  // A generated identity names a card but has no reading of it: nothing is sent.
-  const generated = await store.createProfile({ os: 'windows' });
+  // A generated identity names a card no reading knows (Linux has none): nothing is sent.
+  const generated = await store.createProfile({ os: 'linux' });
   assert.equal(generated.webglCaps, null);
   assert.ok(!('webglCaps' in buildKernelConfig(generated)));
   // A reading made before the collector read capabilities still loads.

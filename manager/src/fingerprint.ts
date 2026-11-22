@@ -3,10 +3,13 @@
 // "Coherent" means the parts agree with each other the way they do on a real
 // machine: a Windows user agent comes with Windows client hints, a Direct3D GPU
 // string and a common Windows screen size. The value pools below are ordinary,
-// widely seen desktop configurations; nothing here is copied from another product.
+// widely seen desktop configurations; the graphics cards of Windows and Mac identities
+// are from published readings of real browsers (gpus.json).
 
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { release } from 'node:os';
+import type { WebGLCaps } from './webglCaps.ts';
 import type { OsFamily, Profile, ScreenInfo, UaData } from './profile.ts';
 import { generateAndroidIdentity } from './android.ts';
 import { generateIosIdentity } from './ios.ts';
@@ -79,6 +82,96 @@ const GPUS: Record<DesktopOs, readonly Gpu[]> = {
   ],
   macos: [metal('Apple M1'), metal('Apple M2'), metal('Apple M3 Pro')],
 };
+
+// --- Graphics cards as they were read from real computers --------------------------------
+// gpus.json (made by tools/build-gpus.mjs from readings Scrapfly published) lists, per
+// system, cards as Chrome reported them, each with what it can do and the processors
+// it was seen with. A new Windows or Mac identity takes one of them, as likely as it
+// was seen, so its card answers with that card's own limits and extensions. The file
+// has no complete reading from Linux; a Linux identity names one of the cards above
+// and reports the capabilities of the machine it runs on.
+
+interface CardReading {
+  vendor: string;
+  renderer: string;
+  webgpu: { vendor: string; architecture: string };
+  /** Index into the file's capability tables: many cards share one. */
+  caps: number;
+  /** How often the card was seen among Chrome on that system. */
+  weight: number;
+  /** navigator.hardwareConcurrency values seen with the card: [cores, how often]. */
+  cores: [number, number][];
+}
+const READINGS = JSON.parse(readFileSync(new URL('./gpus.json', import.meta.url), 'utf8')) as {
+  caps: WebGLCaps[];
+  gpus: Partial<Record<DesktopOs, CardReading[]>>;
+};
+
+/**
+ * Core counts a person's computer with this card has. The readings include virtual
+ * machines and browsers set to report two or three cores, so a count is taken only if
+ * it was seen with the card often, is four or more, and is even unless it is a Mac's.
+ */
+function coresOf(os: DesktopOs, card: CardReading): [number, number][] {
+  const sold = os === 'macos' ? APPLE_CORES[card.renderer.match(/Apple (M\d(?: Pro| Max| Ultra)?)/)?.[1] ?? ''] : undefined;
+  return card.cores.filter(([cores, share]) =>
+    sold ? sold.includes(cores) : share >= 0.1 && cores >= 4 && (os === 'macos' || cores % 2 === 0));
+}
+
+// The core counts Apple sold each chip with. A reading of another count is of a
+// virtual machine or a browser set to say so.
+const APPLE_CORES: Record<string, readonly number[]> = {
+  'M1': [8], 'M1 Pro': [8, 10], 'M1 Max': [10], 'M1 Ultra': [20],
+  'M2': [8], 'M2 Pro': [10, 12], 'M2 Max': [12], 'M2 Ultra': [24],
+  'M3': [8], 'M3 Pro': [11, 12], 'M3 Max': [14, 16], 'M3 Ultra': [28, 32],
+  'M4': [8, 10], 'M4 Pro': [12, 14], 'M4 Max': [14, 16],
+  'M5': [10],
+};
+
+/** The cards a new identity for `os` is drawn from, with their weights. Empty when the file has none. */
+function cardsFor(os: DesktopOs): CardReading[] {
+  return (READINGS.gpus[os] ?? []).filter((card) => coresOf(os, card).length > 0);
+}
+
+/** Picks by weight: `weights[i]` is how likely `items[i]` is against the others. */
+function pickWeighted<T>(rng: Rng, items: readonly T[], weights: readonly number[]): T {
+  // The generator gives whole numbers, so the weights are taken in millionths of their sum.
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  let at = rng(1_000_000) / 1_000_000 * total;
+  for (let i = 0; i < items.length; i++) {
+    at -= weights[i];
+    if (at < 0) return items[i];
+  }
+  return items[items.length - 1];
+}
+
+/** What the card named by `renderer` was read to be capable of, or null when no reading names it. */
+export function readCapabilities(os: DesktopOs, renderer: string): WebGLCaps | null {
+  const card = (READINGS.gpus[os] ?? []).find((reading) => reading.renderer === renderer);
+  return card ? structuredClone(READINGS.caps[card.caps]) : null;
+}
+
+/** How many cards with a reading a new identity for `os` is drawn from. */
+export function readCardCount(os: DesktopOs): number {
+  return cardsFor(os).length;
+}
+
+// Memory is not in the readings (the browsers they were taken from reported 8 for
+// anything larger), so it follows the processor the way it does in shops: an entry
+// listed twice is twice as likely.
+function memoryFor(os: DesktopOs, cores: number, renderer: string, rng: Rng): number {
+  if (os === 'macos') {
+    // Apple sells each chip with two or three memory sizes (18 GB reads as 16, 36 as 32).
+    if (/ (Max|Ultra)\b/.test(renderer)) return pick(rng, [32, 32]);
+    if (/ Pro\b/.test(renderer)) return cores <= 8 ? 16 : pick(rng, [16, 16, 32]);
+    // From the M4 on no Mac was sold with 8 GB.
+    return /Apple M[123],/.test(renderer) ? pick(rng, [8, 16, 16]) : pick(rng, [16, 16, 32]);
+  }
+  if (cores <= 4) return pick(rng, [8, 8, 16]);
+  if (cores <= 8) return pick(rng, [8, 16, 16]);
+  if (cores <= 12) return pick(rng, [16, 16, 32]);
+  return pick(rng, [16, 32, 32]);
+}
 
 /** A computer as far as its processor and memory go. */
 export interface Machine {
@@ -292,8 +385,18 @@ export function generateDesktopIdentity(os: DesktopOs, kernelVersion: string, rn
                                         choice: DesktopChoice = {}): GeneratedIdentity {
   const major = kernelVersion.split('.')[0];
   const identity = OS_IDENTITY[os];
-  const machine = pick(rng, MACHINES[os]);
-  const gpu = choice.gpu ?? machine.gpu ?? pick(rng, GPUS[os]);
+  let machine = pick(rng, MACHINES[os]);
+  let gpu = choice.gpu ?? machine.gpu ?? pick(rng, GPUS[os]);
+  // Unless a ready-made setup names the card: one that was read from a real computer,
+  // with a processor it was seen with.
+  const cards = choice.gpu ? [] : cardsFor(os);
+  if (cards.length > 0) {
+    const card = pickWeighted(rng, cards, cards.map((reading) => reading.weight));
+    const usual = coresOf(os, card);
+    const cores = pickWeighted(rng, usual, usual.map(([, share]) => share))[0];
+    gpu = { vendor: card.vendor, renderer: card.renderer, webgpu: { ...card.webgpu } };
+    machine = { cores, memory: memoryFor(os, cores, card.renderer, rng) };
+  }
   const uaData = buildUaData(os, kernelVersion, rng);
   return {
     seed: randomSeed(),
@@ -307,7 +410,9 @@ export function generateDesktopIdentity(os: DesktopOs, kernelVersion: string, rn
     screen: screenOf(choice.screen ?? pick(rng, SCREENS[os])),
     mobile: null,
     webgl: { vendor: gpu.vendor, renderer: gpu.renderer },
-    webglCaps: null,
+    // The card's own capabilities when a reading names it; without one the kernel
+    // reports those of the machine it runs on.
+    webglCaps: readCapabilities(os, gpu.renderer),
     webgpu: { ...gpu.webgpu },
     noise: { canvas: true, audio: true },
     fonts: fontsFor(os, uaData.platformVersion),

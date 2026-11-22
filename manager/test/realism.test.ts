@@ -49,7 +49,7 @@ test('a generated profile has a memory value its browser can report, fitting its
       // Processor and memory are sold together: no 32 GB beside four cores, at least 8 GB on a computer.
       assert.ok(identity.deviceMemory >= 8, `${os}: ${identity.deviceMemory} GB`);
       if (identity.hardwareConcurrency <= 8) assert.ok(identity.deviceMemory <= 16, `${os}: ${identity.hardwareConcurrency} cores, ${identity.deviceMemory} GB`);
-      if (os === 'macos' && /M[12]\b/.test(identity.webgl.renderer)) assert.equal(identity.hardwareConcurrency, 8, 'an M1 or M2 has eight cores');
+      if (os === 'macos' && /Apple M[12],/.test(identity.webgl.renderer)) assert.equal(identity.hardwareConcurrency, 8, 'an M1 or M2 has eight cores');
     }
   }
 });

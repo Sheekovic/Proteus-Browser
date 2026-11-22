@@ -37,7 +37,9 @@ from tests.
 ## 4. A kernel that gives less away
 
 - [x] Media devices: the number, kind and names of cameras, microphones and speakers from the profile
-- [ ] Generated identities with a graphics card's real capabilities *(needs: readings from more devices)*
+- [x] Generated Windows and Mac identities with a graphics card's real capabilities, from published readings of real browsers
+- [ ] The same for Linux and for phones *(needs: readings; the published ones have none complete)*
+- [ ] Screens, and the fonts beside a card, from readings too, so an identity is one computer's and not a plausible mix
 - [x] Battery and network information that fit the claimed device
 - [x] A memory value its browser can report, fitting the processor, and checked when set by hand
 - [x] A TLS hello like stock Chrome's: without the experiment a Chromium build adds to it

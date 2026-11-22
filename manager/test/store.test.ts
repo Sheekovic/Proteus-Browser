@@ -142,7 +142,7 @@ test('the kernel config carries every setting the kernel patches read', async ()
   assert.deepEqual(Object.keys(config).sort(), [
     'audioNoise', 'battery', 'canvasNoise', 'deviceMemory', 'fontAliases', 'fonts', 'hardwareConcurrency', 'languages',
     'mediaDevices', 'platform',
-    'screen', 'seed', 'timezone', 'uaData', 'userAgent', 'voices', 'webRtcPolicy', 'webglRenderer',
+    'screen', 'seed', 'timezone', 'uaData', 'userAgent', 'voices', 'webRtcPolicy', 'webglCaps', 'webglRenderer',
     'webglVendor', 'webgpu',
   ]);
   assert.equal(config.webRtcPolicy, 'proxyOnly', 'new profiles hide the real IP from WebRTC by default');
@@ -239,7 +239,9 @@ test('the kernel configuration of a generated profile stays small', async () => 
         geolocation: { latitude: 52.52, longitude: 13.405, accuracy: 40 },
       });
       const bytes = Buffer.byteLength(JSON.stringify(buildKernelConfig(profile)));
-      assert.ok(bytes < 12_000, `${os}: ${bytes} bytes`);
+      // With a card's capabilities (some 3,500 bytes) a Mac's is the largest; a start
+      // accepts 16,000.
+      assert.ok(bytes < 14_000, `${os}: ${bytes} bytes`);
     }
   }
 });

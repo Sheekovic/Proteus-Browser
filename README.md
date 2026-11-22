@@ -84,7 +84,8 @@ Without a profile the kernel behaves like the Chromium it is built from.
 
 - Profiles stored as plain JSON files, each with its own browser data directory.
 - Identity generators for Windows, macOS, Linux, Android and iPhone, and ready-made
-  setups (ordinary laptops, desktops and phones) to choose from instead.
+  setups (ordinary laptops, desktops and phones) to choose from instead. A Windows or
+  Mac identity gets a graphics card read from a real computer, with its capabilities.
 - Proxies per profile (HTTP and SOCKS5, with or without a login).
 - Proxies checked before use (where one comes out, and how fast), and tolerant of the
   way real ones behave: retries, several lookup services, time limits.
@@ -484,9 +485,14 @@ Worth knowing before relying on it:
 - **One kernel, two handshakes.** A Chrome profile shakes hands as the Chrome version
   the kernel was built from, an iPhone profile as the one Safari that was measured.
   A profile claiming another Chrome version is reported, not fixed.
-- **Generated identities name a graphics card without its capabilities.** Only
-  profiles made from a real device's reading report that card's WebGL limits; the
-  others report the machine's own.
+- **A generated identity is put together, not copied from one computer.** A new
+  Windows or Mac identity takes a graphics card that Chrome reported on a real
+  computer, with that card's own WebGL limits, extensions, shader precision and WebGPU
+  names, and a processor it was seen with (178 cards on Windows, 16 Apple chips). The
+  screen, the memory and the fonts are chosen beside it from what is common, so the
+  whole is a plausible computer, not a record of one; a profile made from a device's
+  own reading is. A Linux identity still names a card without its capabilities and
+  reports the machine's own: the readings have none complete for Linux.
 - **A limit is a claim.** A page that actually allocates beyond a claimed limit
   succeeds if the real hardware allows it.
 - **Two things still come from the machine a profile runs on.** The stand-in fonts
@@ -515,6 +521,18 @@ use it for fraud, to evade a ban, or to impersonate someone else.
 
 The patches are original work written for this project. Proteus is not affiliated
 with, and contains no code or data from, any commercial anti-detect browser.
+
+The graphics cards a new identity is drawn from
+([`manager/src/gpus.json`](manager/src/gpus.json)) are taken from readings of real
+browsers that Scrapfly published with
+[fingerprint-generator](https://github.com/scrapfly/fingerprint-generator) under the
+Apache License 2.0 ([its text](manager/licenses/fingerprint-generator-LICENSE.txt)).
+[`manager/tools/build-gpus.mjs`](manager/tools/build-gpus.mjs) makes the file from a
+release of that model: per card, the capabilities most often read with it, leaving
+out software renderers, virtual machines and readings that lack something. On the
+computer this was written on, the file's entry for its own card matched what the
+kernel reads there in every one of 55 limits, both extension lists and the shader
+precision.
 
 ## License
 
