@@ -43,6 +43,12 @@ export interface Settings {
    * again while the browser comes up (see launcher.ts). 0 looks first at every start.
    */
   exitCacheMinutes: number;
+  /**
+   * Whether the manager asks GitHub by itself, at a start and once a day, if there is
+   * a newer release (one small request, not through any profile's proxy). Nothing is
+   * downloaded until the user says so. Off: only the button in the settings asks.
+   */
+  autoUpdateCheck: boolean;
 }
 
 /** The lookup setting of versions that asked a single service. */
@@ -53,6 +59,7 @@ const DEFAULT_SETTINGS: Settings = {
   exitLookupUrl: 'https://ipwho.is/ https://api.ip.sb/geoip https://ipapi.co/json/ https://ipinfo.io/json',
   exitWatchMinutes: 10,
   exitCacheMinutes: 30,
+  autoUpdateCheck: true,
 };
 
 /** A fingerprint read from a real device (see collected.ts), as kept on disk. */
@@ -177,6 +184,10 @@ export class Store {
         throw new ValidationError('exitCacheMinutes must be a number from 0 to 1440');
       }
       next.exitCacheMinutes = patch.exitCacheMinutes;
+    }
+    if (patch.autoUpdateCheck !== undefined) {
+      if (typeof patch.autoUpdateCheck !== 'boolean') throw new ValidationError('autoUpdateCheck must be true or false');
+      next.autoUpdateCheck = patch.autoUpdateCheck;
     }
     await mkdir(this.dataDir, { recursive: true });
     await writeJson(join(this.dataDir, 'settings.json'), next);

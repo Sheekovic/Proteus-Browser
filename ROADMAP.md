@@ -62,7 +62,8 @@ from tests.
 - [x] An installer in the Windows bundle: a copy under the user's programs, shortcuts, an entry to remove it (no administrator rights)
 - [ ] A signed one *(needs: a code-signing certificate)*
 - [x] "Is there a newer version?", asked of GitHub when the user asks
-- [ ] Fetching and putting in place the newer version from inside the app
+- [x] Fetching and putting in place the newer version from inside the app: asked for at each start, fetched when the user says so, checked against the release's checksums
+- [ ] Releases that are signed, so that an update shows who made it and not only that it arrived whole
 - [x] Release builds made by one command on the build server (`release/make-release.ps1`)
 
 ## Done before this list existed

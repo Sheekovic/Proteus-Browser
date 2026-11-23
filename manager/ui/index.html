@@ -141,6 +141,12 @@
   .note { font-size: 13px; color: var(--muted); margin: 0; }
   .note.ok { color: var(--ok); font-weight: 600; }
   .note.bad { color: var(--danger); font-weight: 600; }
+  .update-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 16px; padding: 12px 16px;
+    border-radius: 12px; background: var(--accent-soft); border: 1.5px solid var(--accent); font-size: 14px; }
+  .update-bar[hidden] { display: none; }
+  .update-bar .words { flex: 1 1 260px; }
+  .update-bar.bad { background: var(--danger-soft); border-color: var(--danger); }
+  .update-bar progress { width: 160px; }
 
   /* Choosing a system */
   .systems { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
@@ -213,6 +219,13 @@
 </aside>
 
 <main>
+  <!-- A newer release: found at a start (unless turned off), or when asked in the settings. -->
+  <div class="update-bar" id="update-bar" role="status" hidden>
+    <span class="words" id="update-words"></span>
+    <progress id="update-progress" max="100" value="0" hidden></progress>
+    <a id="update-notes" target="_blank" rel="noopener" hidden>What is new</a>
+    <button class="button small primary" type="button" id="update-go" hidden></button>
+  </div>
   <!-- Profiles -->
   <section class="view" id="view-profiles">
     <div class="head">
@@ -275,6 +288,8 @@
       </div>
       <p class="hint"><button class="button small" type="button" id="check-update">Check for a newer version</button>
         <span id="update-result"></span></p>
+      <label class="check"><input name="autoUpdateCheck" type="checkbox">Ask GitHub at each start, and once a day, whether there is a newer
+        version (one small request; nothing is downloaded until you say so)</label>
       <h2 style="margin-top:20px">Proxies</h2>
       <p class="hint">Before a profile with a proxy starts, Proteus asks through that proxy where it comes out, and matches the
         browser's time zone, location and WebRTC address to it.</p>
@@ -696,9 +711,74 @@ $('check-update').addEventListener('click', async () => {
       link.rel = 'noopener';
       result.append(link);
     }
+    await showUpdate();
   } catch (error) {
     result.textContent = error.message;
   }
+});
+
+// The bar at the top: a newer version, how far its download is, and the button that
+// fetches it and then puts it in. Asks the manager only, which asks GitHub by itself.
+let updateTimer = 0;
+let applyWhenReady = false;
+async function showUpdate() {
+  clearTimeout(updateTimer);
+  let status;
+  try { status = await api('GET', '/api/update/status'); } catch { updateTimer = setTimeout(showUpdate, 5000); return; }
+  const bar = $('update-bar'), words = $('update-words'), go = $('update-go'), progress = $('update-progress'), notes = $('update-notes');
+  const working = ['downloading', 'checking', 'unpacking'].includes(status.state);
+  const newer = status.report && status.report.newer;
+  bar.hidden = !(newer || working || status.state === 'ready' || status.state === 'failed');
+  bar.classList.toggle('bad', status.state === 'failed');
+  notes.hidden = !newer;
+  if (newer) notes.href = status.report.page;
+  progress.hidden = status.state !== 'downloading' || !status.total;
+  if (!progress.hidden) progress.value = Math.round(100 * status.received / status.total);
+  go.hidden = working || !status.canUpdate;
+  go.disabled = false;
+  if (working) {
+    const megabytes = (n) => (n / 1048576).toFixed(0);
+    words.textContent = status.state === 'downloading' && status.total
+        ? `${status.message} ${megabytes(status.received)} of ${megabytes(status.total)} MB`
+        : status.message;
+  } else if (status.state === 'ready') {
+    words.textContent = `${status.message} Proteus closes and opens again; profiles and settings stay.`;
+    go.textContent = 'Restart and update';
+    if (applyWhenReady) { applyWhenReady = false; await applyUpdate(); return; }
+  } else if (status.state === 'failed') {
+    words.textContent = status.message;
+    go.textContent = 'Try again';
+  } else if (newer) {
+    words.textContent = status.report.message + (status.canUpdate ? '' : ' ' + status.why);
+    go.textContent = 'Update';
+  }
+  // Often while something is on its way, seldom otherwise.
+  updateTimer = setTimeout(showUpdate, working ? 1500 : 60000);
+}
+async function applyUpdate() {
+  try {
+    const answer = await api('POST', '/api/update/apply', {});
+    $('update-words').textContent = answer.message;
+    $('update-go').hidden = true;
+  } catch (error) {
+    toast(error.message, true);
+    await showUpdate();
+  }
+}
+$('update-go').addEventListener('click', async () => {
+  const go = $('update-go');
+  go.disabled = true;
+  try {
+    const status = await api('GET', '/api/update/status');
+    if (status.state === 'ready') return await applyUpdate();
+    // One press does both: it is put in as soon as it is ready, if nothing is running then.
+    applyWhenReady = true;
+    await api('POST', '/api/update/download', {});
+  } catch (error) {
+    applyWhenReady = false;
+    toast(error.message, true);
+  }
+  await showUpdate();
 });
 
 $('new-profile').addEventListener('click', () => drawer(true));
@@ -831,6 +911,7 @@ async function loadSettings() {
   form.exitLookupUrl.value = settings.exitLookupUrl;
   form.exitWatchMinutes.value = settings.exitWatchMinutes;
   form.exitCacheMinutes.value = settings.exitCacheMinutes;
+  form.autoUpdateCheck.checked = settings.autoUpdateCheck;
   const state = $('kernel-state');
   state.textContent = settings.kernelPath ? `version ${settings.kernelVersion}` : 'not set — see Settings';
   state.classList.toggle('warn', !settings.kernelPath);
@@ -846,6 +927,7 @@ $('settings').addEventListener('submit', async (event) => {
       exitLookupUrl: f.exitLookupUrl.value.trim(),
       exitWatchMinutes: Number(f.exitWatchMinutes.value) || 0,
       exitCacheMinutes: Number(f.exitCacheMinutes.value) || 0,
+      autoUpdateCheck: f.autoUpdateCheck.checked,
     });
     toast('Settings saved.');
     await loadSettings();
@@ -861,6 +943,9 @@ $('details-close').addEventListener('click', () => $('details').close());
 show(['profiles', 'devices', 'settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'profiles');
 Promise.all([loadProfiles(), loadSettings(), loadFingerprints()]).catch((error) => toast(error.message, true));
 setInterval(() => loadProfiles().catch(() => {}), 4000);
+// The manager's look at the releases takes a moment after a start.
+showUpdate();
+setTimeout(showUpdate, 6000);
 // A device saved from the collector page in another tab shows up on return.
 window.addEventListener('focus', () => loadFingerprints().catch(() => {}));
 </script>

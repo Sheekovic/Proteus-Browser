@@ -259,6 +259,7 @@ export const TOOLS: readonly Tool[] = [
       exitLookupUrl: text('Services asked for a proxy\'s exit address and time zone, separated by spaces; empty turns the lookup off.'),
       exitWatchMinutes: { type: 'number', description: 'How often, in minutes, a running profile\'s proxy exit is looked at again; 0 turns that off.' },
       exitCacheMinutes: { type: 'number', description: 'How long, in minutes, a proxy exit seen twice in a row lets a profile start without waiting for the lookup; 0 looks first at every start.' },
+      autoUpdateCheck: { type: 'boolean', description: 'Whether the manager asks GitHub by itself, at a start and once a day, if there is a newer release. Nothing is downloaded until the user says so.' },
     }),
     run: (args, context) => context.store.updateSettings(args),
   },

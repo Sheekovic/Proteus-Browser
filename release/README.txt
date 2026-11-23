@@ -20,6 +20,12 @@ Closing the Proteus window ends Proteus. If profiles are still running they are
 kept, and end when you close the small console window (Windows) or press Ctrl+C
 in the terminal (Linux).
 
+Updates: at each start Proteus asks GitHub whether there is a newer version (one
+small request; turn it off in the settings). When there is, the window says so
+and offers to update. Nothing is downloaded until you press Update; then the
+new version is fetched, checked against the release's checksum, and put in the
+place of this one. Profiles and settings stay.
+
 For programs and AI assistants: the same things can be done through the API at
 http://127.0.0.1:5310/api and the MCP endpoint at http://127.0.0.1:5310/mcp.
 

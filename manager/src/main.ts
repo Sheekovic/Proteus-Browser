@@ -11,6 +11,7 @@ import { appWindowArguments, findKernel, openCommand } from './bundled.ts';
 import { Launcher } from './launcher.ts';
 import { createApiServer } from './server.ts';
 import { Store } from './store.ts';
+import { Updater } from './updater.ts';
 import { allowSandboxToReadKernel } from './winSandbox.ts';
 
 const DEFAULT_PORT = 5310;
@@ -30,7 +31,15 @@ const argv = process.argv.slice(2);
 const managerDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const store = new Store();
 const launcher = new Launcher(store);
-const server = createApiServer({ store, launcher, uiDir: join(managerDir, 'ui') });
+// For trying the updater against a pretend list of releases on this machine; an
+// address anywhere else is not taken.
+const pretendUrl = process.env.PROTEUS_RELEASES_URL ?? '';
+const pretend = /^http:\/\/127\.0\.0\.1:\d+\//.test(pretendUrl) ? new URL(pretendUrl) : null;
+const updater = new Updater({
+  managerDir, dataDir: store.dataDir,
+  ...(pretend ? { releasesUrl: pretend.href, downloadPrefix: `${pretend.origin}/` } : {}),
+});
+const server = createApiServer({ store, launcher, uiDir: join(managerDir, 'ui'), updater, quit: () => void shutdown(true) });
 
 // With no kernel chosen yet, or one that is no longer there (the folder was moved),
 // use the one shipped next to the manager.
@@ -86,7 +95,24 @@ server.listen(parsePort(argv), '127.0.0.1', () => {
   console.log(`Data directory: ${store.dataDir}`);
   if (argv.includes('--open')) void openWindow(url);
   else if (argv.includes('--open-browser')) openInBrowser(url);
+  void lookForUpdates();
 });
+
+/**
+ * What an earlier update left is cleared, and - in a release folder, unless turned off -
+ * GitHub is asked now and once a day whether there is a newer release. The window
+ * shows what was found; nothing is fetched until the user says so.
+ */
+async function lookForUpdates(): Promise<void> {
+  await updater.tidy().catch(() => {});
+  const look = async () => {
+    if (updater.current === null || !(await store.getSettings()).autoUpdateCheck) return;
+    const report = await updater.check().catch(() => null);
+    if (report?.newer) console.log(`${report.message} Update from the Proteus window.`);
+  };
+  await look();
+  setInterval(() => void look(), 24 * 60 * 60 * 1000).unref();
+}
 
 function openInBrowser(url: string): void {
   const [program, ...args] = openCommand(url);
@@ -116,12 +142,14 @@ async function openWindow(url: string): Promise<void> {
 }
 
 let shuttingDown = false;
-async function shutdown(): Promise<void> {
+async function shutdown(now = false): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log('Stopping running profiles ...');
   await launcher.stopAll();
   server.close(() => process.exit(0));
+  // For an update the window is still open and holds its connections: they are cut.
+  if (now) server.closeAllConnections();
 }
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => void shutdown());
+process.on('SIGTERM', () => void shutdown());

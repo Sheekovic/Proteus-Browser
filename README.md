@@ -42,6 +42,27 @@ They are previews: unsigned, so Windows warns before running them, and not optim
 23.10 and later) the start script says so and names the one command that lets the
 browser use its sandbox: `sudo ./linux-sandbox.sh --install`.
 
+### Updates
+
+A release folder updates itself. At each start, and once a day while it runs, the
+manager asks GitHub which release is the newest: one small request, made by the manager
+itself and not through any profile's proxy. When there is a newer one, a bar at the top
+of the window says so, with an **Update** button. Nothing is downloaded before that
+button is pressed. Then the release's file for your system is fetched into the data
+folder, its SHA-256 is compared with the one the release lists, it is unpacked, and
+Proteus closes, puts the new kernel, manager and Node.js in the place of the old ones
+and opens again. Profiles and settings are not in the program folder and stay as they
+are. No profile may be running when the new version is put in.
+
+- Turn the asking off in the settings ("Ask GitHub at each start…"); the button
+  "Check for a newer version" there still asks when pressed.
+- The checksum shows the file is the one the release holds, not who made the release:
+  both come from the same place over HTTPS, and nothing is signed.
+- A working tree (and the `dist` folder made from one) is not a release and is not
+  updated this way. Nor is a Proteus whose data folder is inside its program folder.
+- If an update did not take, `update/apply.log` in the data folder says what the last
+  attempt did.
+
 ## Contents
 
 - [What it does](#what-it-does)
@@ -104,6 +125,7 @@ Without a profile the kernel behaves like the Chromium it is built from.
   run a script in it, take a picture of it, read and set cookies.
 - Every started profile also exposes a DevTools endpoint, so Puppeteer, Playwright or
   Selenium can drive it directly.
+- Updates itself from the releases on GitHub, when you say so (see [Updates](#updates)).
 - No dependencies: Node's standard library only.
 
 ## How it works
@@ -486,6 +508,15 @@ libraries are not part of this repository:
 ```bash
 mkdir libraries && cd libraries && npm init -y && npm install puppeteer-core playwright-core && cd ..
 node manager/test/e2e/automation.mjs <path to chrome> libraries
+```
+
+**Updating** — a pretend release folder runs the manager, a pretend GitHub on this
+machine offers a newer one, and the manager is asked to fetch it and put it in; the
+script it leaves has to replace the folder and start Proteus again. Nothing is fetched
+from the internet:
+
+```bash
+node manager/test/e2e/update.mjs
 ```
 
 **Detection sites** — runs fresh Windows, Android and iPhone profiles past public

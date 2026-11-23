@@ -1,7 +1,10 @@
 // The local HTTP API and the web UI it serves.
 //
 //   GET    /api/health
-//   GET    /api/update                   is there a newer release? (asks GitHub; only when called)
+//   GET    /api/update                   is there a newer release? (asks GitHub)
+//   GET    /api/update/status            what is known, and how far a download is (asks nobody)
+//   POST   /api/update/download          fetch the newer release and make it ready
+//   POST   /api/update/apply             put it in and start again (no profile may be running)
 //   GET    /api/settings                 PUT /api/settings
 //   GET    /api/profiles                 POST /api/profiles
 //   GET    /api/profiles/:id             PATCH /api/profiles/:id      DELETE /api/profiles/:id
@@ -52,7 +55,7 @@ import { type Profile, validateProxy, ValidationError } from './profile.ts';
 import { toProfileInput } from './profileInput.ts';
 import { checkProxy } from './proxyExit.ts';
 import { NotFoundError, type Store, type StoredFingerprint } from './store.ts';
-import { bundleVersion, checkForUpdate } from './update.ts';
+import { Updater } from './updater.ts';
 
 class HttpError extends Error {
   readonly status: number;
@@ -67,7 +70,7 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 /** What the API offers, for GET /api. */
 const ROUTES = [
-  'GET /api/health', 'GET /api/update', 'GET /api/settings', 'PUT /api/settings', 'POST /api/proxy/check', 'GET /api/presets',
+  'GET /api/health', 'GET /api/update', 'GET /api/update/status', 'POST /api/update/download', 'POST /api/update/apply', 'GET /api/settings', 'PUT /api/settings', 'POST /api/proxy/check', 'GET /api/presets',
   'GET /api/profiles', 'POST /api/profiles', 'GET /api/profiles/:id', 'PATCH /api/profiles/:id', 'DELETE /api/profiles/:id',
   'GET /api/profiles/:id/status', 'POST /api/profiles/:id/start', 'POST /api/profiles/:id/stop', 'GET /api/profiles/:id/transport', 'POST /api/profiles/:id/regenerate', 'POST /api/profiles/:id/duplicate', 'POST /api/profiles/bulk',
   'GET /api/profiles/:id/tabs', 'POST /api/profiles/:id/tabs', 'DELETE /api/profiles/:id/tabs/:tab',
@@ -128,9 +131,14 @@ export interface ServerOptions {
   launcher: Launcher;
   /** Directory holding index.html for the web UI. */
   uiDir: string;
+  /** Fetches and puts in newer releases; made from `uiDir` when not given. */
+  updater?: Updater;
+  /** Ends the manager, for an update to take its place. Without it nothing is put in. */
+  quit?: () => void;
 }
 
-export function createApiServer({ store, launcher, uiDir }: ServerOptions): Server {
+export function createApiServer({ store, launcher, uiDir, updater: given, quit }: ServerOptions): Server {
+  const updater = given ?? new Updater({ managerDir: join(uiDir, '..'), dataDir: store.dataDir });
   /**
    * The API has no login, so it must only ever answer the local user. Binding to
    * 127.0.0.1 keeps other machines out; these checks keep other web pages out:
@@ -189,9 +197,33 @@ export function createApiServer({ store, launcher, uiDir }: ServerOptions): Serv
     if (method === 'GET' && path === '/api/health') {
       return sendJson(response, 200, { ok: true, name: 'proteus-manager' });
     }
-    // Asked for by the user, never by the manager itself: it contacts GitHub.
-    if (method === 'GET' && path === '/api/update') {
-      return sendJson(response, 200, await checkForUpdate(bundleVersion(join(uiDir, '..'))));
+    // This one contacts GitHub; the status below does not.
+    if (method === 'GET' && path === '/api/update') return sendJson(response, 200, await updater.check());
+    if (method === 'GET' && path === '/api/update/status') return sendJson(response, 200, updater.status());
+    if (method === 'POST' && path === '/api/update/download') {
+      await readJsonBody(request);
+      try {
+        return sendJson(response, 202, await updater.prepare());
+      } catch (error) {
+        throw new HttpError(409, (error as Error).message);
+      }
+    }
+    if (method === 'POST' && path === '/api/update/apply') {
+      await readJsonBody(request);
+      // Putting the new version in ends every browser of this one: that is the user's work.
+      const running = launcher.runningCount();
+      if (running > 0) throw new HttpError(409, `${running} profile(s) are running. Stop them, then update.`);
+      if (quit === undefined) throw new HttpError(409, 'This manager cannot be restarted from here.');
+      let message: string;
+      try {
+        message = await updater.apply();
+      } catch (error) {
+        throw new HttpError(409, (error as Error).message);
+      }
+      sendJson(response, 200, { message });
+      // After the answer is on its way.
+      setTimeout(quit, 300);
+      return;
     }
     if (path === '/api/profiles/bulk' && method === 'POST') {
       const made = await createProfiles(store, (await readJsonBody(request)) as BulkRequest);
