@@ -11,7 +11,11 @@
 #
 # A failing step stops the run: no bundle is made from a kernel that failed a test.
 #
-# usage: server-release.sh <version> <jobs> [commit message for uncommitted kernel changes]
+# usage: server-release.sh <version> <jobs> [commit message for uncommitted kernel changes] [official]
+#   official   the bundles hold the optimised kernels: after the steps above, both are
+#              built in folders of their own (many hours when the kernel changed) and
+#              the bundles are made from those. The tests of step 1 ran on the fast
+#              Linux build of the same sources.
 #   /opt/proteus/stage          kernel src/, tests/, edits/  (as push-and-test.ps1 stages them)
 #   /opt/proteus/release-stage  manager/, release/, LICENSE
 # Writes /opt/proteus/release.log (by its caller), release-tests.log and, when
@@ -22,6 +26,8 @@ ROOT=/opt/proteus
 VERSION=$1
 JOBS=$2
 MESSAGE=${3:-}
+FLAVOUR=${4:-}
+[ -z "$FLAVOUR" ] || [ "$FLAVOUR" = official ] || { echo "unknown flavour $FLAVOUR"; exit 2; }
 SRC="$ROOT/chromium/src"
 # The commit the patch series starts from, and the Windows toolchain package the
 # cross-build uses (upstream's hash, and the hash of the package made on this server).
@@ -86,7 +92,18 @@ if [ "$(cat build-win.done)" != "0" ]; then
   exit 1
 fi
 
+if [ "$FLAVOUR" = official ]; then
+  for target in linux win; do
+    echo "== 3b. official $target kernel  $(date -u +%FT%TZ)"
+    bash ./server-build.sh "$target" "$JOBS" "$TOOLCHAIN_UPSTREAM" "$TOOLCHAIN_OURS" official > "build-$target-official.log" 2>&1 || true
+    if [ "$(cat "build-$target-official.done")" != "0" ]; then
+      grep -a -A14 'FAILED' "build-$target-official.log" | cut -c1-500 | head -60
+      exit 1
+    fi
+  done
+fi
+
 echo "== 4. bundles  $(date -u +%FT%TZ)"
 sed -i 's/\r$//' release-stage/release/*.sh release-stage/release/README.txt
-bash release-stage/release/package.sh "$VERSION" "$ROOT/release-stage" "$ROOT/release-out"
+bash release-stage/release/package.sh "$VERSION" "$ROOT/release-stage" "$ROOT/release-out" $FLAVOUR
 echo "RELEASE-OK $VERSION $(date -u +%FT%TZ)"

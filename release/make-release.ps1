@@ -6,12 +6,14 @@
 # several hours (a full rebuild); the run continues on the server if this window is
 # closed.
 #
-# usage: make-release.ps1 <version> [-Message <text>] [-Jobs <n>] [-NoWait]
+# usage: make-release.ps1 <version> [-Message <text>] [-Jobs <n>] [-NoWait] [-Official]
 #        make-release.ps1 <version> -Fetch        only fetch the results of a finished run
 #   <version>  the bundle version, e.g. 0.1.0-preview.4
 #   -Message   what changed in the kernel, for its commit; needed only when the kernel
 #              sources differ from what the server has committed
 #   -NoWait    start the run and return; fetch its results later with -Fetch
+#   -Official  bundles with the optimised kernels, built after the tests in folders of
+#              their own: many more hours when the kernel changed
 #
 # Results: out\release-<version>\ (the bundles and SHA256SUMS.txt) and kernel\patches\
 # (the patch series the bundles were built from). Nothing is published: uploading a
@@ -21,6 +23,7 @@ param(
   [string]$Message = '',
   [int]$Jobs = 8,
   [switch]$NoWait,
+  [switch]$Official,
   [switch]$Fetch
 )
 $ErrorActionPreference = 'Stop'
@@ -65,7 +68,7 @@ if (-not $Fetch) {
   Invoke-Remote ("cd /opt/proteus && rm -rf stage release-stage && mkdir stage release-stage && " +
       "tar -xf stage.tar -C stage && tar -xf release-stage.tar -C release-stage && " +
       "sed -i 's/\r`$//' server-test.sh server-build.sh server-release.sh && chmod +x server-*.sh && rm -f release.done && " +
-      "(nohup setsid ./server-release.sh '$Version' $Jobs '$Message' > release.log 2>&1 < /dev/null &) ; echo started") | Out-Null
+      "(nohup setsid ./server-release.sh '$Version' $Jobs '$Message' $(if ($Official) { 'official' }) > release.log 2>&1 < /dev/null &) ; echo started") | Out-Null
   Write-Host "Release $Version started on the build server."
   if ($NoWait) {
     Write-Host "Fetch the results when it has finished:  make-release.ps1 $Version -Fetch"

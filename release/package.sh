@@ -9,14 +9,24 @@
 #   Proteus-<version>-linux-x64.tar.xz
 #   SHA256SUMS.txt
 #
-# usage: package.sh <version> <stage dir> <output dir>
+# usage: package.sh <version> <stage dir> <output dir> [official]
 #   <stage dir> holds manager/, release/ and LICENSE from the repository.
+#   official    take the optimised kernels (out/WinOfficial and out/LinuxOfficial, see
+#               server-build.sh) instead of the fast ones
 set -euo pipefail
 
 VERSION=$1
 STAGE=$(realpath "$2")
 OUT=$(realpath -m "$3")
+FLAVOUR=${4:-}
 SRC=/opt/proteus/chromium/src
+case "$FLAVOUR" in
+  "")       KERNEL_WIN="$SRC/out/Win";         KERNEL_LIN="$SRC/out/Linux" ;;
+  official) KERNEL_WIN="$SRC/out/WinOfficial"; KERNEL_LIN="$SRC/out/LinuxOfficial" ;;
+  *) echo "unknown flavour $FLAVOUR" >&2; exit 2 ;;
+esac
+[ -f "$KERNEL_WIN/chrome.exe" ] && [ -f "$KERNEL_LIN/chrome" ] || { echo "there is no built kernel in $KERNEL_WIN and $KERNEL_LIN" >&2; exit 1; }
+echo "kernels: $KERNEL_WIN, $KERNEL_LIN"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$OUT"
@@ -51,11 +61,11 @@ common() {  # common <bundle dir>
 # --- Windows
 WIN="$WORK/win/Proteus"
 common "$WIN"
-(cd "$SRC/out/Win" && cp --parents chrome.exe chrome.dll chrome_elf.dll chrome_wer.dll ./*.pak icudtl.dat \
+(cd "$KERNEL_WIN" && cp --parents chrome.exe chrome.dll chrome_elf.dll chrome_wer.dll ./*.pak icudtl.dat \
     snapshot_blob.bin ./*.manifest d3dcompiler_47.dll dxcompiler.dll libEGL.dll libGLESv2.dll \
     vk_swiftshader.dll vk_swiftshader_icd.json vulkan-1.dll msvcp140*.dll vcruntime140*.dll \
     vccorlib140.dll locales/*.pak "$WIN/kernel/")
-cp -r "$SRC/out/Win/MEIPreload" "$WIN/kernel/"
+cp -r "$KERNEL_WIN/MEIPreload" "$WIN/kernel/"
 NODE_WIN=$(node_file "win-x64.zip")
 unzip -q "$NODE_WIN" -d "$WORK/node-win"
 cp "$WORK"/node-win/node-*/node.exe "$WIN/node/"
@@ -71,10 +81,10 @@ cp "$STAGE/branding/proteus.ico" "$WIN/proteus.ico"
 # --- Linux
 LIN="$WORK/linux/Proteus"
 common "$LIN"
-(cd "$SRC/out/Linux" && cp --parents chrome chrome_crashpad_handler ./*.pak icudtl.dat v8_context_snapshot.bin \
+(cd "$KERNEL_LIN" && cp --parents chrome chrome_crashpad_handler ./*.pak icudtl.dat v8_context_snapshot.bin \
     libEGL.so libGLESv2.so libvk_swiftshader.so vk_swiftshader_icd.json libvulkan.so.1 \
     locales/*.pak "$LIN/kernel/")
-[ -d "$SRC/out/Linux/MEIPreload" ] && cp -r "$SRC/out/Linux/MEIPreload" "$LIN/kernel/"
+[ -d "$KERNEL_LIN/MEIPreload" ] && cp -r "$KERNEL_LIN/MEIPreload" "$LIN/kernel/"
 rm -f "$LIN/kernel/headless_command_resources.pak"
 strip --strip-unneeded "$LIN/kernel/chrome" "$LIN/kernel/chrome_crashpad_handler" "$LIN"/kernel/*.so "$LIN/kernel/libvulkan.so.1"
 NODE_LIN=$(node_file "linux-x64.tar.xz")

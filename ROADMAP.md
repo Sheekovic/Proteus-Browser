@@ -58,7 +58,7 @@ from tests.
 ## 5. Shipping
 
 - [x] Preview bundles for Windows and Linux that run as they are
-- [ ] An optimised "official" build *(in progress: `server-build.sh <target> ... official` builds it next to the fast one)*
+- [x] An optimised "official" build in the bundles (`make-release.ps1 <version> -Official`): link-time optimisation, without profile-guided optimisation, which needs Google's profiles of its own builds
 - [x] An installer in the Windows bundle: a copy under the user's programs, shortcuts, an entry to remove it (no administrator rights)
 - [ ] A signed one *(needs: a code-signing certificate)*
 - [x] "Is there a newer version?", asked of GitHub when the user asks
