@@ -138,6 +138,54 @@ test('a preset can be overridden, and a wrong one is refused with the list of pr
   await assert.rejects(store.createProfile({}, '00000000-0000-4000-8000-000000000000', 'pixel-8'), /not both/);
 });
 
+// --- A phone's voices, as read from a phone --------------------------------------------
+
+/** What the kernel makes of a voice's entry (VoiceUri in proteus_config.cc). */
+function addressInKernel(voice: { name: string; lang: string; uri?: string }, shapes: string[]): string {
+  const written = voice.uri ?? '';
+  if (written !== '' && !written.startsWith('#')) return written;
+  let number = 0;
+  let last = voice.name.replaceAll(' ', '');
+  if (written !== '') {
+    const match = /^#(\d+)(?::(.*))?$/s.exec(written);
+    if (!match) return '';
+    number = Number(match[1]);
+    if (match[2] !== undefined) last = match[2];
+  }
+  if (number >= shapes.length) return '';
+  return shapes[number].replace(/%([ln])/g, (_, mark) => mark === 'l' ? voice.lang : last);
+}
+
+test('a phone profile has the voices its browser was read to have, each with its address', async () => {
+  const android = await store.createProfile({ os: 'android' });
+  assert.equal(android.voices.length, 92);
+  assert.deepEqual(android.voices.filter((voice) => voice.default).map((voice) => voice.name), ['Assamese India'],
+      'Chrome on a phone marks only the first');
+  const androidConfig = buildKernelConfig(android) as Record<string, any>;
+  assert.ok(!('voiceUris' in androidConfig), "Chrome's addresses are the names: nothing to write");
+  assert.deepEqual(androidConfig.voices[1], { name: 'Bulgarian Bulgaria', lang: 'bg_BG' }, 'only what differs from the kernel\'s defaults');
+
+  const iphone = await store.createProfile({ os: 'ios' });
+  assert.equal(iphone.voices.length, 68);
+  assert.ok(iphone.voices.every((voice) => voice.default && voice.local), 'Safari marks every voice as the default');
+  const config = buildKernelConfig(iphone) as Record<string, any>;
+  assert.equal(config.voiceUris[0], 'com.apple.voice.super-compact.%l.%n');
+  // Written short, every address comes out of the kernel as it was read from the phone.
+  iphone.voices.forEach((voice, index) => {
+    assert.equal(addressInKernel(config.voices[index], config.voiceUris), voice.uri, voice.name);
+  });
+  assert.equal(config.voices.find((voice: any) => voice.name === 'Wobble').uri, '#1:Deranged');
+  assert.ok(!('uri' in config.voices[0]), 'the commonest shape needs nothing written');
+  // A voice with an address the shapes cannot say keeps it whole, and one without keeps its name.
+  const odd = buildKernelConfig({ ...iphone, voices: [
+    { name: 'Plain', lang: 'en-US', local: true, default: false },
+    { name: 'Odd', lang: 'en-US', local: true, default: false, uri: 'no dots here' },
+    ...iphone.voices.slice(0, 2),
+  ] }) as Record<string, any>;
+  assert.deepEqual(odd.voices.map((voice: any) => addressInKernel(voice, odd.voiceUris)),
+      ['Plain', 'no dots here', iphone.voices[0].uri, iphone.voices[1].uri]);
+});
+
 // --- Lists taken from the machine ------------------------------------------------------
 
 test('a new profile carries its own fonts, voices and media devices', async () => {

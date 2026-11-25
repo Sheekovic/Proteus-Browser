@@ -6,7 +6,7 @@ cat > "$WORK/voices.json" <<'EOF'
   "seed": "1",
   "voices": [
     {"name": "Microsoft David - English (United States)", "lang": "en-US", "local": true, "default": true},
-    {"name": "Microsoft Zira - English (United States)", "lang": "en-US", "local": true},
+    {"name": "Microsoft Zira - English (United States)", "lang": "en-US", "local": true, "uri": "com.example.voice.Zira"},
     {"name": "Google Deutsch", "lang": "de-DE", "local": false}
   ],
   "webgpu": {"vendor": "intel", "architecture": "gen-12lp"}
@@ -32,8 +32,31 @@ differ "control: the machine's own voices are not the profile's"         "$(deco
 check  "the profile's three voices are reported"   "$(field "$PROF" voices)" "3"
 check  "names, in order, with remote voices marked" "$(decode "$(field "$PROF" voiceNames)")" \
        "Microsoft David - English (United States)|Microsoft Zira - English (United States)|Google Deutsch*"
-check  "language, local, default and URI of each voice" "$(decode "$(field "$PROF" voiceDetail)")" \
-       "Microsoft David - English (United States)~en-US~true~true~Microsoft David - English (United States)|Microsoft Zira - English (United States)~en-US~true~false~Microsoft Zira - English (United States)|Google Deutsch~de-DE~false~false~Google Deutsch"
+check  "language, local, default and URI of each voice; a URI of its own when the profile gives one" "$(decode "$(field "$PROF" voiceDetail)")" \
+       "Microsoft David - English (United States)~en-US~true~true~Microsoft David - English (United States)|Microsoft Zira - English (United States)~en-US~true~false~com.example.voice.Zira|Google Deutsch~de-DE~false~false~Google Deutsch"
+# Patch 0030: as in Chrome, the first question is answered with nothing and the voices
+# come with one event a little later.
+check  "the first question gets an empty list"         "$(field "$PROF" voicesAtOnce)"   "0"
+check  "the voices are announced once"                 "$(field "$PROF" voiceEvents)"    "1"
+check  "and some milliseconds after the question"      "$(field "$PROF" voiceEventLate)" "true"
+
+# Addresses by shape, for a browser whose addresses are not the names (Safari's).
+cat > "$WORK/shapes.json" <<'EOF'
+{
+  "seed": "1",
+  "voiceUris": ["com.example.compact.%l.%n", "com.example.voice.%n"],
+  "voices": [
+    {"name": "Bad News", "lang": "en-US", "default": true},
+    {"name": "Wobble", "lang": "en-US", "uri": "#1:Deranged"},
+    {"name": "Albert", "lang": "en-GB", "uri": "#1"},
+    {"name": "Odd", "lang": "fr-FR", "uri": "#7"}
+  ]
+}
+EOF
+SHAPED=$(run voices.html --proteus-config="$WORK/shapes.json")
+check  "no address written: the first shape, with the language and the name without spaces; a shape by number, with another name in it; a number that is no shape leaves the name" \
+       "$(decode "$(field "$SHAPED" voiceDetail)")" \
+       "Bad News~en-US~true~true~com.example.compact.en-US.BadNews|Wobble~en-US~true~false~com.example.voice.Deranged|Albert~en-GB~true~false~com.example.voice.Albert|Odd~fr-FR~true~false~Odd"
 
 # WebGPU needs a GPU adapter. The build server has no GPU, so try a software one;
 # if the unmodified browser cannot get an adapter either, this part cannot be

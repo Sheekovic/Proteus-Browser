@@ -78,6 +78,9 @@ struct BASE_EXPORT Voice {
   std::string lang;       // BCP 47 tag, e.g. "en-US"
   bool local = true;      // localService
   bool is_default = false;
+  // voiceURI. Chrome's is the voice's name, which is what an empty value gives;
+  // Safari's is an address of its own ("com.apple.voice.compact.en-US.Samantha").
+  std::string uri;
 };
 
 // window.screen and the device-width / device-height media features, in CSS

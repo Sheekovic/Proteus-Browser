@@ -80,6 +80,61 @@ std::string StringOrEmpty(const DictValue& dict, std::string_view key) {
   return value ? *value : std::string();
 }
 
+// The address (voiceURI) of |voice| from what its entry says: nothing (the first
+// of |shapes|, or no address of its own when there are none), "#2" (that shape),
+// "#2:Alpana" (that shape with this in place of the voice's name), or the address
+// itself.
+std::string VoiceUri(const std::string& written,
+                     const Voice& voice,
+                     const std::vector<std::string>& shapes) {
+  if (!written.empty() && written[0] != '#') {
+    return written;
+  }
+  size_t index = 0;
+  std::string id;
+  for (char c : voice.name) {
+    if (c != ' ') {
+      id.push_back(c);
+    }
+  }
+  if (!written.empty()) {
+    size_t at = 1;
+    bool digits = false;
+    for (; at < written.size() && written[at] >= '0' && written[at] <= '9';
+         ++at) {
+      index = index * 10 + static_cast<size_t>(written[at] - '0');
+      digits = true;
+      if (index > 1000) {
+        return std::string();
+      }
+    }
+    if (!digits) {
+      return std::string();
+    }
+    if (at < written.size()) {
+      if (written[at] != ':') {
+        return std::string();
+      }
+      id = written.substr(at + 1);
+    }
+  }
+  if (index >= shapes.size()) {
+    return std::string();
+  }
+  std::string uri;
+  const std::string& shape = shapes[index];
+  for (size_t i = 0; i < shape.size(); ++i) {
+    if (shape[i] == '%' && i + 1 < shape.size() &&
+        (shape[i + 1] == 'l' || shape[i + 1] == 'n')) {
+      uri += shape[i + 1] == 'l' ? voice.lang : id;
+      ++i;
+    } else {
+      uri.push_back(shape[i]);
+    }
+  }
+  return uri;
+}
+
 std::vector<UaBrand> ParseBrands(const DictValue& dict, std::string_view key) {
   std::vector<UaBrand> brands;
   const ListValue* list = dict.FindList(key);
@@ -346,6 +401,18 @@ Config LoadConfig() {
       config.connection_downlink_max = max > 0 && max < 100000 ? max : 0;
     }
   }
+  // The shapes a voice's address (voiceURI) can have, for browsers whose addresses
+  // are not the voices' names: "%l" stands for the voice's language and "%n" for its
+  // name without spaces. Safari's are "com.apple.voice.super-compact.%l.%n" and two
+  // more; written once here, 68 voices do not have to spell them out.
+  std::vector<std::string> voice_uri_shapes;
+  if (const ListValue* shapes = dict->FindList("voiceUris")) {
+    for (const Value& shape : *shapes) {
+      if (shape.is_string() && voice_uri_shapes.size() < 16) {
+        voice_uri_shapes.push_back(shape.GetString());
+      }
+    }
+  }
   if (const ListValue* voices = dict->FindList("voices")) {
     for (const Value& item : *voices) {
       const DictValue* entry = item.GetIfDict();
@@ -357,6 +424,8 @@ Config LoadConfig() {
       voice.lang = StringOrEmpty(*entry, "lang");
       voice.local = entry->FindBool("local").value_or(true);
       voice.is_default = entry->FindBool("default").value_or(false);
+      voice.uri =
+          VoiceUri(StringOrEmpty(*entry, "uri"), voice, voice_uri_shapes);
       if (!voice.name.empty()) {
         config.voices.push_back(std::move(voice));
       }

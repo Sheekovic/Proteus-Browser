@@ -7,6 +7,44 @@ import { createHash } from 'node:crypto';
 import { buildFontSubstitutes } from './fontSubstitutes.ts';
 import type { Profile } from './profile.ts';
 import { claimOf, shapeSwitches } from './transportClaim.ts';
+import type { Voice } from './profile.ts';
+
+/**
+ * The voices' addresses (voiceURI) as the kernel takes them (patch 0030). A voice
+ * without one of its own has its name for an address, and nothing is written. Safari's
+ * are long and alike ("com.apple.voice.super-compact.en-US.Samantha"), and 68 of them
+ * spelled out would not fit the configuration, so what they share is written once:
+ * `shapes` holds them with "%l" for the voice's language and "%n" for its last part,
+ * and `written` says per voice which shape ("#1"), with which last part when that is
+ * not the name without its spaces ("#1:Deranged"); "" is the first shape as it is.
+ */
+export function voiceAddresses(voices: readonly Voice[]): { shapes: string[]; written: string[] } {
+  if (!voices.some((voice) => voice.uri !== undefined && voice.uri !== voice.name)) {
+    return { shapes: [], written: voices.map(() => '') };
+  }
+  const parts = voices.map((voice) => {
+    const uri = voice.uri ?? voice.name;
+    const dot = uri.lastIndexOf('.');
+    // An address the shapes cannot say (no dot, or a mark of theirs in it) is written whole.
+    if (dot <= 0 || uri.includes('%') || uri.startsWith('#')) return { uri, shape: null, last: '' };
+    const head = uri.slice(0, dot);
+    const at = voice.lang === '' ? -1 : head.lastIndexOf(voice.lang);
+    const shape = (at < 0 ? head : head.slice(0, at) + '%l' + head.slice(at + voice.lang.length)) + '.%n';
+    return { uri, shape, last: uri.slice(dot + 1) };
+  });
+  const count = new Map<string, number>();
+  for (const part of parts) if (part.shape !== null) count.set(part.shape, (count.get(part.shape) ?? 0) + 1);
+  // The commonest shape first: its voices then need nothing written at all.
+  const shapes = [...count].sort((a, b) => b[1] - a[1]).slice(0, 16).map(([shape]) => shape);
+  const written = parts.map((part, index) => {
+    const number = part.shape === null ? -1 : shapes.indexOf(part.shape);
+    if (number < 0) return part.uri;
+    const plain = part.last === voices[index].name.replaceAll(' ', '');
+    if (number === 0 && plain) return '';
+    return plain ? `#${number}` : `#${number}:${part.last}`;
+  });
+  return { shapes, written };
+}
 
 /** A number from 0 up to 1 that belongs to this profile and `purpose`. */
 function fraction(profile: Profile, purpose: string): number {
@@ -63,11 +101,14 @@ export function buildKernelConfig(profile: Profile, now: number = Date.now()): R
   // The kernel takes a voice for a local one that is not the default unless told
   // otherwise, so only what differs is written: a phone's 92 voices are a third shorter.
   if (profile.voices.length > 0) {
-    config.voices = profile.voices.map((voice) => ({
+    const addresses = voiceAddresses(profile.voices);
+    if (addresses.shapes.length > 0) config.voiceUris = addresses.shapes;
+    config.voices = profile.voices.map((voice, index) => ({
       name: voice.name,
       lang: voice.lang,
       ...(voice.local ? {} : { local: false }),
       ...(voice.default ? { default: true } : {}),
+      ...(addresses.written[index] === '' ? {} : { uri: addresses.written[index] }),
     }));
   }
   if (profile.mediaDevices !== null) config.mediaDevices = profile.mediaDevices;

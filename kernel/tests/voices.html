@@ -10,12 +10,20 @@ const enc = v => encodeURIComponent(String(v));
 const within = (promise, ms, fallback) =>
     Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(fallback), ms))]);
 
+// How many voices the first question got, how many voiceschanged events came and how
+// long after that question the first one did.
+const arrival = { atOnce: -1, events: 0, firstAfterMs: -1 };
+
 function voices() {
   return new Promise(resolve => {
     if (!('speechSynthesis' in window)) return resolve([]);
     const read = () => speechSynthesis.getVoices();
-    if (read().length) return resolve(read());
-    speechSynthesis.onvoiceschanged = () => resolve(read());
+    const asked = performance.now();
+    speechSynthesis.addEventListener('voiceschanged', () => {
+      if (arrival.events++ === 0) arrival.firstAfterMs = Math.round(performance.now() - asked);
+    });
+    arrival.atOnce = read().length;
+    // Long enough for a second announcement of the list to be counted.
     setTimeout(() => resolve(read()), 2000);
   });
 }
@@ -41,6 +49,9 @@ async function gpu() {
     // name~lang~local~default~voiceURI for the first few voices.
     'voiceDetail=' + enc(list.slice(0, 4).map(
         v => [v.name, v.lang, v.localService, v.default, v.voiceURI].join('~')).join('|') || 'none'),
+    'voicesAtOnce=' + arrival.atOnce,
+    'voiceEvents=' + arrival.events,
+    'voiceEventLate=' + (arrival.firstAfterMs >= 2 && arrival.firstAfterMs < 1000),
     'webgpu=' + enc(adapter),
   ].join(' ');
 })();

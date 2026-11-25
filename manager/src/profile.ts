@@ -50,6 +50,8 @@ export interface Voice {
   /** localService: true for the system's own voices, false for network voices. */
   local: boolean;
   default: boolean;
+  /** voiceURI, where it is not the name (Chrome's is; Safari's is an address of its own). */
+  uri?: string;
 }
 
 export interface ScreenInfo {
@@ -358,8 +360,9 @@ export function validateProfile(profile: Profile, chosen: { deviceMemory?: boole
   for (const voice of profile.voices) {
     if (!isPlainObject(voice) || typeof voice.name !== 'string' || voice.name.trim() === '' ||
         voice.name.length > 200 || typeof voice.lang !== 'string' || voice.lang.length > 35 ||
-        typeof voice.local !== 'boolean' || typeof voice.default !== 'boolean') {
-      fail('voices entries must be {name, lang, local, default}');
+        typeof voice.local !== 'boolean' || typeof voice.default !== 'boolean' ||
+        (voice.uri !== undefined && (typeof voice.uri !== 'string' || voice.uri === '' || voice.uri.length > 200))) {
+      fail('voices entries must be {name, lang, local, default} with an optional uri');
     }
   }
 
