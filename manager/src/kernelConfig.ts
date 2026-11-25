@@ -101,7 +101,9 @@ export function buildKernelConfig(profile: Profile, now: number = Date.now()): R
     uaData: profile.uaData,
     hardwareConcurrency: profile.hardwareConcurrency,
     deviceMemory: profile.deviceMemory,
-    screen: profile.screen,
+    // A phone's one screen is built in, which a page that may ask for the screens'
+    // details is told (kernel patch 0033); a computer's is left as a monitor's.
+    screen: profile.mobile === null ? profile.screen : { ...profile.screen, internal: true },
     canvasNoise: profile.noise.canvas,
     audioNoise: profile.noise.audio,
     webglVendor: profile.webgl.vendor,

@@ -282,6 +282,8 @@ Config LoadConfig() {
     if (avail_top > 0 && avail_top <= data.height - data.avail_height) {
       data.avail_top = avail_top;
     }
+    data.label = StringOrEmpty(*screen, "label");
+    data.internal = screen->FindBool("internal").value_or(false);
     if (data.width > 0 && data.height > 0) {
       config.screen = data;
     }
@@ -534,6 +536,11 @@ Config LoadConfig() {
 }
 
 }  // namespace
+
+ScreenData::ScreenData() = default;
+ScreenData::ScreenData(const ScreenData&) = default;
+ScreenData& ScreenData::operator=(const ScreenData&) = default;
+ScreenData::~ScreenData() = default;
 
 Voice::Voice() = default;
 Voice::Voice(const Voice&) = default;

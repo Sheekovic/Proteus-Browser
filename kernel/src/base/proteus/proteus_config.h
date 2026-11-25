@@ -86,6 +86,11 @@ struct BASE_EXPORT Voice {
 // window.screen and the device-width / device-height media features, in CSS
 // pixels.
 struct BASE_EXPORT ScreenData {
+  ScreenData();
+  ScreenData(const ScreenData&);
+  ScreenData& operator=(const ScreenData&);
+  ~ScreenData();
+
   int width = 0;
   int height = 0;
   int avail_width = 0;
@@ -93,6 +98,11 @@ struct BASE_EXPORT ScreenData {
   int color_depth = 24;
   // Where the work area starts from the top: the height of a Mac's menu bar.
   int avail_top = 0;
+  // What the one screen of a profile says of itself to a page that was allowed
+  // to ask (getScreenDetails()): its name, which on a real machine is the
+  // monitor's model, and whether it is built in, as a laptop's or a phone's is.
+  std::string label;
+  bool internal = false;
 };
 
 // Per-profile identity settings. Every field is optional; an absent field means
