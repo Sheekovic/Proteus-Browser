@@ -1,17 +1,18 @@
 // Starts and stops kernel processes, one per running profile.
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { evaluateApart } from './browserControl.ts';
+import { coveredLensVideo } from './coveredLens.ts';
 import { exitAddress, ExitMemory, proxyKey } from './exitMemory.ts';
 import { borrowedLists, listsToKeep, READ_LISTS_SCRIPT } from './hostLists.ts';
 import { buildKernelArgs, buildKernelConfig, MAX_PACKED_CONFIG, packedConfigLength } from './kernelConfig.ts';
 import { alignToKernel } from './kernelVersion.ts';
-import type { Profile, ProxySettings } from './profile.ts';
+import { cameraSource, type Profile, type ProxySettings } from './profile.ts';
 import { lookupOwnAddress, lookupProxyExit, type ProxyExit, withOwnAddress, withProxyExit } from './proxyExit.ts';
 import { needsRelay, startProxyRelay } from './proxyRelay.ts';
 import type { Store } from './store.ts';
@@ -292,12 +293,23 @@ export class Launcher {
     // A camera picture from a file: the file must be there, and beside it goes a
     // second of silence for the microphone (the kernel's stand-in would beep).
     let silenceFile: string | undefined;
-    if (profile.cameraFile) {
+    let coveredLensFile: string | undefined;
+    const camera = cameraSource(profile);
+    if (camera === 'file') {
       try {
         await access(profile.cameraFile);
       } catch {
         throw new LaunchError(`The camera picture of this profile, ${profile.cameraFile}, is not there.`);
       }
+    }
+    if (camera === 'covered') {
+      // Made once: the grain is the profile's own and does not change.
+      coveredLensFile = join(profileDir, 'covered-lens.y4m');
+      const made = await stat(coveredLensFile).then((file) => file.size, () => 0);
+      const video = made > 0 ? undefined : coveredLensVideo(profile.seed);
+      if (video !== undefined) await writeFile(coveredLensFile, video);
+    }
+    if (camera !== 'machine') {
       silenceFile = join(profileDir, 'silence.wav');
       await writeFile(silenceFile, silentWav());
     }
@@ -316,7 +328,7 @@ export class Launcher {
       await relay?.close();
       throw error;
     }
-    const args = buildKernelArgs(profile, { userDataDir, configFile, proxyServer, networkSandbox, silenceFile }, settings.extraArgs);
+    const args = buildKernelArgs(profile, { userDataDir, configFile, proxyServer, networkSandbox, silenceFile, coveredLensFile }, settings.extraArgs);
     const child = this.spawnKernel(settings.kernelPath, args);
 
     const spawned = new Promise<void>((resolve, reject) => {

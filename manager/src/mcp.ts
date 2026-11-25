@@ -64,7 +64,7 @@ const PROFILE_FIELDS: Json = {
   geolocation: { type: ['object', 'null'], description: 'Position reported to sites allowed to ask, or null for the machine\'s.',
                  properties: { latitude: { type: 'number' }, longitude: { type: 'number' }, accuracy: { type: 'number' } } },
   startUrl: text('Page opened when the profile starts.'),
-  cameraFile: text('Path of a .y4m or .mjpeg video on this machine, shown to pages as the picture of the camera (the microphone is then silent). Empty: the camera of the machine.'),
+  cameraFile: text('Path of a .y4m or .mjpeg video on this machine, shown to pages as the picture of the camera (the microphone is then silent), or "machine" for the camera and microphone of the machine. Empty: a covered lens and a silent microphone, or the own devices of the machine for a profile that has none of its own.'),
 };
 
 /** The DevTools address of a running profile; a clear error when it is not running. */

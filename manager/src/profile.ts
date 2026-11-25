@@ -172,9 +172,11 @@ export interface Profile {
   /** Page opened when the profile starts. Empty means the kernel's default. */
   startUrl: string;
   /**
-   * A video file a page gets as the camera's picture, when it is allowed the camera:
-   * the path of a .y4m or .mjpeg file on this machine. Empty means the machine's own
-   * camera. With a file the microphone is silent, not the machine's.
+   * What a page gets as the camera's picture, when it is allowed the camera: the path
+   * of a .y4m or .mjpeg video on this machine, or "machine" for the machine's own
+   * camera and microphone. Empty means the machine's for a profile whose devices are
+   * the machine's (mediaDevices is null), and for any other the picture of a covered
+   * lens (coveredLens.ts). With a file or a covered lens the microphone is silent.
    */
   cameraFile: string;
 }
@@ -396,7 +398,17 @@ export function validateProfile(profile: Profile, chosen: { deviceMemory?: boole
     fail('startUrl must start with http:// or https://');
   }
   checkString(profile.cameraFile, 'cameraFile', 1000);
-  if (profile.cameraFile !== '' && !/\.(y4m|mjpeg)$/i.test(profile.cameraFile)) {
-    fail('cameraFile must be the path of a .y4m or .mjpeg file, or empty');
+  if (profile.cameraFile !== '' && profile.cameraFile !== MACHINE_CAMERA && !/\.(y4m|mjpeg)$/i.test(profile.cameraFile)) {
+    fail('cameraFile must be the path of a .y4m or .mjpeg file, "machine", or empty');
   }
+}
+
+/** The value of cameraFile that asks for the machine's own camera and microphone. */
+export const MACHINE_CAMERA = 'machine';
+
+/** Where the picture of a profile's camera comes from. */
+export function cameraSource(profile: Pick<Profile, 'cameraFile' | 'mediaDevices'>): 'machine' | 'covered' | 'file' {
+  if (profile.cameraFile === MACHINE_CAMERA) return 'machine';
+  if (profile.cameraFile !== '') return 'file';
+  return profile.mediaDevices === null ? 'machine' : 'covered';
 }

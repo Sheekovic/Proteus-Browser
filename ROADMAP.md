@@ -85,7 +85,7 @@ an entry is struck from the README in the commit that ticks its item here.
 - [ ] **A limit is a claim** — refuse what goes beyond a claimed limit (texture and buffer sizes, memory), as the claimed hardware would
 - [ ] **Two things from the machine** — fonts shipped with Proteus instead of chosen from the machine's; graphics limits always from a reading
 - [ ] **Stand-in fonts** — the real fonts of each system where their licences allow shipping them (Android's are open), and metric-compatible ones where they do not *(Windows' and Apple's fonts cannot be redistributed)*
-- [ ] **The machine's camera** — already possible from a video file; make it the default for a profile whose devices are not the machine's, with the resolutions the claimed device offers
+- [ ] **A camera of one size** — done: a profile whose devices are its own shows a covered lens and plays silence unless it names a video or asks for the machine's. Left: offer the sizes the claimed camera has (the kernel plays a file at the file's size only), and a picture of its own for each camera a phone lists
 - [ ] **Tested on few machines** — Windows 10, Windows Server, macOS and more Linux hosts in the site check *(needs: machines; Windows Server 2022 was run once, by hand)*
 - [ ] **No protection is complete** — stays: address reputation, behaviour and account history are not a browser's to control. The entry is kept and says only that.
 

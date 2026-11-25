@@ -8,7 +8,8 @@ import { after, before, test } from 'node:test';
 
 import { buildKernelArgs } from '../src/kernelConfig.ts';
 import { Launcher, silentWav } from '../src/launcher.ts';
-import { ValidationError } from '../src/profile.ts';
+import { cameraSource, ValidationError } from '../src/profile.ts';
+import { COVERED_HEIGHT, COVERED_WIDTH, coveredLensVideo } from '../src/coveredLens.ts';
 import { Store } from '../src/store.ts';
 
 let dir: string;
@@ -19,11 +20,24 @@ before(async () => {
 });
 after(async () => { await rm(dir, { recursive: true, force: true }); });
 
-test('a profile uses the camera of the machine unless it names a video file', async () => {
+test('a profile shows a covered lens unless it names a video file or asks for the machine', async () => {
   const profile = await store.createProfile({ os: 'windows' });
   assert.equal(profile.cameraFile, '');
-  const plain = buildKernelArgs(profile, { userDataDir: 'u', configFile: 'c' }, []);
+  assert.notEqual(profile.mediaDevices, null, 'a new profile has devices of its own');
+  assert.equal(cameraSource(profile), 'covered');
+  const covered = buildKernelArgs(profile, { userDataDir: 'u', configFile: 'c', silenceFile: 's.wav', coveredLensFile: 'lens.y4m' }, []);
+  assert.ok(covered.includes('--use-fake-device-for-media-stream'));
+  assert.ok(covered.includes('--use-file-for-fake-video-capture=lens.y4m'));
+  assert.ok(covered.includes('--use-file-for-fake-audio-capture=s.wav'));
+  assert.ok(!covered.includes('--use-fake-ui-for-media-stream'), 'the user is still asked');
+
+  // The machine's own, when asked for, and for a profile whose devices are the machine's.
+  const machine = await store.updateProfile(profile.id, { cameraFile: 'machine' });
+  assert.equal(cameraSource(machine), 'machine');
+  const plain = buildKernelArgs(machine, { userDataDir: 'u', configFile: 'c' }, []);
   assert.ok(!plain.some((arg) => arg.includes('fake')), 'nothing stands in for its devices');
+  assert.equal(cameraSource({ cameraFile: '', mediaDevices: null }), 'machine');
+  assert.equal(cameraSource({ cameraFile: 'room.y4m', mediaDevices: null }), 'file');
 
   const video = join(dir, 'room.y4m');
   const withFile = await store.updateProfile(profile.id, { cameraFile: video });
@@ -48,6 +62,27 @@ test('the silence the microphone plays is a sound file of one second', () => {
   assert.equal(wav.readUInt32LE(24), 48_000);
   assert.equal(wav.readUInt32LE(40), wav.length - 44);
   assert.ok(wav.subarray(44).every((byte) => byte === 0));
+});
+
+test('the covered lens is a dark video with a grain of its own for each profile', () => {
+  const video = coveredLensVideo('12345');
+  const header = `YUV4MPEG2 W${COVERED_WIDTH} H${COVERED_HEIGHT} F30:1 Ip A1:1 C420jpeg\n`;
+  assert.equal(video.subarray(0, header.length).toString('ascii'), header);
+  const frame = 6 + COVERED_WIDTH * COVERED_HEIGHT * 1.5;
+  assert.equal((video.length - header.length) % frame, 0, 'whole frames');
+  assert.ok((video.length - header.length) / frame >= 2, 'more than one frame: the grain moves');
+  assert.equal(video.subarray(header.length, header.length + 6).toString('ascii'), 'FRAME\n');
+  const luma = video.subarray(header.length + 6, header.length + 6 + COVERED_WIDTH * COVERED_HEIGHT);
+  let sum = 0, highest = 0;
+  const seen = new Set<number>();
+  for (const value of luma) { sum += value; highest = Math.max(highest, value); seen.add(value); }
+  assert.ok(sum / luma.length >= 16 && sum / luma.length < 22, `dark: ${sum / luma.length}`);
+  assert.ok(highest <= 48, `no bright pixel: ${highest}`);
+  assert.ok(seen.size >= 6, 'grain, not one flat colour');
+  const chroma = video.subarray(header.length + 6 + luma.length, header.length + frame);
+  assert.ok(chroma.every((value) => value >= 127 && value <= 129), 'no colour');
+  assert.ok(coveredLensVideo('12345').equals(video), 'the same for the same seed');
+  assert.ok(!coveredLensVideo('12346').equals(video), 'another for another');
 });
 
 test('a profile whose video file is not there does not start', async () => {

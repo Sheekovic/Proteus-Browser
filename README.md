@@ -390,13 +390,19 @@ two libraries: nothing of the above, and a page function the script calls sees a
 `eval` frame in its stack. With the stock driver of the same version it finds the
 seven names.
 
-### A camera picture from a file
+### What a profile's camera shows
 
-A page that is allowed the camera gets this machine's camera. A profile can show a
-video file instead: set `cameraFile` to the path of a `.y4m` or `.mjpeg` file (in the
-profile's settings, or through the API). The page then gets the file's picture, in a
-loop, and a silent microphone; the devices keep the names the profile gives them. The
-user is still asked before a page gets either.
+A page that is allowed the camera of a profile gets a covered lens: a dark picture
+with the grain of a sensor, each profile's its own, and a silent microphone. The room
+this machine stands in and the voice in it are the same in every profile, so no
+profile gives them away unless it is told to. The devices keep the names the profile
+gives them, and the user is still asked before a page gets either.
+
+A profile can show something else: set `cameraFile` (in the profile's settings, or
+through the API) to the path of a `.y4m` or `.mjpeg` video, which the page then gets
+in a loop with a silent microphone, or to `machine` for a video call: pages you allow
+then get this machine's own camera and microphone. A profile saved before profiles
+had devices of their own uses the machine's as before.
 
 ### MCP (for AI assistants)
 
@@ -631,10 +637,12 @@ Worth knowing before relying on it:
   machine's own — which includes every phone profile — claims that system's fonts and
   hides the machine's, but draws them with substitutes. A page finds the names;
   careful measurement of the glyphs can tell a substitute from the real font.
-- **A camera is still this machine's camera.** A profile decides which devices are
-  listed and what they are called. A page that is allowed to open one gets this
-  machine's picture and sound, and the resolutions its hardware offers; a listed
-  device the machine has no counterpart for cannot be opened.
+- **A profile's camera has one size.** A covered lens, or a video file, is offered
+  to a page at one size (640 by 480 for the covered lens, the size a page gets from
+  any camera when it asks for none in particular) and not at the others the claimed
+  camera has; every camera a profile lists shows the same picture. A profile set to
+  use the machine's camera gives this machine's picture and sound and the sizes its
+  hardware offers.
 - **Tested on few machines.** Results on detection sites depend on the host; what
   holds on one Windows 11 machine is not a guarantee elsewhere.
 - **No protection is complete.** Sites combine many signals — address reputation,

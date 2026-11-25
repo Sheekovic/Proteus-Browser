@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 
 import { buildFontSubstitutes } from './fontSubstitutes.ts';
-import type { Profile } from './profile.ts';
+import { cameraSource, type Profile } from './profile.ts';
 import { claimOf, shapeSwitches } from './transportClaim.ts';
 import type { Voice } from './profile.ts';
 
@@ -178,10 +178,12 @@ export interface LaunchPaths {
    */
   proxyServer?: string;
   /**
-   * A sound file of silence, for a profile whose camera picture comes from a file:
+   * A sound file of silence, for a profile whose camera picture is not the machine's:
    * its microphone plays this.
    */
   silenceFile?: string;
+  /** The video of a covered lens, for a profile whose camera shows that (coveredLens.ts). */
+  coveredLensFile?: string;
   /**
    * False when the kernel's sandboxed network service could not be given access to
    * the kernel's own files (see winSandbox.ts). It would die at start and take the
@@ -253,8 +255,12 @@ export function buildKernelArgs(profile: Profile, paths: LaunchPaths, extraArgs:
   // A camera picture from a file: the kernel's stand-in devices take the place of the
   // machine's (their names are still the profile's), the picture is the file's and
   // the microphone plays a file of silence, where the stand-in would beep.
-  if (profile.cameraFile) {
-    args.push('--use-fake-device-for-media-stream', `--use-file-for-fake-video-capture=${profile.cameraFile}`);
+  // Without a file of its own, a profile whose devices are not the machine's shows a
+  // covered lens: the machine's room and voice are not a profile's to give away.
+  const source = cameraSource(profile);
+  const picture = source === 'file' ? profile.cameraFile : source === 'covered' ? paths.coveredLensFile : undefined;
+  if (picture !== undefined) {
+    args.push('--use-fake-device-for-media-stream', `--use-file-for-fake-video-capture=${picture}`);
     if (paths.silenceFile !== undefined) args.push(`--use-file-for-fake-audio-capture=${paths.silenceFile}`);
   }
   const phoneOnly = phoneOnlyFeatures(profile.os);
