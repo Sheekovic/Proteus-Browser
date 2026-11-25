@@ -31,9 +31,21 @@ interface SurfaceDifference {
   readFrom: string;
   /** Members of the global object the kernel has and that browser does not. */
   globals: string[];
+  /** The same for the global object of a page alone, and of a worker alone. */
+  windowGlobals: string[];
+  workerGlobals: string[];
   /** The same for members of interfaces both have, by interface. */
   members: Record<string, string[]>;
-  notHidden: { members: number; interfaces: number };
+  /** And for the static members of those interfaces: the ones on the interface object. */
+  statics: Record<string, string[]>;
+  /** Constants that go from one interface and stay on these, where the kernel fixes them again. */
+  keepConstants: Record<string, string[]>;
+  /**
+   * What is left: members cut for room (none since patch 0031), static members nothing
+   * can remove (Symbol's well-known symbols) and constants of the page's global object,
+   * which is made when the kernel is built.
+   */
+  notHidden: { members: number; interfaces: number; fixedStatics: number; fixedConstants: number };
   cannotAdd: { globals: number };
 }
 const SAFARI: SurfaceDifference = JSON.parse(readFileSync(new URL('./safari-surface.json', import.meta.url), 'utf8'));
@@ -50,9 +62,26 @@ const ANDROID: SurfaceDifference = JSON.parse(readFileSync(new URL('./android-su
  * browser.
  */
 export function hiddenFor(os: OsFamily): HiddenMembers {
-  if (os === 'ios') return { globalThis: SAFARI.globals, ...SAFARI.members };
-  if (os === 'android') return { globalThis: ANDROID.globals, ...ANDROID.members };
-  return {};
+  const difference = os === 'ios' ? SAFARI : os === 'android' ? ANDROID : null;
+  if (difference === null) return {};
+  // As the kernel reads them (patch 0031): "window" and "worker" are the global object
+  // of one kind of script alone, and a name with a dot after it is the interface
+  // object, where static members are. A kernel from before leaves those entries alone.
+  const hidden: Record<string, readonly string[]> = { globalThis: difference.globals };
+  if (difference.windowGlobals.length > 0) hidden.window = difference.windowGlobals;
+  if (difference.workerGlobals.length > 0) hidden.worker = difference.workerGlobals;
+  Object.assign(hidden, difference.members);
+  for (const [name, members] of Object.entries(difference.statics)) hidden[`${name}.`] = members;
+  return hidden;
+}
+
+/**
+ * The constants a profile of `os` hides from one interface and keeps on these. The
+ * kernel cannot remove a constant without installing it removable everywhere it
+ * exists; on the interfaces listed here it makes it fixed again.
+ */
+export function keptConstantsFor(os: OsFamily): Record<string, readonly string[]> {
+  return os === 'ios' ? SAFARI.keepConstants : os === 'android' ? ANDROID.keepConstants : {};
 }
 
 /**

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 
 import { classify, identityFromCollected, parseCollected } from '../src/collected.ts';
-import { buildKernelConfig } from '../src/kernelConfig.ts';
+import { buildKernelConfig, MAX_PACKED_CONFIG, packedConfigLength } from '../src/kernelConfig.ts';
 import { ValidationError } from '../src/profile.ts';
 import { NotFoundError, Store } from '../src/store.ts';
 
@@ -179,8 +179,8 @@ test('a profile from the largest fingerprint still fits the kernel command line'
       ({ name: `Microsoft Voice Number ${i} - English (United States)`, lang: 'en-US', local: true, default: i === 0 }));
   const stored = await store.addFingerprint({ ...windowsLaptop(), fonts, voices });
   const profile = await store.createProfile({ name: 'Big' }, stored.id);
-  const bytes = Buffer.byteLength(JSON.stringify(buildKernelConfig(profile)));
-  assert.ok(bytes < 16_000, `${bytes} bytes`);
+  const packed = packedConfigLength(JSON.stringify(buildKernelConfig(profile)));
+  assert.ok(packed < MAX_PACKED_CONFIG, `${packed} characters packed`);
 });
 
 /** WebGL capabilities as the collector reads them (shortened). */
@@ -236,6 +236,6 @@ test('the largest reading with full capabilities still fits the kernel command l
   const s = Array.from({ length: 36 }, () => 127);
   const stored = await store.addFingerprint({ ...windowsLaptop(), fonts, voices, webglCaps: { '1': { p, e, s }, '2': { p, e, s } } });
   const profile = await store.createProfile({ name: 'Biggest' }, stored.id);
-  const bytes = Buffer.byteLength(JSON.stringify(buildKernelConfig(profile)));
-  assert.ok(bytes < 16_000, `${bytes} bytes`);
+  const packed = packedConfigLength(JSON.stringify(buildKernelConfig(profile)));
+  assert.ok(packed < MAX_PACKED_CONFIG, `${packed} characters packed`);
 });

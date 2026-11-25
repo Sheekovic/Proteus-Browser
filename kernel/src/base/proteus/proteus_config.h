@@ -228,6 +228,17 @@ struct BASE_EXPORT Config {
   };
   std::string vendor;
   std::vector<HiddenMembers> hidden_members;
+  // More ways to name what is removed (patch 0031):
+  //  - "window" and "worker" are the global object of a page and of a worker
+  //    alone, for what that browser has in one and not in the other;
+  //  - an interface name with a dot after it ("Iterator.") is the interface
+  //    object itself, where its static members are.
+  // A constant cannot be removed once it is there, so the ones named here
+  // (|loose_constants|: every hidden member written in capitals) are installed
+  // removable everywhere, and |kept_constants| lists, per interface, those that
+  // stay: there they are made fixed again, as a constant is.
+  std::vector<std::string> loose_constants;
+  std::vector<HiddenMembers> kept_constants;
   bool client_hints = true;
   bool chrome_object = true;
 
@@ -274,7 +285,7 @@ struct BASE_EXPORT Config {
   double geolocation_longitude = 0;
   double geolocation_accuracy = 0;
 
-  // Base64 form of the source JSON, forwarded to child processes.
+  // The source JSON as it is forwarded to child processes: deflated, in base64.
   std::string serialized;
 };
 

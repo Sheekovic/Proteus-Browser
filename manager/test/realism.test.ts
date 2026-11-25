@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { identityFromCollected, parseCollected } from '../src/collected.ts';
 import { generateIdentity } from '../src/fingerprint.ts';
 import { borrowedLists, listsToKeep } from '../src/hostLists.ts';
-import { buildKernelConfig } from '../src/kernelConfig.ts';
+import { buildKernelConfig, MAX_PACKED_CONFIG, packedConfigLength } from '../src/kernelConfig.ts';
 import { Launcher } from '../src/launcher.ts';
 import { identityFromPreset, listPresets } from '../src/presets.ts';
 import { deviceMemoryValuesFor, OS_FAMILIES, type Profile, ValidationError } from '../src/profile.ts';
@@ -121,7 +121,7 @@ test('each ready-made setup is one device: fixed hardware, a seed of its own', a
     assert.notEqual(a.seed, b.seed, 'but not the same noise');
     assert.ok(deviceMemoryValuesFor(a.os).includes(a.deviceMemory));
     assert.ok(a.fonts.length > 0 && a.mediaDevices !== null, 'with the lists of its system, like any new profile');
-    assert.ok(Buffer.byteLength(JSON.stringify(buildKernelConfig(a))) < 16_000, 'and small enough to start');
+    assert.ok(packedConfigLength(JSON.stringify(buildKernelConfig(a))) < MAX_PACKED_CONFIG, 'and small enough to start');
   }
   const laptop = identityFromPreset('windows-office-laptop', KERNEL);
   assert.deepEqual([laptop.screen.width, laptop.hardwareConcurrency, laptop.deviceMemory], [1536, 8, 8]);

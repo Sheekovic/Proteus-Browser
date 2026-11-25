@@ -7,7 +7,7 @@ import { afterEach, beforeEach, test } from 'node:test';
 
 import { generateIdentity } from '../src/fingerprint.ts';
 import { buildFontSubstitutes, kindOf } from '../src/fontSubstitutes.ts';
-import { buildKernelArgs, buildKernelConfig } from '../src/kernelConfig.ts';
+import { buildKernelArgs, buildKernelConfig, MAX_PACKED_CONFIG, packedConfigLength } from '../src/kernelConfig.ts';
 import { ValidationError } from '../src/profile.ts';
 import { NotFoundError, Store } from '../src/store.ts';
 
@@ -239,10 +239,10 @@ test('the kernel configuration of a generated profile stays small', async () => 
         os, languages: ['en-US', 'en'], timezone: 'Europe/Berlin', webrtcPublicIp: '203.0.113.7',
         geolocation: { latitude: 52.52, longitude: 13.405, accuracy: 40 },
       });
-      const bytes = Buffer.byteLength(JSON.stringify(buildKernelConfig(profile)));
-      // With a card's capabilities (some 3,500 bytes) a Mac's is the largest; a start
-      // accepts 16,000.
-      assert.ok(bytes < 14_000, `${os}: ${bytes} bytes`);
+      const packed = packedConfigLength(JSON.stringify(buildKernelConfig(profile)));
+      // As it travels to the kernel's child processes, deflated, with room to spare
+      // for what a user adds: a start accepts MAX_PACKED_CONFIG characters.
+      assert.ok(packed < MAX_PACKED_CONFIG * 0.6, `${os}: ${packed} characters packed`);
     }
   }
 });
@@ -270,9 +270,10 @@ test('an iPhone profile is Safari, not Chrome', async () => {
       assert.ok(config.hide.Navigator.includes(name) && config.hide.WorkerNavigator.includes(name), name);
     }
     assert.equal(config.mobile.pdfViewer, true);
-    // With what Safari lacks, read from a phone, it is the largest configuration there
-    // is; a start accepts 16,000 bytes.
-    assert.ok(Buffer.byteLength(JSON.stringify(config)) < 14_000, `${Buffer.byteLength(JSON.stringify(config))} bytes`);
+    // With everything Safari lacks, read from a phone, it is the largest configuration
+    // there is: some 20,000 bytes, a third of that as it travels.
+    const packed = packedConfigLength(JSON.stringify(config));
+    assert.ok(packed < MAX_PACKED_CONFIG * 0.6, `${packed} characters packed`);
   }
   // None of this reaches a Chrome profile.
   const config = buildKernelConfig(await store.createProfile({ os: 'android' }));
@@ -308,7 +309,20 @@ test('a phone profile has no more of the web than its browser does', async () =>
   assert.ok(!hides('MediaSource') && !hides('SourceBuffer'));
   const reading = safariReading();
   assert.match(reading.readFrom, /iPhone; CPU iPhone OS .* Version\/[\d.]+ Mobile/);
-  assert.ok(reading.cannotAdd.globals > 0 && reading.notHidden.members > 0, 'what the list cannot do is said');
+  assert.ok(reading.cannotAdd.globals > 0, 'what the list cannot do is said');
+  // Every member Safari was read not to have is hidden: none is left out for room.
+  // What nothing can remove is counted: Symbol's two well-known symbols and the two
+  // constants of the page's global object.
+  assert.deepEqual(reading.notHidden, { members: 0, interfaces: 0, fixedStatics: 2, fixedConstants: 2 });
+  // Static members go by the interface object ("Iterator."), what Safari has in a page
+  // and not in a worker by the scope, and a constant that goes from one interface is
+  // named where it stays.
+  assert.deepEqual(safari['Iterator.'], ['zip', 'zipKeyed']);
+  assert.deepEqual(safari.window, ['MediaStreamTrackProcessor']);
+  assert.ok(safari.worker.includes('UserActivation') && !safari.globalThis.includes('UserActivation'));
+  assert.ok(safari.WebGLRenderingContext.includes('RGB8') && safari['WebGLRenderingContext.'].includes('RGB8'));
+  assert.deepEqual(buildKernelConfig(iphone).keepConstants, { WebGL2RenderingContext: ['RGB8', 'RGBA8'], Window: ['PERSISTENT', 'TEMPORARY'] });
+  assert.ok(Object.keys(safari).length > 100 && Object.values(safari).flat().length > 550);
   assert.ok(!buildKernelArgs(iphone, { userDataDir: 'u', configFile: 'c' }, []).some((a) => a.startsWith('--enable-blink-features=')));
 
   // Chrome on a phone, as one was read before and after an update: no window sharing,
@@ -362,7 +376,7 @@ test('an Android profile is one real phone model, consistently', async () => {
     assert.deepEqual(config.fonts, profile.fonts);
     assert.ok('Roboto' in (config.fontAliases as object), 'with stand-ins, since the machine lacks them');
     assert.deepEqual(config.mobile, profile.mobile);
-    assert.ok(Buffer.byteLength(JSON.stringify(config)) < 14_000);
+    assert.ok(packedConfigLength(JSON.stringify(config)) < MAX_PACKED_CONFIG * 0.6);
   }
   // Desktop profiles are untouched, and bad phone settings are refused.
   const desktop = await store.createProfile({ os: 'windows' });

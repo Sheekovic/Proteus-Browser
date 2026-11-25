@@ -1,13 +1,31 @@
 // Translates a profile into what the Proteus kernel consumes: the JSON file read
 // through --proteus-config, and the command line for the browser process.
 
-import { hiddenFor, phoneOnlyFeatures } from './surface.ts';
+import { hiddenFor, keptConstantsFor, phoneOnlyFeatures } from './surface.ts';
 import { createHash } from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 
 import { buildFontSubstitutes } from './fontSubstitutes.ts';
 import type { Profile } from './profile.ts';
 import { claimOf, shapeSwitches } from './transportClaim.ts';
 import type { Voice } from './profile.ts';
+
+/**
+ * The most characters a configuration may take on the command lines of the kernel's
+ * child processes. Windows gives a command line 32,767; the kernel's own switches take
+ * several thousand of them.
+ */
+export const MAX_PACKED_CONFIG = 20_000;
+
+/**
+ * How many characters `json`, a configuration as written to the profile's kernel.json,
+ * takes on those command lines: the kernel deflates it and writes that in base64
+ * (patch 0031: "z:<bytes>:<base64>"). Mostly names, it comes to about a third.
+ */
+export function packedConfigLength(json: string): number {
+  const bytes = Buffer.byteLength(json);
+  return `z:${bytes}:`.length + Math.ceil(deflateSync(json, { level: 9 }).length / 3) * 4;
+}
 
 /**
  * The voices' addresses (voiceURI) as the kernel takes them (patch 0030). A voice
@@ -125,6 +143,8 @@ export function buildKernelConfig(profile: Profile, now: number = Date.now()): R
   // from before patch 0029 knows only interface names and leaves the rest.
   const hidden = hiddenFor(profile.os);
   if (Object.keys(hidden).length > 0) config.hide = hidden;
+  const kept = keptConstantsFor(profile.os);
+  if (Object.keys(kept).length > 0) config.keepConstants = kept;
   if (profile.os === 'ios') {
     // Safari: Apple's vendor string, no client hints in script or in requests, no
     // window.chrome, none of the Navigator members Safari lacks, and (unlike an

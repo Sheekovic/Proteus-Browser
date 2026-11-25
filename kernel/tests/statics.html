@@ -1,0 +1,40 @@
+<!doctype html>
+<body>
+<!-- Holds the load event for a few real seconds: the worker answers after it. -->
+<img src="/slow?ms=3500" alt="">
+<script>
+// Emits one line of key=value pairs about static members, constants and the members
+// of the global object in a page and in a worker (patch 0031).
+const probe = `(() => {
+  const kind = (holder, name) => holder ? typeof holder[name] : 'no-holder';
+  const fixed = (holder, name) => {
+    const d = holder && Object.getOwnPropertyDescriptor(holder, name);
+    return d ? [d.value, d.writable, d.enumerable, d.configurable].join('/') : 'none';
+  };
+  const G = globalThis;
+  return [
+    'canParse=' + kind(G.URL, 'canParse'),
+    'parse=' + kind(G.URL, 'parse'),
+    'rgb8=' + fixed(G.WebGLRenderingContext, 'RGB8'),
+    'rgb8Proto=' + fixed(G.WebGLRenderingContext && G.WebGLRenderingContext.prototype, 'RGB8'),
+    'rgb8In=' + (G.WebGLRenderingContext ? 'RGB8' in G.WebGLRenderingContext : 'none'),
+    'rgba4=' + fixed(G.WebGLRenderingContext, 'RGBA4'),
+    'rgb8Two=' + fixed(G.WebGL2RenderingContext, 'RGB8'),
+    'rgb8TwoProto=' + fixed(G.WebGL2RenderingContext && G.WebGL2RenderingContext.prototype, 'RGB8'),
+    'idle=' + typeof G.IdleDetector,
+    'usb=' + typeof G.USB,
+    'eye=' + typeof G.EyeDropper,
+  ].join(' ');
+})()`;
+(async () => {
+  const page = eval(probe);
+  const worker = await new Promise(resolve => {
+    const w = new Worker(URL.createObjectURL(new Blob(['postMessage(' + probe + ')'])));
+    w.onmessage = event => resolve(event.data);
+    w.onerror = () => resolve('error=1');
+    setTimeout(() => resolve('timeout=1'), 4000);
+  });
+  document.body.innerText = 'RESULT ' + page + ' ' + worker.split(' ').map(pair => 'w_' + pair).join(' ');
+})();
+</script>
+</body>

@@ -4,7 +4,9 @@
 
 #include "base/proteus/proteus_config.h"
 
+#include <algorithm>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -19,6 +21,7 @@
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
+#include "third_party/zlib/zlib.h"
 
 namespace base::proteus {
 
@@ -30,6 +33,57 @@ namespace {
 // Profile configurations are small; refuse anything implausibly large.
 constexpr size_t kMaxConfigBytes = 1024 * 1024;
 
+// A configuration travels to child processes on their command lines, which on
+// Windows hold 32,767 characters with everything else on them. It is mostly
+// names (fonts, voices, the members a browser does not have), which deflate
+// to a quarter, so it travels packed: "z:<bytes unpacked>:<base64 of the
+// deflated JSON>". A value without that mark is the JSON in base64 as it is,
+// which is what earlier versions sent.
+std::string Packed(const std::string& json) {
+  uLongf size = compressBound(static_cast<uLong>(json.size()));
+  std::vector<uint8_t> packed(size);
+  const auto bytes = as_byte_span(json);
+  if (compress2(packed.data(), &size, bytes.data(),
+                static_cast<uLong>(bytes.size()), Z_BEST_COMPRESSION) != Z_OK) {
+    // The zygote is launched before base::FeatureList exists, so the regular
+    // Base64Encode(), which consults a feature, must not be used here.
+    return Base64EncodeEarlyStartup(bytes);
+  }
+  packed.resize(size);
+  return "z:" + NumberToString(json.size()) + ":" +
+         Base64EncodeEarlyStartup(packed);
+}
+
+std::optional<std::string> Unpacked(const std::string& value) {
+  if (!value.starts_with("z:")) {
+    std::optional<std::vector<uint8_t>> decoded = Base64Decode(value);
+    if (!decoded) {
+      return std::nullopt;
+    }
+    return std::string(decoded->begin(), decoded->end());
+  }
+  const size_t colon = value.find(':', 2);
+  size_t unpacked_size = 0;
+  if (colon == std::string::npos ||
+      !StringToSizeT(value.substr(2, colon - 2), &unpacked_size) ||
+      unpacked_size == 0 || unpacked_size > kMaxConfigBytes) {
+    return std::nullopt;
+  }
+  std::optional<std::vector<uint8_t>> packed =
+      Base64Decode(value.substr(colon + 1));
+  if (!packed) {
+    return std::nullopt;
+  }
+  std::vector<uint8_t> json(unpacked_size);
+  uLongf size = static_cast<uLongf>(unpacked_size);
+  if (uncompress(json.data(), &size, packed->data(),
+                 static_cast<uLong>(packed->size())) != Z_OK ||
+      size != unpacked_size) {
+    return std::nullopt;
+  }
+  return std::string(json.begin(), json.end());
+}
+
 // Returns the raw JSON for this process, or an empty string if none was given.
 std::string ReadConfigJson() {
   if (!CommandLine::InitializedForCurrentProcess()) {
@@ -38,13 +92,14 @@ std::string ReadConfigJson() {
   const CommandLine& command_line = *CommandLine::ForCurrentProcess();
 
   if (command_line.HasSwitch(kConfigDataSwitch)) {
-    std::optional<std::vector<uint8_t>> decoded =
-        Base64Decode(command_line.GetSwitchValueASCII(kConfigDataSwitch));
-    if (!decoded) {
+    const std::string value =
+        command_line.GetSwitchValueASCII(kConfigDataSwitch);
+    std::optional<std::string> json = Unpacked(value);
+    if (!json) {
       LOG(ERROR) << "Proteus: malformed --" << kConfigDataSwitch;
       return std::string();
     }
-    return std::string(decoded->begin(), decoded->end());
+    return *json;
   }
 
   if (command_line.HasSwitch(kConfigFileSwitch)) {
@@ -78,6 +133,20 @@ uint64_t ParseSeed(const DictValue& dict) {
 std::string StringOrEmpty(const DictValue& dict, std::string_view key) {
   const std::string* value = dict.FindString(key);
   return value ? *value : std::string();
+}
+
+// Whether |name| is written as a constant of an interface is: in capitals,
+// digits and underscores ("RGB8", "TEXTPATH_SIDETYPE_LEFT").
+bool IsConstantName(const std::string& name) {
+  if (name.empty() || name[0] < 'A' || name[0] > 'Z') {
+    return false;
+  }
+  for (char c : name) {
+    if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // The address (voiceURI) of |voice| from what its entry says: nothing (the first
@@ -187,9 +256,7 @@ Config LoadConfig() {
 
   config.active = true;
   config.seed = ParseSeed(*dict);
-  // The zygote is launched before base::FeatureList exists, so the regular
-  // Base64Encode(), which consults a feature, must not be used here.
-  config.serialized = Base64EncodeEarlyStartup(as_byte_span(json));
+  config.serialized = Packed(json);
 
   if (std::optional<int> value = dict->FindInt("hardwareConcurrency");
       value && *value > 0) {
@@ -340,8 +407,34 @@ Config LoadConfig() {
           hidden.members.push_back(member.GetString());
         }
       }
+      for (const std::string& member : hidden.members) {
+        if (IsConstantName(member) &&
+            std::find(config.loose_constants.begin(),
+                      config.loose_constants.end(),
+                      member) == config.loose_constants.end()) {
+          config.loose_constants.push_back(member);
+        }
+      }
       if (!hidden.members.empty()) {
         config.hidden_members.push_back(std::move(hidden));
+      }
+    }
+  }
+  if (const DictValue* keep = dict->FindDict("keepConstants")) {
+    for (const auto [interface_name, value] : *keep) {
+      const ListValue* list = value.GetIfList();
+      if (interface_name.empty() || !list) {
+        continue;
+      }
+      Config::HiddenMembers kept;
+      kept.interface_name = interface_name;
+      for (const Value& member : *list) {
+        if (member.is_string() && IsConstantName(member.GetString())) {
+          kept.members.push_back(member.GetString());
+        }
+      }
+      if (!kept.members.empty()) {
+        config.kept_constants.push_back(std::move(kept));
       }
     }
   }

@@ -61,7 +61,7 @@ function hash(text: string): number {
 
 /**
  * Largest number of stand-ins per font. The lists travel to every kernel process on
- * its command line (see MAX_CONFIG_BYTES in launcher.ts), so they are kept short.
+ * its command line (see MAX_PACKED_CONFIG in kernelConfig.ts), so they are kept short.
  */
 const MAX_SUBSTITUTES = 3;
 

@@ -9,7 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { evaluateApart } from './browserControl.ts';
 import { exitAddress, ExitMemory, proxyKey } from './exitMemory.ts';
 import { borrowedLists, listsToKeep, READ_LISTS_SCRIPT } from './hostLists.ts';
-import { buildKernelArgs, buildKernelConfig } from './kernelConfig.ts';
+import { buildKernelArgs, buildKernelConfig, MAX_PACKED_CONFIG, packedConfigLength } from './kernelConfig.ts';
 import { alignToKernel } from './kernelVersion.ts';
 import type { Profile, ProxySettings } from './profile.ts';
 import { lookupOwnAddress, lookupProxyExit, type ProxyExit, withOwnAddress, withProxyExit } from './proxyExit.ts';
@@ -93,11 +93,6 @@ const SETTLE_QUIET_MS = 700;
 const SETTLE_MAX_MS = 8_000;
 /** ...and gives up early when the endpoint does not serve a target list at all. */
 const SETTLE_NO_ANSWER_MS = 1_500;
-/**
- * Largest kernel configuration a start accepts. Base64 makes it a third longer on the
- * child processes' command lines, next to several thousand characters of their own.
- */
-const MAX_CONFIG_BYTES = 16_000;
 /** How long the transport report waits for the kernel to reach the recorder. */
 const TRANSPORT_WAIT_MS = 30_000;
 /** How long a kernel gets to exit cleanly before it is killed. */
@@ -284,13 +279,13 @@ export class Launcher {
     const userDataDir = join(profileDir, 'browser');
     const configFile = join(profileDir, 'kernel.json');
     await mkdir(userDataDir, { recursive: true });
-    // Written without indentation on purpose: the kernel hands the file's text to each
-    // of its child processes on their command line, which Windows limits to 32,767
-    // characters. Past that, the children cannot start and the browser dies at once.
+    // The kernel hands the file's text, deflated, to each of its child processes on
+    // their command line, which Windows limits to 32,767 characters. Past that, the
+    // children cannot start and the browser dies at once.
     const config = JSON.stringify(buildKernelConfig(profile));
-    if (Buffer.byteLength(config) > MAX_CONFIG_BYTES) {
-      throw new LaunchError(`This profile's settings are too large to start (${Buffer.byteLength(config)} bytes; ` +
-          `the limit is ${MAX_CONFIG_BYTES}). Shorten its font or voice list.`);
+    if (packedConfigLength(config) > MAX_PACKED_CONFIG) {
+      throw new LaunchError(`This profile's settings are too large to start (${packedConfigLength(config)} characters ` +
+          `when packed; the limit is ${MAX_PACKED_CONFIG}). Shorten its font or voice list.`);
     }
     await writeFile(configFile, config, 'utf8');
 
@@ -381,7 +376,7 @@ export class Launcher {
       // Read again: the profile may have been edited while the browser started.
       const current = await this.store.getProfile(id);
       const keep = listsToKeep(current, read);
-      if (keep.voices && Buffer.byteLength(JSON.stringify(buildKernelConfig({ ...current, ...keep }))) > MAX_CONFIG_BYTES) {
+      if (keep.voices && packedConfigLength(JSON.stringify(buildKernelConfig({ ...current, ...keep }))) > MAX_PACKED_CONFIG) {
         delete keep.voices;
       }
       if (Object.keys(keep).length > 0) await this.store.updateProfile(id, keep);

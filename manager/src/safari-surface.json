@@ -16,8 +16,10 @@
   ]
  },
  "notHidden": {
-  "members": 248,
-  "interfaces": 103
+  "members": 0,
+  "interfaces": 0,
+  "fixedStatics": 2,
+  "fixedConstants": 2
  },
  "cannotAdd": {
   "globals": 99
@@ -203,6 +205,13 @@
   "webkitSpeechGrammarList",
   "webkitSpeechRecognitionError",
   "webkitSpeechRecognitionEvent"
+ ],
+ "windowGlobals": [
+  "MediaStreamTrackProcessor"
+ ],
+ "workerGlobals": [
+  "GPUPipelineError",
+  "UserActivation"
  ],
  "members": {
   "Navigator": [
@@ -402,6 +411,14 @@
   "Performance": [
    "memory"
   ],
+  "PerformanceResourceTiming": [
+   "contentEncoding",
+   "contentType",
+   "renderBlockingStatus",
+   "responseStatus",
+   "workerFinalSourceType",
+   "workerMatchedSourceType"
+  ],
   "MediaDevices": [
    "setCaptureHandleConfig"
   ],
@@ -411,6 +428,495 @@
    "playbackStats",
    "setSinkId",
    "sinkId"
+  ],
+  "BaseAudioContext": [
+   "renderQuantumSize"
+  ],
+  "RTCPeerConnection": [
+   "addStream",
+   "createDTMFSender",
+   "getLocalStreams",
+   "getRemoteStreams",
+   "onaddstream",
+   "onremovestream",
+   "removeStream"
+  ],
+  "Request": [
+   "duplex",
+   "isHistoryNavigation",
+   "isReloadNavigation",
+   "targetAddressSpace",
+   "textStream"
+  ],
+  "Response": [
+   "textStream"
+  ],
+  "Blob": [
+   "textStream"
+  ],
+  "EventTarget": [
+   "when"
+  ],
+  "ShadowRoot": [
+   "appendHTML",
+   "appendHTMLUnsafe",
+   "getSelection",
+   "pointerLockElement",
+   "prependHTML",
+   "prependHTMLUnsafe",
+   "referenceTarget",
+   "setHTML",
+   "streamAppendHTML",
+   "streamAppendHTMLUnsafe",
+   "streamHTML",
+   "streamHTMLUnsafe",
+   "streamPrependHTML",
+   "streamPrependHTMLUnsafe"
+  ],
+  "SVGElement": [
+   "focusGroup",
+   "focusGroupStart",
+   "onbeforexrselect",
+   "oncontextlost",
+   "oncontextrestored",
+   "onpointerrawupdate",
+   "onscrollsnapchange",
+   "onscrollsnapchanging"
+  ],
+  "MathMLElement": [
+   "focusGroup",
+   "focusGroupStart",
+   "onbeforexrselect",
+   "oncontextlost",
+   "oncontextrestored",
+   "onpointerrawupdate",
+   "onscrollsnapchange",
+   "onscrollsnapchanging"
+  ],
+  "CharacterData": [
+   "afterHTML",
+   "afterHTMLUnsafe",
+   "beforeHTML",
+   "beforeHTMLUnsafe",
+   "replaceWithHTML",
+   "replaceWithHTMLUnsafe",
+   "streamAfterHTML",
+   "streamAfterHTMLUnsafe",
+   "streamBeforeHTML",
+   "streamBeforeHTMLUnsafe",
+   "streamReplaceWithHTML",
+   "streamReplaceWithHTMLUnsafe"
+  ],
+  "ServiceWorkerRegistration": [
+   "backgroundFetch",
+   "cookies",
+   "getNotifications",
+   "paymentManager",
+   "periodicSync",
+   "pushManager",
+   "showNotification",
+   "sync"
+  ],
+  "ProcessingInstruction": [
+   "getAttribute",
+   "getAttributeNames",
+   "hasAttribute",
+   "hasAttributes",
+   "removeAttribute",
+   "setAttribute",
+   "toggleAttribute"
+  ],
+  "WebGLRenderingContext": [
+   "RGB8",
+   "RGBA8",
+   "drawingBufferFormat",
+   "drawingBufferStorage",
+   "makeXRCompatible",
+   "texElementSubImage2D",
+   "unpackColorSpace"
+  ],
+  "CSSFontFeatureValuesRule": [
+   "annotation",
+   "characterVariant",
+   "ornaments",
+   "styleset",
+   "stylistic",
+   "swash"
+  ],
+  "FontFace": [
+   "ascentOverride",
+   "descentOverride",
+   "lineGapOverride",
+   "variant",
+   "variationSettings"
+  ],
+  "OffscreenCanvas": [
+   "clearElementGeometry",
+   "getElementImageDefaultSize",
+   "oncontextlost",
+   "oncontextrestored",
+   "updateElementGeometry"
+  ],
+  "RTCIceTransport": [
+   "getLocalCandidates",
+   "getLocalParameters",
+   "getRemoteCandidates",
+   "getRemoteParameters",
+   "role"
+  ],
+  "SubtleCrypto": [
+   "decapsulateBits",
+   "decapsulateKey",
+   "encapsulateBits",
+   "encapsulateKey",
+   "getPublicKey"
+  ],
+  "WebGL2RenderingContext": [
+   "drawingBufferFormat",
+   "drawingBufferStorage",
+   "makeXRCompatible",
+   "texElementSubImage2D",
+   "unpackColorSpace"
+  ],
+  "ElementInternals": [
+   "ariaActionsElements",
+   "ariaColIndexText",
+   "ariaDescription",
+   "ariaRowIndexText"
+  ],
+  "MouseEvent": [
+   "layerX",
+   "layerY",
+   "pageX",
+   "pageY"
+  ],
+  "PerformanceNavigationTiming": [
+   "activationStart",
+   "confidence",
+   "criticalCHRestart",
+   "notRestoredReasons"
+  ],
+  "SVGAElement": [
+   "download",
+   "interestForElement",
+   "ping",
+   "referrerPolicy"
+  ],
+  "FileSystemHandle": [
+   "queryPermission",
+   "remove",
+   "requestPermission"
+  ],
+  "MediaStreamTrack": [
+   "getCaptureHandle",
+   "oncapturehandlechange",
+   "stats"
+  ],
+  "PerformancePaintTiming": [
+   "paintTime",
+   "presentationTime",
+   "toJSON"
+  ],
+  "RTCRtpReceiver": [
+   "createEncodedStreams",
+   "playoutDelayHint",
+   "rtcpTransport"
+  ],
+  "RTCRtpTransceiver": [
+   "getHeaderExtensionsToNegotiate",
+   "getNegotiatedHeaderExtensions",
+   "setHeaderExtensionsToNegotiate"
+  ],
+  "SVGTextPathElement": [
+   "TEXTPATH_SIDETYPE_LEFT",
+   "TEXTPATH_SIDETYPE_RIGHT",
+   "TEXTPATH_SIDETYPE_UNKNOWN"
+  ],
+  "VideoFrame": [
+   "flip",
+   "metadata",
+   "rotation"
+  ],
+  "WebTransportDatagramDuplexStream": [
+   "incomingMaxBufferedDatagrams",
+   "outgoingMaxBufferedDatagrams",
+   "writable"
+  ],
+  "DedicatedWorkerGlobalScope": [
+   "PERSISTENT",
+   "TEMPORARY"
+  ],
+  "GPUAdapterInfo": [
+   "subgroupMaxSize",
+   "subgroupMinSize"
+  ],
+  "GPUComputePassEncoder": [
+   "setImmediates",
+   "writeTimestamp"
+  ],
+  "GPURenderPassEncoder": [
+   "setImmediates",
+   "writeTimestamp"
+  ],
+  "HTMLInputElement": [
+   "createValueRange",
+   "incremental"
+  ],
+  "HTMLTemplateElement": [
+   "htmlFor",
+   "shadowRootReferenceTarget"
+  ],
+  "IDBVersionChangeEvent": [
+   "dataLoss",
+   "dataLossMessage"
+  ],
+  "IntersectionObserver": [
+   "delay",
+   "trackVisibility"
+  ],
+  "Iterator": [
+   "includes",
+   "join"
+  ],
+  "MediaStream": [
+   "onactive",
+   "oninactive"
+  ],
+  "MediaStreamTrackProcessor": [
+   "discardedFrames",
+   "totalFrames"
+  ],
+  "NavigationTransition": [
+   "committed",
+   "to"
+  ],
+  "RTCIceCandidate": [
+   "relayProtocol",
+   "url"
+  ],
+  "RTCRtpSender": [
+   "createEncodedStreams",
+   "rtcpTransport"
+  ],
+  "ScreenOrientation": [
+   "lock",
+   "unlock"
+  ],
+  "SVGGraphicsElement": [
+   "farthestViewportElement",
+   "nearestViewportElement"
+  ],
+  "UIEvent": [
+   "pseudoTarget",
+   "sourceCapabilities"
+  ],
+  "ViewTransition": [
+   "transitionRoot",
+   "waitUntil"
+  ],
+  "WorkerGlobalScope": [
+   "onlanguagechange",
+   "scheduler"
+  ],
+  "AnimationEvent": [
+   "pseudoTarget"
+  ],
+  "Clipboard": [
+   "onclipboardchange"
+  ],
+  "CSSContainerRule": [
+   "conditions"
+  ],
+  "CSSStyleDeclaration": [
+   "cssFloat"
+  ],
+  "DataTransferItem": [
+   "getAsFileSystemHandle"
+  ],
+  "Date": [
+   "toTemporalInstant"
+  ],
+  "DeviceOrientationEvent": [
+   "absolute"
+  ],
+  "DocumentFragment": [
+   "moveBefore"
+  ],
+  "File": [
+   "lastModifiedDate"
+  ],
+  "FileSystemFileHandle": [
+   "move"
+  ],
+  "FileSystemSyncAccessHandle": [
+   "mode"
+  ],
+  "FileSystemWritableFileStream": [
+   "mode"
+  ],
+  "Gamepad": [
+   "vibrationActuator"
+  ],
+  "GamepadButton": [
+   "touched"
+  ],
+  "GPUQueue": [
+   "drawElementImageToTexture"
+  ],
+  "GPURenderBundleEncoder": [
+   "setImmediates"
+  ],
+  "GPUSupportedLimits": [
+   "maxImmediateSize"
+  ],
+  "GPUTexture": [
+   "textureBindingViewDimension"
+  ],
+  "HighlightRegistry": [
+   "highlightsFromPoint"
+  ],
+  "HTMLAnchorElement": [
+   "interestForElement"
+  ],
+  "HTMLAreaElement": [
+   "interestForElement"
+  ],
+  "HTMLButtonElement": [
+   "interestForElement"
+  ],
+  "HTMLDialogElement": [
+   "closedBy"
+  ],
+  "HTMLFrameSetElement": [
+   "onorientationchange"
+  ],
+  "HTMLSelectElement": [
+   "showPicker"
+  ],
+  "HTMLTextAreaElement": [
+   "createValueRange"
+  ],
+  "IDBIndex": [
+   "getAllRecords"
+  ],
+  "IDBObjectStore": [
+   "getAllRecords"
+  ],
+  "ImageData": [
+   "pixelFormat"
+  ],
+  "IntersectionObserverEntry": [
+   "isVisible"
+  ],
+  "MediaKeys": [
+   "getStatusForPolicy"
+  ],
+  "MediaMetadata": [
+   "chapterInfo"
+  ],
+  "MediaRecorder": [
+   "audioBitrateMode"
+  ],
+  "MessageEvent": [
+   "userActivation"
+  ],
+  "PaymentRequest": [
+   "hasEnrolledInstrument"
+  ],
+  "PerformanceEntry": [
+   "navigationId"
+  ],
+  "PointerEvent": [
+   "persistentDeviceId"
+  ],
+  "ResizeObserverEntry": [
+   "devicePixelContentBoxSize"
+  ],
+  "RTCDataChannel": [
+   "reliable"
+  ],
+  "RTCEncodedAudioFrame": [
+   "toString"
+  ],
+  "RTCEncodedVideoFrame": [
+   "toString"
+  ],
+  "RTCError": [
+   "httpRequestStatusCode"
+  ],
+  "RTCPeerConnectionIceErrorEvent": [
+   "hostCandidate"
+  ],
+  "SVGImageElement": [
+   "decoding"
+  ],
+  "TransitionEvent": [
+   "pseudoTarget"
+  ],
+  "TrustedTypePolicy": [
+   "createParserOptions"
+  ],
+  "TrustedTypePolicyFactory": [
+   "getTypeMapping"
+  ],
+  "VisualViewport": [
+   "onscrollend"
+  ],
+  "WebTransport": [
+   "responseHeaders"
+  ],
+  "WheelEvent": [
+   "momentum"
+  ],
+  "XMLHttpRequest": [
+   "setPrivateToken"
+  ]
+ },
+ "statics": {
+  "DedicatedWorkerGlobalScope": [
+   "PERSISTENT",
+   "TEMPORARY"
+  ],
+  "Document": [
+   "parseHTML"
+  ],
+  "Iterator": [
+   "zip",
+   "zipKeyed"
+  ],
+  "PaymentRequest": [
+   "getSecurePaymentConfirmationCapabilities",
+   "securePaymentConfirmationAvailability"
+  ],
+  "PublicKeyCredential": [
+   "isConditionalMediationAvailable"
+  ],
+  "RTCPeerConnection": [
+   "cancelDiagnosticLogging",
+   "startDiagnosticLogging",
+   "stopDiagnosticLogging"
+  ],
+  "SVGTextPathElement": [
+   "TEXTPATH_SIDETYPE_LEFT",
+   "TEXTPATH_SIDETYPE_RIGHT",
+   "TEXTPATH_SIDETYPE_UNKNOWN"
+  ],
+  "SubtleCrypto": [
+   "supports"
+  ],
+  "WebGLRenderingContext": [
+   "RGB8",
+   "RGBA8"
+  ]
+ },
+ "keepConstants": {
+  "WebGL2RenderingContext": [
+   "RGB8",
+   "RGBA8"
+  ],
+  "Window": [
+   "PERSISTENT",
+   "TEMPORARY"
   ]
  }
 }

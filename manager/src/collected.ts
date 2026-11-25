@@ -64,7 +64,7 @@ export interface Collected {
 }
 
 // The kernel receives its configuration on the command line, which is short on
-// Windows (launcher.ts refuses a configuration over 16,000 bytes). These budgets, in
+// Windows (kernelConfig.ts: MAX_PACKED_CONFIG, measured as it travels, deflated). These budgets, in
 // bytes of that configuration, keep a profile made from a fingerprint inside it.
 // A font costs its name twice plus the substitutes named for it.
 const FONT_BUDGET = 6000;

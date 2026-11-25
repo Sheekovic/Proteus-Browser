@@ -7,7 +7,9 @@
  "hiddenAnyway": {},
  "notHidden": {
   "members": 0,
-  "interfaces": 0
+  "interfaces": 0,
+  "fixedStatics": 0,
+  "fixedConstants": 0
  },
  "cannotAdd": {
   "globals": 17
@@ -29,6 +31,8 @@
   "documentPictureInPicture",
   "queryLocalFonts"
  ],
+ "windowGlobals": [],
+ "workerGlobals": [],
  "members": {
   "Navigator": [
    "registerProtocolHandler",
@@ -63,5 +67,13 @@
   "SerialPort": [
    "connected"
   ]
- }
+ },
+ "statics": {
+  "RTCPeerConnection": [
+   "cancelDiagnosticLogging",
+   "startDiagnosticLogging",
+   "stopDiagnosticLogging"
+  ]
+ },
+ "keepConstants": {}
 }

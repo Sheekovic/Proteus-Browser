@@ -8,11 +8,12 @@
 //   one, which has a few more members): whatever any of them has and the real browser
 //   has not is to be hidden.
 //
-// The kernel's configuration has to stay small (it travels on a command line), so:
+// The kernel's configuration travels on a command line, deflated (kernel patch 0031),
+// so there is room for all of it, but none to waste:
 //  - names of the global object that share a beginning nothing else shares are written
 //    as that beginning and a * (the fifty XR… interfaces are "XR*");
-//  - members of interfaces are taken in the order pages look at them, until the room
-//    is used up. What did not fit is counted in the file.
+//  - members of interfaces are taken in the order pages look at them. Should they
+//    ever outgrow the room, what did not fit is counted in the file.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -52,8 +53,8 @@ const real = {
   at: reals.map((reading) => reading.at).sort().at(-1),
 };
 
-/** Room for the member lists, in bytes of JSON. */
-const MEMBER_BUDGET = 3400;
+/** Room for the member lists, in bytes of JSON; some 9,000 are used. */
+const MEMBER_BUDGET = 30_000;
 // What Safari lacks and the profile keeps, because without it the kernel could not do
 // what Safari does another way: play video in pieces (Safari has ManagedMediaSource,
 // the kernel only this).
@@ -132,6 +133,71 @@ for (const name of order) {
   if (used + cost <= MEMBER_BUDGET) { members[name] = lists[name]; used += cost; } else { leftOut += lists[name].length; leftOutInterfaces++; }
 }
 
+// --- Members of the global object in a page alone, or in a worker alone ------------------
+// What the real browser has in one and not in the other (Safari has UserActivation in
+// a page and MediaStreamTrackProcessor in a worker) cannot go by the list above.
+const inScope = (reading, scopeName) => new Set(reading[scopeName]?.globals ?? []);
+const onlyIn = (scopeName) => {
+  if (!real[scopeName]) return [];
+  const theirs = new Set(real[scopeName].globals);
+  const mine = new Set(kernels.flatMap((kernel) => [...inScope(kernel, scopeName)]));
+  return [...mine].filter((name) => !theirs.has(name) && !toHide.has(name) && !KEEP.has(name)).sort();
+};
+const windowGlobals = onlyIn('page');
+const workerGlobals = onlyIn('worker');
+
+// --- Static members: those of the interface object itself --------------------------------
+const staticsOf = (reading, name) => {
+  const found = new Set();
+  let has = false;
+  for (const scope of scopes(reading)) {
+    const entry = scope.interfaces[name];
+    if (!entry) continue;
+    has = true;
+    for (const member of entry.statics ?? []) found.add(member);
+  }
+  return has ? found : null;
+};
+// Symbol's are the well-known symbols, which nothing can remove.
+const FIXED_STATICS = new Set(['Symbol']);
+const statics = {};
+let fixedStatics = 0;
+for (const name of [...interfaceNames].sort()) {
+  const theirs = staticsOf(real, name);
+  if (!theirs) continue;
+  const mine = new Set(kernels.flatMap((kernel) => [...(staticsOf(kernel, name) ?? [])]));
+  const gone = [...mine].filter((member) => !theirs.has(member) && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(member)).sort();
+  if (gone.length === 0) continue;
+  if (FIXED_STATICS.has(name)) fixedStatics += gone.length; else statics[name] = gone;
+}
+
+// --- Constants ---------------------------------------------------------------------------
+// The kernel can remove a constant only by installing it removable on every interface
+// that has one of that name, so the interfaces that keep theirs are named: there it is
+// made fixed again.
+const isConstant = (member) => /^[A-Z][A-Z0-9_]*$/.test(member);
+// Not Window's, though: a page's global object comes out of a snapshot made when the
+// kernel was built, with its constants already fixed. They are counted as left.
+const SNAPSHOT = new Set(['Window']);
+let fixedConstants = 0;
+for (const holder of [members, statics]) {
+  for (const name of Object.keys(holder).filter((key) => SNAPSHOT.has(key))) {
+    fixedConstants += holder === members ? holder[name].filter(isConstant).length : 0;
+    holder[name] = holder[name].filter((member) => !isConstant(member));
+    if (holder[name].length === 0) delete holder[name];
+  }
+}
+const hiddenConstants = new Map();   // constant -> the interfaces it goes from
+for (const [name, list] of [...Object.entries(members), ...Object.entries(statics)]) {
+  for (const member of list.filter(isConstant)) hiddenConstants.set(member, (hiddenConstants.get(member) ?? new Set()).add(name));
+}
+const keepConstants = {};
+for (const name of [...interfaceNames].sort()) {
+  const mine = new Set(kernels.flatMap((kernel) => [...(membersOf(kernel, name) ?? []), ...(staticsOf(kernel, name) ?? [])]));
+  const kept = [...hiddenConstants].filter(([member, from]) => mine.has(member) && !from.has(name)).map(([member]) => member).sort();
+  if (kept.length > 0) keepConstants[name] = kept;
+}
+
 // --- What cannot be done from outside: what the real browser has and the kernel lacks ---
 const missing = [...realGlobals].filter((name) => !kernelGlobals.has(name)).sort();
 
@@ -142,10 +208,14 @@ const out = {
   kernel: [...new Set(kernels.map((kernel) => /Chrome\/(\d+)/.exec(kernel.userAgent)?.[1] ?? /Version\/([\d.]+)/.exec(kernel.userAgent)?.[1]))].join(', '),
   kept: [...KEEP].filter((name) => kernelGlobals.has(name) && !realGlobals.has(name)),
   hiddenAnyway: HIDE_ANYWAY,
-  notHidden: { members: leftOut, interfaces: leftOutInterfaces },
+  notHidden: { members: leftOut, interfaces: leftOutInterfaces, fixedStatics, fixedConstants },
   cannotAdd: { globals: missing.length },
   globals,
+  windowGlobals,
+  workerGlobals,
   members,
+  statics,
+  keepConstants,
 };
 const target = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', `${which}-surface.json`);
 writeFileSync(target, JSON.stringify(out, null, 1) + '\n');
@@ -153,6 +223,9 @@ console.log(`members of the global object to hide: ${extra.length}, written as $
     `${Buffer.byteLength(JSON.stringify(globals))} bytes`);
 console.log(`members of interfaces: ${Object.values(members).flat().length} in ${Object.keys(members).length} interfaces (${used} bytes); ` +
     `left out for room: ${leftOut} in ${leftOutInterfaces}`);
+console.log(`in a page alone: ${windowGlobals.join(' ') || 'none'}; in a worker alone: ${workerGlobals.join(' ') || 'none'}`);
+console.log(`static members: ${Object.values(statics).flat().length} in ${Object.keys(statics).length} interfaces; that cannot be removed: ${fixedStatics}; constants that cannot: ${fixedConstants}`);
+console.log(`constants that go: ${[...hiddenConstants.keys()].join(' ') || 'none'}; kept fixed on: ${Object.keys(keepConstants).join(' ') || 'nothing'}`);
 console.log(`the real browser has ${missing.length} names the kernel lacks (cannot be added from here)`);
 console.log('beginnings:', patterns.join(' '));
 console.log('written:', target);

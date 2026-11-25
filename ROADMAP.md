@@ -44,7 +44,8 @@ from tests.
 - [x] Screens from readings, each with the pixel ratio it was read at, and the browser started at that ratio
 - [ ] Card, screen, memory and fonts from one reading, so an identity is one computer's and not a plausible mix *(needs: whole readings; the published model keeps them apart)*
 - [x] An iPhone profile without what Safari was read not to have, and an Android one without what a phone's Chrome was read not to have
-- [ ] The members of every interface, not only the most looked-at *(needs: a smaller way to tell the kernel, or more room)*
+- [x] The members of every interface, not only the most looked-at: the configuration reaches the kernel's child processes deflated, so there is room for all of them
+- [x] Static members, constants, and what a browser has in a page and not in a worker: read back, an Android profile has nothing its phone lacks and an iPhone profile four things nothing can remove
 - [x] One screen, whatever the machine has; a Mac's work area below its menu bar
 - [x] A camera picture from a video file instead of the machine's camera, with a silent microphone
 - [x] Battery and network information that fit the claimed device
@@ -78,7 +79,7 @@ an entry is struck from the README in the commit that ticks its item here.
 - [ ] **One kernel, two handshakes** — a handshake per claimed Chrome version: record each version's, and let the kernel make the one its profile claims
 - [ ] **An identity put together** — card, screen, memory and fonts from one reading (the item in section 4), from readings of our own if the published ones stay apart *(needs: whole readings)*
 - [ ] **Linux identities without a card's capabilities** — complete Linux readings *(needs: readings)*
-- [ ] **A phone profile, as far as removing goes** — room in the kernel's configuration for the 248 members left; the 14 a phone has and the kernel lacks; the 99 names of Safari's, as objects that answer the way Safari's do; `navigator.gpu` described from the profile
+- [ ] **A phone profile, as far as removing goes** — removing is done but for four names nothing can remove from outside (`Symbol.dispose` and `asyncDispose`, which a switch of the JavaScript engine would take away together with what Safari does have; `PERSISTENT` and `TEMPORARY` of a page's global object, fixed when the kernel is built). Left is adding: the some 15 members a phone has and the kernel lacks; the 99 names of Safari's, as objects that answer the way Safari's do; `navigator.gpu` described from the profile
 - [ ] **The second screen** — nothing left to hide: check that no other path (window placement, screen details) shows the machine's, then strike the entry
 - [ ] **A window at the profile's scale** — draw the window at the machine's scale while the page reads the profile's
 - [ ] **A limit is a claim** — refuse what goes beyond a claimed limit (texture and buffer sizes, memory), as the claimed hardware would

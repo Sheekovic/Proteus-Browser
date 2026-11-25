@@ -576,20 +576,24 @@ Worth knowing before relying on it:
   The kernel is desktop Chrome. What it offers a page was compared, name by name, with
   what Safari on an iPhone 17 Pro Max and Chrome on a Galaxy offer
   ([`read-surface.mjs`](manager/tools/read-surface.mjs) serves the page that reads it).
-  An iPhone profile now hides the 291 members of the global object that Safari lacks
-  (`EyeDropper`, `Notification`, `requestIdleCallback`, WebUSB, WebXR, …; all but
-  `MediaSource` and its buffers, kept so that video in pieces still plays) and 177
-  members of the interfaces pages look at first. What is left: 248 members of less
-  looked-at interfaces, for which the kernel's configuration has no room; the 99 names
-  Safari has and the kernel does not (`ApplePaySession`, `GestureEvent`, …), which
-  cannot be added from outside; and `navigator.gpu`, hidden although Safari has it,
-  because the kernel's would describe this machine's graphics card. An Android profile
-  was compared with a Galaxy's Chrome before and after an update (152 and 158, one
-  older and one newer than the kernel) and hides what neither has (window sharing,
-  local fonts, the built-in language models, …), with `navigator.contacts`,
-  `NDEFReader`, `BarcodeDetector` and the like switched on. Read back on the kernel,
-  its global object has the same names as the phone's Chrome 158, in a page and in a
-  worker; 14 members of interfaces that the phone has are still missing.
+  An iPhone profile hides everything Safari was read not to have: the 291 members of
+  the global object (`EyeDropper`, `Notification`, `requestIdleCallback`, WebUSB,
+  WebXR, …; all but `MediaSource` and its buffers, kept so that video in pieces still
+  plays), what Safari has in a page and not in a worker or the other way round, the
+  423 members of 117 interfaces, their static members and their constants. Read back
+  on the kernel, four are left that nothing can remove from outside: `Symbol.dispose`
+  and `Symbol.asyncDispose`, and the constants `PERSISTENT` and `TEMPORARY` of a
+  page's global object. What cannot be added is the other side: the 99 names Safari
+  has and the kernel does not (`ApplePaySession`, `GestureEvent`, …) and some 225
+  members of interfaces both have; and `navigator.gpu` is hidden although Safari has
+  it, because the kernel's would describe this machine's graphics card. An Android
+  profile was compared with a Galaxy's Chrome before and after an update (152 and
+  158, one older and one newer than the kernel) and hides what neither has (window
+  sharing, local fonts, the built-in language models, …), with `navigator.contacts`,
+  `NDEFReader`, `BarcodeDetector` and the like switched on. Read back on the kernel
+  it has nothing the phone's Chrome 158 lacks, in a page or in a worker; some 15
+  members of interfaces that the phone has are still missing (14 on Windows, 17 on
+  Linux).
 - **The second screen is the machine's.** A profile says it has one screen
   (`screen.isExtended` is false) whatever is plugged into the machine; an iPhone
   profile has no such member at all, as Safari has none.
