@@ -1,7 +1,7 @@
 From f7c5b39d4830c604f3bf8c7dcececd3e6d4e9fda Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Thu, 19 Nov 2026 20:34:29 +0000
-Subject: [PATCH 28/29] proteus: a Safari profile shakes hands as Safari does
+Subject: [PATCH 28/30] proteus: a Safari profile shakes hands as Safari does
 
 ---
  base/proteus/proteus_config.cc       |  1 +

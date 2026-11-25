@@ -1,0 +1,218 @@
+From e7ac8da527928f58d3c19c8fb4c923bd3382939b Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Wed, 25 Nov 2026 15:30:48 +0000
+Subject: [PATCH 30/30] proteus: voices arrive as they do on a phone, each with
+ its address
+
+---
+ base/proteus/proteus_config.cc                | 69 +++++++++++++++++++
+ base/proteus/proteus_config.h                 |  3 +
+ .../modules/speech/speech_synthesis.cc        | 39 +++++++++--
+ .../modules/speech/speech_synthesis.h         |  3 +
+ 4 files changed, 108 insertions(+), 6 deletions(-)
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index cc046dcf97..dae67506b3 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -80,6 +80,61 @@ std::string StringOrEmpty(const DictValue& dict, std::string_view key) {
+   return value ? *value : std::string();
+ }
+ 
++// The address (voiceURI) of |voice| from what its entry says: nothing (the first
++// of |shapes|, or no address of its own when there are none), "#2" (that shape),
++// "#2:Alpana" (that shape with this in place of the voice's name), or the address
++// itself.
++std::string VoiceUri(const std::string& written,
++                     const Voice& voice,
++                     const std::vector<std::string>& shapes) {
++  if (!written.empty() && written[0] != '#') {
++    return written;
++  }
++  size_t index = 0;
++  std::string id;
++  for (char c : voice.name) {
++    if (c != ' ') {
++      id.push_back(c);
++    }
++  }
++  if (!written.empty()) {
++    size_t at = 1;
++    bool digits = false;
++    for (; at < written.size() && written[at] >= '0' && written[at] <= '9';
++         ++at) {
++      index = index * 10 + static_cast<size_t>(written[at] - '0');
++      digits = true;
++      if (index > 1000) {
++        return std::string();
++      }
++    }
++    if (!digits) {
++      return std::string();
++    }
++    if (at < written.size()) {
++      if (written[at] != ':') {
++        return std::string();
++      }
++      id = written.substr(at + 1);
++    }
++  }
++  if (index >= shapes.size()) {
++    return std::string();
++  }
++  std::string uri;
++  const std::string& shape = shapes[index];
++  for (size_t i = 0; i < shape.size(); ++i) {
++    if (shape[i] == '%' && i + 1 < shape.size() &&
++        (shape[i + 1] == 'l' || shape[i + 1] == 'n')) {
++      uri += shape[i + 1] == 'l' ? voice.lang : id;
++      ++i;
++    } else {
++      uri.push_back(shape[i]);
++    }
++  }
++  return uri;
++}
++
+ std::vector<UaBrand> ParseBrands(const DictValue& dict, std::string_view key) {
+   std::vector<UaBrand> brands;
+   const ListValue* list = dict.FindList(key);
+@@ -346,6 +401,18 @@ Config LoadConfig() {
+       config.connection_downlink_max = max > 0 && max < 100000 ? max : 0;
+     }
+   }
++  // The shapes a voice's address (voiceURI) can have, for browsers whose addresses
++  // are not the voices' names: "%l" stands for the voice's language and "%n" for its
++  // name without spaces. Safari's are "com.apple.voice.super-compact.%l.%n" and two
++  // more; written once here, 68 voices do not have to spell them out.
++  std::vector<std::string> voice_uri_shapes;
++  if (const ListValue* shapes = dict->FindList("voiceUris")) {
++    for (const Value& shape : *shapes) {
++      if (shape.is_string() && voice_uri_shapes.size() < 16) {
++        voice_uri_shapes.push_back(shape.GetString());
++      }
++    }
++  }
+   if (const ListValue* voices = dict->FindList("voices")) {
+     for (const Value& item : *voices) {
+       const DictValue* entry = item.GetIfDict();
+@@ -357,6 +424,8 @@ Config LoadConfig() {
+       voice.lang = StringOrEmpty(*entry, "lang");
+       voice.local = entry->FindBool("local").value_or(true);
+       voice.is_default = entry->FindBool("default").value_or(false);
++      voice.uri =
++          VoiceUri(StringOrEmpty(*entry, "uri"), voice, voice_uri_shapes);
+       if (!voice.name.empty()) {
+         config.voices.push_back(std::move(voice));
+       }
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index 42cd03d8dd..70a5627a41 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -78,6 +78,9 @@ struct BASE_EXPORT Voice {
+   std::string lang;       // BCP 47 tag, e.g. "en-US"
+   bool local = true;      // localService
+   bool is_default = false;
++  // voiceURI. Chrome's is the voice's name, which is what an empty value gives;
++  // Safari's is an address of its own ("com.apple.voice.compact.en-US.Samantha").
++  std::string uri;
+ };
+ 
+ // window.screen and the device-width / device-height media features, in CSS
+diff --git a/third_party/blink/renderer/modules/speech/speech_synthesis.cc b/third_party/blink/renderer/modules/speech/speech_synthesis.cc
+index cb6dbc870b..41cf91ad9f 100644
+--- a/third_party/blink/renderer/modules/speech/speech_synthesis.cc
++++ b/third_party/blink/renderer/modules/speech/speech_synthesis.cc
+@@ -29,7 +29,12 @@
+ #include <string>
+ 
+ #include "base/containers/span.h"
++#include "base/location.h"
+ #include "base/proteus/proteus_config.h"
++#include "base/time/time.h"
++#include "third_party/blink/public/platform/task_type.h"
++#include "third_party/blink/renderer/platform/heap/persistent.h"
++#include "third_party/blink/renderer/platform/wtf/functional.h"
+ 
+ #include "build/build_config.h"
+ #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+@@ -96,9 +101,12 @@ static bool ProteusFillVoiceList(
+   }
+   for (const base::proteus::Voice& voice : voices) {
+     const String name = String::FromUtf8(base::as_byte_span(voice.name));
++    const String uri = voice.uri.empty()
++                           ? name
++                           : String::FromUtf8(base::as_byte_span(voice.uri));
+     list.push_back(MakeGarbageCollected<SpeechSynthesisVoice>(
+         mojom::blink::SpeechSynthesisVoice::New(
+-            /*voice_uri=*/name, name,
++            uri, name,
+             String::FromUtf8(base::as_byte_span(voice.lang)), voice.local,
+             voice.is_default)));
+   }
+@@ -107,11 +115,12 @@ static bool ProteusFillVoiceList(
+ 
+ void SpeechSynthesis::OnSetVoiceList(
+     Vector<mojom::blink::SpeechSynthesisVoicePtr> mojom_voices) {
+-  voice_list_.clear();
+-  if (ProteusFillVoiceList(voice_list_)) {
+-    VoicesDidChange();
++  if (!base::proteus::GetConfig().voices.empty()) {
++    // The machine's list is not the profile's, and its arrival is not the
++    // moment the profile's voices arrive: ProteusDeliverVoices() is.
+     return;
+   }
++  voice_list_.clear();
+   for (auto& mojom_voice : mojom_voices) {
+     voice_list_.push_back(
+         MakeGarbageCollected<SpeechSynthesisVoice>(std::move(mojom_voice)));
+@@ -122,12 +131,30 @@ void SpeechSynthesis::OnSetVoiceList(
+ const HeapVector<Member<SpeechSynthesisVoice>>& SpeechSynthesis::getVoices() {
+   // Kick off initialization here to ensure voice list gets populated.
+   std::ignore = TryEnsureMojomSynthesis();
+-  if (voice_list_.empty()) {
+-    ProteusFillVoiceList(voice_list_);
++  if (!proteus_voices_asked_for_ &&
++      !base::proteus::GetConfig().voices.empty() && GetSupplementable()) {
++    proteus_voices_asked_for_ = true;
++    GetSupplementable()
++        ->GetTaskRunner(TaskType::kMiscPlatformAPI)
++        ->PostDelayedTask(FROM_HERE,
++                          BindOnce(&SpeechSynthesis::ProteusDeliverVoices,
++                                   WrapWeakPersistent(this)),
++                          base::Milliseconds(12));
+   }
+   return voice_list_;
+ }
+ 
++// Proteus: the profile's voices arrive, as a browser's do: after the page asked,
++// with one voiceschanged event.
++void SpeechSynthesis::ProteusDeliverVoices() {
++  if (!voice_list_.empty() || !GetSupplementable()) {
++    return;
++  }
++  if (ProteusFillVoiceList(voice_list_)) {
++    VoicesDidChange();
++  }
++}
++
+ bool SpeechSynthesis::speaking() const {
+   // If we have a current speech utterance, then that means we're assumed to be
+   // in a speaking state. This state is independent of whether the utterance
+diff --git a/third_party/blink/renderer/modules/speech/speech_synthesis.h b/third_party/blink/renderer/modules/speech/speech_synthesis.h
+index 0199d00326..e7d0173c92 100644
+--- a/third_party/blink/renderer/modules/speech/speech_synthesis.h
++++ b/third_party/blink/renderer/modules/speech/speech_synthesis.h
+@@ -101,6 +101,9 @@ class MODULES_EXPORT SpeechSynthesis final
+ 
+  private:
+   void VoicesDidChange();
++  // Proteus: see speech_synthesis.cc.
++  void ProteusDeliverVoices();
++  bool proteus_voices_asked_for_ = false;
+   void StartSpeakingImmediately();
+   void HandleSpeakingCompleted(
+       SpeechSynthesisUtterance*,
+-- 
+2.43.0
+

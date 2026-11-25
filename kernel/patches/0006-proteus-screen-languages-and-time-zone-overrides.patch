@@ -1,7 +1,7 @@
 From a3694b777b39cf7fa710dbc20287492865807be9 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 14:07:16 +0000
-Subject: [PATCH 06/29] proteus: screen, languages and time zone overrides
+Subject: [PATCH 06/30] proteus: screen, languages and time zone overrides
 
 ---
  base/proteus/proteus_config.cc                | 23 +++++++++++++++++++

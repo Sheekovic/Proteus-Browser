@@ -49,7 +49,7 @@ from tests.
 - [x] A camera picture from a video file instead of the machine's camera, with a silent microphone
 - [x] Battery and network information that fit the claimed device
 - [x] A phone profile's voices as its browser was read to list them: 92 from Chrome on a Galaxy, 68 from Safari on an iPhone, same names, languages and order
-- [ ] A voice's address (`voiceURI`) from the profile, as Safari's is not its name, and an empty first answer followed by the event, as Chrome on a phone gives *(needs: a kernel build)*
+- [x] A voice's address (`voiceURI`) from the profile, as Safari's is not its name, and an empty first answer followed by the event, as Chrome on a phone gives
 - [x] A memory value its browser can report, fitting the processor, and checked when set by hand
 - [x] A TLS hello like stock Chrome's: without the experiment a Chromium build adds to it
 - [x] Safari's TLS and HTTP/2 shape for iPhone profiles, as recorded from an iPhone (not over HTTP/3, which they do not use)
