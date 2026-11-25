@@ -31,6 +31,26 @@ function describe(prefix, gl) {
   gl.getError();
   out.push(prefix + 'VertexHighFloat=' + precision(gl, gl.VERTEX_SHADER, gl.HIGH_FLOAT));
   out.push(prefix + 'FragmentLowInt=' + precision(gl, gl.FRAGMENT_SHADER, gl.LOW_INT));
+  // What goes beyond a limit is refused, and what is at it is not: the error of each.
+  const tried = run => { gl.getError(); run(); return gl.getError(); };
+  const both = (limit, run) => tried(() => run(limit)) + '/' + tried(() => run(limit + 1));
+  gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+  out.push(prefix + 'TexEdge=' + both(gl.getParameter(gl.MAX_TEXTURE_SIZE),
+      size => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)));
+  gl.bindRenderbuffer(gl.RENDERBUFFER, gl.createRenderbuffer());
+  out.push(prefix + 'BufferEdge=' + both(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),
+      size => gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA4, size, 1)));
+  out.push(prefix + 'AttribEdge=' + both(gl.getParameter(gl.MAX_VERTEX_ATTRIBS) - 1,
+      index => gl.enableVertexAttribArray(index)));
+  out.push(prefix + 'UnitEdge=' + both(gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) - 1,
+      unit => gl.activeTexture(gl.TEXTURE0 + unit)));
+  gl.activeTexture(gl.TEXTURE0);
+  // A canvas wider than the card can draw gets a drawing buffer as wide as it can.
+  const wide = document.createElement('canvas');
+  wide.width = gl.getParameter(gl.MAX_VIEWPORT_DIMS)[0] + 904;
+  wide.height = 8;
+  const wideGl = wide.getContext(prefix === 'gl1' ? 'webgl' : 'webgl2');
+  out.push(prefix + 'Wide=' + (wideGl ? wideGl.drawingBufferWidth === gl.getParameter(gl.MAX_VIEWPORT_DIMS)[0] : 'none'));
   // The native getter must still be the native getter.
   out.push(prefix + 'Native=' + /\{\s*\[native code\]\s*\}/.test(Function.prototype.toString.call(gl.getParameter)));
   // A parameter nobody forces keeps working.

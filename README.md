@@ -632,8 +632,14 @@ Worth knowing before relying on it:
   2), and the browser is started at that ratio so that what a page reads agrees with
   it. On your monitor that makes a profile's window look larger or smaller than your
   other programs. A profile made before this has no ratio and uses the machine's.
-- **A limit is a claim.** A page that actually allocates beyond a claimed limit
-  succeeds if the real hardware allows it.
+- **Not every limit refuses.** What goes beyond a WebGL limit of the profile's card
+  is refused as that card refuses it: a texture, cube map, 3D texture or renderbuffer
+  too large, a canvas wider than it can draw, too many vertex attributes, texture
+  units, draw buffers or transform-feedback attributes. Three things are not: a shader
+  that uses more uniforms, varyings or samplers than the claimed card has still
+  compiles where the machine's card takes it; a limit the profile claims above the
+  machine's is the machine's when tried; and the memory a profile claims is a number,
+  as a page that allocates gets what the machine has.
 - **Two things still come from the machine a profile runs on.** The stand-in fonts
   below are chosen from the machine's own, and a profile without a device reading
   reports the machine's graphics limits (above). Moved to another computer, a profile
