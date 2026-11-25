@@ -260,6 +260,7 @@ export const TOOLS: readonly Tool[] = [
       exitWatchMinutes: { type: 'number', description: 'How often, in minutes, a running profile\'s proxy exit is looked at again; 0 turns that off.' },
       exitCacheMinutes: { type: 'number', description: 'How long, in minutes, a proxy exit seen twice in a row lets a profile start without waiting for the lookup; 0 looks first at every start.' },
       autoUpdateCheck: { type: 'boolean', description: 'Whether the manager asks GitHub by itself, at a start and once a day, if there is a newer release. Nothing is downloaded until the user says so.' },
+      startWithMachine: { type: 'boolean', description: 'Whether Proteus starts by itself when the user signs in to the machine. Off unless turned on.' },
     }),
     run: (args, context) => context.store.updateSettings(args),
   },

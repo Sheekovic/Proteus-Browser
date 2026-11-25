@@ -7,9 +7,11 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { autostartPlan, setAutostart } from './autostart.ts';
 import { appWindowArguments, findKernel, openCommand } from './bundled.ts';
 import { Launcher } from './launcher.ts';
 import { createApiServer } from './server.ts';
+import { ValidationError } from './profile.ts';
 import { Store } from './store.ts';
 import { Updater } from './updater.ts';
 import { allowSandboxToReadKernel } from './winSandbox.ts';
@@ -31,6 +33,16 @@ const argv = process.argv.slice(2);
 const managerDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const store = new Store();
 const launcher = new Launcher(store);
+// Starting with the machine (autostart.ts): the setting tells the system, and a
+// Proteus that was moved since tells it again where it is now.
+const startPlan = autostartPlan({ platform: process.platform, managerDir, nodePath: process.execPath, configHome: process.env.XDG_CONFIG_HOME });
+store.applyStartWithMachine = async (on) => {
+  if (startPlan === null) {
+    if (on) throw new ValidationError('Starting with the machine is not available on this system.');
+    return;
+  }
+  await setAutostart(on, startPlan);
+};
 // For trying the updater against a pretend list of releases on this machine; an
 // address anywhere else is not taken.
 const pretendUrl = process.env.PROTEUS_RELEASES_URL ?? '';
@@ -44,6 +56,7 @@ const server = createApiServer({ store, launcher, uiDir: join(managerDir, 'ui'),
 // With no kernel chosen yet, or one that is no longer there (the folder was moved),
 // use the one shipped next to the manager.
 const settings = await store.getSettings();
+if (settings.startWithMachine && startPlan !== null) await setAutostart(true, startPlan).catch(() => {});
 if (settings.kernelPath === '' || !existsSync(settings.kernelPath)) {
   const kernel = findKernel(managerDir);
   if (kernel !== undefined) {

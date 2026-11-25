@@ -293,6 +293,7 @@
         <span id="update-result"></span></p>
       <label class="check"><input name="autoUpdateCheck" type="checkbox">Ask GitHub at each start, and once a day, whether there is a newer
         version (one small request; nothing is downloaded until you say so)</label>
+      <label class="check"><input name="startWithMachine" type="checkbox">Start Proteus when you sign in to this computer</label>
       <h2 style="margin-top:20px">Proxies</h2>
       <p class="hint">Before a profile with a proxy starts, Proteus asks through that proxy where it comes out, and matches the
         browser's time zone, location and WebRTC address to it.</p>
@@ -915,6 +916,7 @@ async function loadSettings() {
   form.exitWatchMinutes.value = settings.exitWatchMinutes;
   form.exitCacheMinutes.value = settings.exitCacheMinutes;
   form.autoUpdateCheck.checked = settings.autoUpdateCheck;
+  form.startWithMachine.checked = settings.startWithMachine;
   const state = $('kernel-state');
   state.textContent = settings.kernelPath ? `version ${settings.kernelVersion}` : 'not set — see Settings';
   state.classList.toggle('warn', !settings.kernelPath);
@@ -931,6 +933,7 @@ $('settings').addEventListener('submit', async (event) => {
       exitWatchMinutes: Number(f.exitWatchMinutes.value) || 0,
       exitCacheMinutes: Number(f.exitCacheMinutes.value) || 0,
       autoUpdateCheck: f.autoUpdateCheck.checked,
+      startWithMachine: f.startWithMachine.checked,
     });
     toast('Settings saved.');
     await loadSettings();

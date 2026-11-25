@@ -157,6 +157,11 @@ PROTEUS_KERNEL=/path/to/chrome node src/main.ts --open
 The Proteus window opens. Create a profile and press **Start**.
 
 - Starting Proteus while it is already running shows its window again.
+- Proteus can start by itself when you sign in to the computer: tick **Start Proteus
+  when you sign in to this computer** under **Settings**. It is off until you do. On
+  Windows that is a value in your own account's startup list, on Linux an entry in
+  `~/.config/autostart`; neither needs administrator rights, and unticking it (or
+  removing an installed Proteus) takes it away again.
 - `--open` shows the manager in a window of its own; closing it ends Proteus, unless
   profiles are still running. `--open-browser` uses your usual browser instead, and
   without either the manager only serves <http://127.0.0.1:5310>.

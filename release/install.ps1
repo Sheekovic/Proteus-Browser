@@ -36,6 +36,10 @@ if ($Uninstall) {
   if (Test-Running $Target) { throw 'Proteus is running. Close it and its profiles first.' }
   foreach ($shortcut in $shortcuts) { if (Test-Path $shortcut) { Remove-Item $shortcut -Force } }
   if (-not $NoRegister -and (Test-Path $registry)) { Remove-Item $registry -Recurse -Force }
+  # The start at sign-in that the settings can turn on, when it starts this Proteus.
+  $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+  $atSignIn = (Get-ItemProperty -Path $run -Name Proteus -ErrorAction SilentlyContinue).Proteus
+  if (-not $NoRegister -and $atSignIn -and $atSignIn.Contains($Target)) { Remove-ItemProperty -Path $run -Name Proteus }
   # Only a folder an install made is removed: it holds the note the install left.
   if (Test-Path (Join-Path $Target 'installed.txt')) { Remove-Item $Target -Recurse -Force }
   Say 'Proteus was removed. Your profiles and settings are still in %APPDATA%\Proteus.'

@@ -49,6 +49,11 @@ export interface Settings {
    * downloaded until the user says so. Off: only the button in the settings asks.
    */
   autoUpdateCheck: boolean;
+  /**
+   * Whether Proteus starts by itself when the user signs in to the machine
+   * (autostart.ts). Off unless the user turns it on.
+   */
+  startWithMachine: boolean;
 }
 
 /** The lookup setting of versions that asked a single service. */
@@ -60,6 +65,7 @@ const DEFAULT_SETTINGS: Settings = {
   exitWatchMinutes: 10,
   exitCacheMinutes: 30,
   autoUpdateCheck: true,
+  startWithMachine: false,
 };
 
 /** A fingerprint read from a real device (see collected.ts), as kept on disk. */
@@ -120,6 +126,13 @@ function withDefaults(stored: Profile): Profile {
 
 export class Store {
   readonly dataDir: string;
+
+  /**
+   * Tells the system to start Proteus at sign-in, or not to. Set by the program that
+   * runs the manager (main.ts); without it the setting is only remembered, which is
+   * how tests leave the machine alone.
+   */
+  applyStartWithMachine?: (on: boolean) => Promise<void>;
 
   constructor(dataDir: string = defaultDataDir()) {
     this.dataDir = dataDir;
@@ -188,6 +201,12 @@ export class Store {
     if (patch.autoUpdateCheck !== undefined) {
       if (typeof patch.autoUpdateCheck !== 'boolean') throw new ValidationError('autoUpdateCheck must be true or false');
       next.autoUpdateCheck = patch.autoUpdateCheck;
+    }
+    if (patch.startWithMachine !== undefined) {
+      if (typeof patch.startWithMachine !== 'boolean') throw new ValidationError('startWithMachine must be true or false');
+      // The system is told first: a start it refuses is not saved as on.
+      if (patch.startWithMachine !== next.startWithMachine) await this.applyStartWithMachine?.(patch.startWithMachine);
+      next.startWithMachine = patch.startWithMachine;
     }
     await mkdir(this.dataDir, { recursive: true });
     await writeJson(join(this.dataDir, 'settings.json'), next);
