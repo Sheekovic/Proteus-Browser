@@ -261,6 +261,13 @@ export class Launcher {
         }
         exitSeenAt = (await this.exits.note(proxyKey(stored.proxy), proxyExit)).at;
       }
+      // Without a time zone for the exit the browser would show this machine's,
+      // which is the one thing matching is there to prevent.
+      if (stored.timezone === '' && proxyExit.timezone === '') {
+        throw new LaunchError('The lookup services told the address of the proxy but not its time zone, so the ' +
+            'browser would show the time zone of this machine. Give the profile a time zone, add a lookup service that tells it, ' +
+            'or turn "match proxy" off for this profile to start anyway.');
+      }
       profile = withProxyExit(stored, proxyExit);
     } else if (!stored.proxy && stored.matchProxy && lookupOn &&
                stored.webrtc === 'proxyOnly' && stored.webrtcPublicIp === '') {
@@ -373,7 +380,10 @@ export class Launcher {
       const exit = this.lastExit.get(profile.id);
       throw new LaunchError(`The kernel exited right after starting (exit code ${exit?.code ?? 'unknown'}).`);
     }
-    if (entry.debuggerUrl && borrowedLists(stored).length > 0) void this.keepLists(stored.id, entry.debuggerUrl);
+    // Languages that came from the proxy's exit are the exit's, not the profile's:
+    // saved, they would stay when the proxy comes out somewhere else.
+    const matchedLanguages = stored.languages.length === 0 && profile.languages.length > 0;
+    if (entry.debuggerUrl && borrowedLists(stored).length > 0) void this.keepLists(stored.id, entry.debuggerUrl, matchedLanguages);
     return this.status(profile.id);
   }
 
@@ -382,12 +392,13 @@ export class Launcher {
    * browser reported them just now. Best effort: a browser that cannot be asked is
    * asked again at the next start.
    */
-  private async keepLists(id: string, debuggerUrl: string): Promise<void> {
+  private async keepLists(id: string, debuggerUrl: string, matchedLanguages = false): Promise<void> {
     try {
       const read = await this.readLists(debuggerUrl);
       // Read again: the profile may have been edited while the browser started.
       const current = await this.store.getProfile(id);
       const keep = listsToKeep(current, read);
+      if (matchedLanguages) delete keep.languages;
       if (keep.voices && packedConfigLength(JSON.stringify(buildKernelConfig({ ...current, ...keep }))) > MAX_PACKED_CONFIG) {
         delete keep.voices;
       }

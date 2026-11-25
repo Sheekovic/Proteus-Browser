@@ -112,8 +112,12 @@ Without a profile the kernel behaves like the Chromium it is built from.
   way real ones behave: retries, several lookup services, time limits.
 - Many profiles at once from a pasted proxy list, each a device of its own; editing,
   duplicating and tagging them; cookies in and out as the files other browsers export.
-- Optional matching of time zone, WebRTC address and location to the proxy's exit,
-  and the exit address shown for every profile, running or stopped.
+- A profile behind a proxy is a browser of the place the proxy comes out in: before
+  each start the exit is looked up and the time zone, the languages (the list of a
+  Chrome installed in that country's language), the position and the WebRTC address
+  are the exit's. A value you set yourself stays, and a profile whose exit's time
+  zone nobody can tell does not start, rather than show this machine's. On for every
+  new profile; the exit address is shown for every profile, running or stopped.
 - A profile that came out at the same address twice starts without waiting for the
   lookup, which is repeated while the browser comes up.
 - A light interface in a window of its own, drawn by the kernel itself, so nothing

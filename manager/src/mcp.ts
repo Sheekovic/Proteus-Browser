@@ -58,7 +58,7 @@ const PROFILE_FIELDS: Json = {
   proxy: { type: ['object', 'null'], description: 'Proxy for this profile, or null for none.',
            properties: { type: { type: 'string', enum: ['http', 'socks5'] }, host: { type: 'string' }, port: { type: 'integer' },
                          username: { type: 'string' }, password: { type: 'string' } } },
-  matchProxy: { type: 'boolean', description: 'Before each start, match time zone, location and WebRTC address to where the proxy comes out.' },
+  matchProxy: { type: 'boolean', description: 'Before each start, match time zone, languages, location and WebRTC address to where the proxy comes out. A value the profile sets itself stays.' },
   webrtc: { type: 'string', enum: ['proxyOnly', 'real'], description: 'proxyOnly never reveals the machine\'s address.' },
   webrtcPublicIp: text('Public address to show in WebRTC while protected.'),
   geolocation: { type: ['object', 'null'], description: 'Position reported to sites allowed to ask, or null for the machine\'s.',

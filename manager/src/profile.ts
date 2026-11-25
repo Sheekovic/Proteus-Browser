@@ -107,7 +107,11 @@ export interface Profile {
   /** Set on a phone profile; null on a desktop one. */
   mobile: MobileSettings | null;
 
-  /** Most preferred first. Empty means "use the machine's languages". */
+  /**
+   * Most preferred first. Empty means the languages of a browser in the country the
+   * proxy comes out in, when the profile is matched to its proxy (languages.ts), and
+   * otherwise the machine's languages, which are then saved here (hostLists.ts).
+   */
   languages: string[];
   /** IANA zone id. Empty means "use the machine's time zone". */
   timezone: string;

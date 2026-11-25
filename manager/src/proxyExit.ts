@@ -8,6 +8,7 @@
 import { isIP, type Socket } from 'node:net';
 import { connect as tlsConnect } from 'node:tls';
 
+import { languagesOf } from './languages.ts';
 import type { Profile, ProxySettings } from './profile.ts';
 import { openTunnel } from './proxyRelay.ts';
 
@@ -24,6 +25,8 @@ export interface ProxyExit {
   /** Rough position of that address (its city), when the service gave one. */
   latitude?: number;
   longitude?: number;
+  /** The country of that address as two capital letters ("DE"), when the service said. */
+  country?: string;
 }
 
 const LOOKUP_TIMEOUT_MS = 15_000;
@@ -116,6 +119,10 @@ export function parseExit(json: string): ProxyExit {
     timezone = '';
   }
   const exit: ProxyExit = { ip, timezone };
+  // Services name the field differently; one gives the two letters as "country".
+  const country = [data.country_code, data.countryCode, data.country]
+      .find((value) => typeof value === 'string' && /^[A-Za-z]{2}$/.test(value));
+  if (typeof country === 'string') exit.country = country.toUpperCase();
   // Most services give two numbers; some give one "latitude,longitude" text.
   const pair = typeof data.loc === 'string' ? data.loc.split(',').map(Number) : [];
   const latitude = [data.latitude, data.lat, pair[0]].find((value) => typeof value === 'number' && Number.isFinite(value));
@@ -238,6 +245,9 @@ export function withProxyExit(profile: Profile, exit: ProxyExit): Profile {
   return {
     ...profile,
     timezone: profile.timezone !== '' ? profile.timezone : exit.timezone,
+    // The languages of a browser set up in the exit's country, in that browser's order.
+    languages: profile.languages.length > 0 || exit.country === undefined ? profile.languages
+        : languagesOf(exit.country, profile.os),
     webrtcPublicIp: profile.webrtcPublicIp !== '' ? profile.webrtcPublicIp
         : isIP(exit.ip) === 4 ? exit.ip : exit.ipv4 ?? '',
     geolocation: profile.geolocation !== null || exit.latitude === undefined || exit.longitude === undefined

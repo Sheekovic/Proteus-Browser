@@ -8,6 +8,7 @@ import { createServer, connect, type Server } from 'node:net';
 import { after, before, test } from 'node:test';
 
 import { lookupProxyExit, lookupServices, parseExit, withProxyExit } from '../src/proxyExit.ts';
+import { languagesOf } from '../src/languages.ts';
 import type { Profile } from '../src/profile.ts';
 import { setTunnelTimeoutForTests } from '../src/proxyRelay.ts';
 
@@ -129,10 +130,39 @@ test('positions come as two numbers or as one text', () => {
 });
 
 test('WebRTC shows the IPv4 address of an exit that answered over IPv6', () => {
-  const blank = { timezone: '', webrtcPublicIp: '', geolocation: null, seed: '7' } as Profile;
+  const blank = { timezone: '', webrtcPublicIp: '', geolocation: null, seed: '7', languages: [], os: 'windows' } as unknown as Profile;
   assert.equal(withProxyExit(blank, { ip: '2001:db8::1', timezone: 'America/Los_Angeles', ipv4: '203.0.113.50' }).webrtcPublicIp, '203.0.113.50');
   assert.equal(withProxyExit(blank, { ip: '2001:db8::1', timezone: 'America/Los_Angeles' }).webrtcPublicIp, '', 'none, rather than an IPv6 one');
   assert.equal(withProxyExit(blank, { ip: '203.0.113.50', timezone: '' }).webrtcPublicIp, '203.0.113.50');
   assert.equal(withProxyExit({ ...blank, webrtcPublicIp: '198.51.100.1' }, { ip: '203.0.113.50', timezone: '' }).webrtcPublicIp,
                '198.51.100.1', 'what the user set stays');
+});
+
+test('the country of an exit is read whatever the service calls it', () => {
+  assert.equal(parseExit('{"ip":"198.51.100.4","timezone":"Europe/Berlin","country_code":"DE","country":"Germany"}').country, 'DE');
+  assert.equal(parseExit('{"query":"198.51.100.4","timezone":"Europe/Paris","countryCode":"fr"}').country, 'FR');
+  assert.equal(parseExit('{"ip":"198.51.100.4","timezone":"Asia/Tokyo","country":"JP"}').country, 'JP');
+  assert.equal(parseExit('{"ip":"198.51.100.4","timezone":"Asia/Tokyo","country":"Japan"}').country, undefined, 'a name is not a code');
+});
+
+test('a profile without languages of its own speaks as a browser of the exit’s country does', () => {
+  const blank = { timezone: '', webrtcPublicIp: '', geolocation: null, seed: '7', languages: [], os: 'windows' } as unknown as Profile;
+  const german = { ip: '203.0.113.50', timezone: 'Europe/Berlin', country: 'DE' };
+  const matched = withProxyExit(blank, german);
+  assert.deepEqual(matched.languages, ['de-DE', 'de', 'en-US', 'en'], 'the list of a Chrome installed in German');
+  assert.equal(matched.timezone, 'Europe/Berlin');
+  assert.deepEqual(withProxyExit({ ...blank, languages: ['pt-BR'] }, german).languages, ['pt-BR'], 'what the user set stays');
+  assert.deepEqual(withProxyExit(blank, { ip: '203.0.113.50', timezone: 'Europe/Berlin' }).languages, [], 'no country, no guess');
+
+  assert.deepEqual(languagesOf('US', 'windows'), ['en-US', 'en']);
+  assert.deepEqual(languagesOf('GB', 'macos'), ['en-GB', 'en-US', 'en']);
+  assert.deepEqual(languagesOf('EG', 'android'), ['ar', 'en-US', 'en']);
+  assert.deepEqual(languagesOf('MX', 'linux'), ['es-419', 'es']);
+  assert.deepEqual(languagesOf('ZZ', 'windows'), ['en-US', 'en'], 'a country not known speaks English');
+  // Safari on an iPhone reports one language, with the phone's region.
+  assert.deepEqual(languagesOf('DE', 'ios'), ['de-DE']);
+  assert.deepEqual(languagesOf('MX', 'ios'), ['es-MX']);
+  assert.deepEqual(languagesOf('AU', 'ios'), ['en-AU']);
+  assert.deepEqual(languagesOf('TW', 'ios'), ['zh-TW']);
+  assert.deepEqual(languagesOf('ZZ', 'ios'), ['en-US']);
 });
