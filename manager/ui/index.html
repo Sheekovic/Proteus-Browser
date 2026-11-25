@@ -137,6 +137,9 @@
              color: var(--text); width: 100%; min-height: 96px; resize: vertical; }
   textarea:focus { outline: none; border-color: var(--accent); }
   .tags { display: flex; gap: 5px; flex-wrap: wrap; }
+  /* Without this a link has the browser's own blue, which cannot be read on the dark theme. */
+  a, a:visited { color: var(--accent); text-underline-offset: 2px; }
+  a:hover { text-decoration-thickness: 2px; }
   .tag { font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
   .note { font-size: 13px; color: var(--muted); margin: 0; }
   .note.ok { color: var(--ok); font-weight: 600; }
