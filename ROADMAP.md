@@ -48,6 +48,8 @@ from tests.
 - [x] One screen, whatever the machine has; a Mac's work area below its menu bar
 - [x] A camera picture from a video file instead of the machine's camera, with a silent microphone
 - [x] Battery and network information that fit the claimed device
+- [x] A phone profile's voices as its browser was read to list them: 92 from Chrome on a Galaxy, 68 from Safari on an iPhone, same names, languages and order
+- [ ] A voice's address (`voiceURI`) from the profile, as Safari's is not its name, and an empty first answer followed by the event, as Chrome on a phone gives *(needs: a kernel build)*
 - [x] A memory value its browser can report, fitting the processor, and checked when set by hand
 - [x] A TLS hello like stock Chrome's: without the experiment a Chromium build adds to it
 - [x] Safari's TLS and HTTP/2 shape for iPhone profiles, as recorded from an iPhone (not over HTTP/3, which they do not use)
@@ -65,6 +67,26 @@ from tests.
 - [x] Fetching and putting in place the newer version from inside the app: asked for at each start, fetched when the user says so, checked against the release's checksums
 - [ ] Releases that are signed, so that an update shows who made it and not only that it arrived whole
 - [x] Release builds made by one command on the build server (`release/make-release.ps1`)
+
+## 6. No limitation left in the README
+
+The goal: every entry under [Limitations](README.md#limitations) removed because it
+stopped being true, not reworded. One item per entry, with what removing it takes;
+an entry is struck from the README in the commit that ticks its item here.
+
+- [ ] **Chromium underneath** — HTTP/3 for the profiles whose browser uses it, first; the engine itself is the Firefox and WebKit items of section 4 *(large; a WebKit engine on Windows and Linux may never be ours to ship)*
+- [ ] **One kernel, two handshakes** — a handshake per claimed Chrome version: record each version's, and let the kernel make the one its profile claims
+- [ ] **An identity put together** — card, screen, memory and fonts from one reading (the item in section 4), from readings of our own if the published ones stay apart *(needs: whole readings)*
+- [ ] **Linux identities without a card's capabilities** — complete Linux readings *(needs: readings)*
+- [ ] **A phone profile, as far as removing goes** — room in the kernel's configuration for the 248 members left; the 14 a phone has and the kernel lacks; the 99 names of Safari's, as objects that answer the way Safari's do; `navigator.gpu` described from the profile
+- [ ] **The second screen** — nothing left to hide: check that no other path (window placement, screen details) shows the machine's, then strike the entry
+- [ ] **A window at the profile's scale** — draw the window at the machine's scale while the page reads the profile's
+- [ ] **A limit is a claim** — refuse what goes beyond a claimed limit (texture and buffer sizes, memory), as the claimed hardware would
+- [ ] **Two things from the machine** — fonts shipped with Proteus instead of chosen from the machine's; graphics limits always from a reading
+- [ ] **Stand-in fonts** — the real fonts of each system where their licences allow shipping them (Android's are open), and metric-compatible ones where they do not *(Windows' and Apple's fonts cannot be redistributed)*
+- [ ] **The machine's camera** — already possible from a video file; make it the default for a profile whose devices are not the machine's, with the resolutions the claimed device offers
+- [ ] **Tested on few machines** — Windows 10, Windows Server, macOS and more Linux hosts in the site check *(needs: machines; Windows Server 2022 was run once, by hand)*
+- [ ] **No protection is complete** — stays: address reputation, behaviour and account history are not a browser's to control. The entry is kept and says only that.
 
 ## Done before this list existed
 

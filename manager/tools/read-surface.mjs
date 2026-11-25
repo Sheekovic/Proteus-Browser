@@ -56,7 +56,8 @@ function handle(request, response) {
         const name = `surface-${browserOf(reading.userAgent)}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
         writeFileSync(join(folder, name), JSON.stringify(reading));
         console.log(`SAVED ${name}: ${reading.page.globals.length} names, ${Object.keys(reading.page.interfaces ?? {}).length} interfaces, ` +
-            `secure=${reading.secure}, worker=${reading.worker ? reading.worker.globals.length : 'none'} | ${reading.userAgent}`);
+            `secure=${reading.secure}, worker=${reading.worker ? reading.worker.globals.length : 'none'}, ` +
+            `voices=${reading.voices ? `${reading.voices.atOnce} at once, ${reading.voices.afterOneSecond} after 1 s, ${reading.voices.afterFiveSeconds} after 5 s` : 'not read'} | ${reading.userAgent}`);
         response.writeHead(204).end();
       } catch (error) {
         console.log('refused a reading:', error.message);

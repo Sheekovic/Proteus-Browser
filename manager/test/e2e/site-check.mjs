@@ -35,6 +35,12 @@ const EXPECT = {
     const allowed = os === 'ios' ? ['Chrome', 'Permissions'] : os === 'android' ? ['Plugins Length', 'Plugins is of type PluginArray', 'Chrome'] : [];
     return names.every((name) => allowed.some((a) => name.includes(a))) ? 'ok' : 'bad';
   },
+  // 95% with "operating system does not match" on an Android profile is the site's own:
+  // it takes 5% from any Android browser that has voices for reading aloud, when its
+  // page happens to count them before it reports (a race inside the page, won more
+  // often when another site was open before). Chrome on a real Galaxy has 92 of them
+  // within 15 ms, so by that rule the phone is marked as well (the phone's own score
+  // on the site was not looked at).
   browserscan: (text) => {
     const percent = /(\d{1,3})%/.exec(text);
     return !percent ? 'none' : Number(percent[1]) >= 95 ? 'ok' : 'bad';

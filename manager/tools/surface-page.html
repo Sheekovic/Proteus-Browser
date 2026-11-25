@@ -10,8 +10,8 @@
 <h1>What this browser has</h1>
 <p id="state">Reading…</p>
 <p><small>This page lists the names of the interfaces and functions this browser offers to
-web pages (nothing about you, your files or your history) and sends the list to the
-computer that served it.</small></p>
+web pages, and the voices it has for reading aloud (nothing about you, your files or
+your history), and sends the list to the computer that served it.</small></p>
 <script>
 // Reads what a page finds in this browser: the members of the global object, the
 // members of every interface, and the same inside a worker. Names only.
@@ -56,6 +56,24 @@ const workerSource = `
           'appearance: base-select', 'reading-flow: flex-visual', '-webkit-touch-callout: none', '-webkit-app-region: drag']
         .filter((rule) => { try { return CSS.supports(rule); } catch { return false; } }),
   };
+  // The voices for reading aloud arrive some time after a page asks, or never. When
+  // they do matters as much as which they are: a page that waits one second for them
+  // (browserscan does) sees what was there by then.
+  const voicesStarted = performance.now();
+  const voiceList = () => { try { return speechSynthesis.getVoices(); } catch { return []; } };
+  reading.voices = { atOnce: voiceList().length, afterOneSecond: null, afterFiveSeconds: null, eventAfterMs: null, list: [] };
+  if (window.speechSynthesis) {
+    speechSynthesis.addEventListener('voiceschanged', () => {
+      if (reading.voices.eventAfterMs === null) reading.voices.eventAfterMs = Math.round(performance.now() - voicesStarted);
+    });
+  }
+  setTimeout(() => { reading.voices.afterOneSecond = voiceList().length; }, 1000);
+  const voicesRead = new Promise((resolve) => setTimeout(() => {
+    const list = voiceList();
+    reading.voices.afterFiveSeconds = list.length;
+    reading.voices.list = [...list].map((v) => ({ name: v.name, lang: v.lang, local: v.localService, default: v.default, uri: v.voiceURI }));
+    resolve();
+  }, 5000));
   try {
     reading.worker = await new Promise((resolve, reject) => {
       const worker = new Worker(URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' })));
@@ -67,7 +85,9 @@ const workerSource = `
     reading.workerError = String(error.message || error);
   }
   const count = Object.keys(reading.page.interfaces).length;
-  state.textContent = `Read ${reading.page.globals.length} names and ${count} interfaces. Sending…`;
+  state.textContent = `Read ${reading.page.globals.length} names and ${count} interfaces. Listening for voices…`;
+  await voicesRead;
+  state.textContent = `Read ${reading.page.globals.length} names, ${count} interfaces and ${reading.voices.afterFiveSeconds} voices. Sending…`;
   try {
     const response = await fetch('/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reading) });
     if (!response.ok) throw new Error('the computer answered ' + response.status);

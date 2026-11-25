@@ -60,7 +60,16 @@ export function buildKernelConfig(profile: Profile, now: number = Date.now()): R
   }
   if (profile.webglCaps !== null) config.webglCaps = profile.webglCaps;
   if (profile.webgpu.vendor !== '' || profile.webgpu.architecture !== '') config.webgpu = profile.webgpu;
-  if (profile.voices.length > 0) config.voices = profile.voices;
+  // The kernel takes a voice for a local one that is not the default unless told
+  // otherwise, so only what differs is written: a phone's 92 voices are a third shorter.
+  if (profile.voices.length > 0) {
+    config.voices = profile.voices.map((voice) => ({
+      name: voice.name,
+      lang: voice.lang,
+      ...(voice.local ? {} : { local: false }),
+      ...(voice.default ? { default: true } : {}),
+    }));
+  }
   if (profile.mediaDevices !== null) config.mediaDevices = profile.mediaDevices;
   if (profile.webrtc === 'proxyOnly' && profile.webrtcPublicIp !== '') {
     config.webRtcPublicIp = profile.webrtcPublicIp;
