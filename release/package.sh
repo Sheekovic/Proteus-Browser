@@ -25,7 +25,7 @@ case "$FLAVOUR" in
   official) KERNEL_WIN="$SRC/out/WinOfficial"; KERNEL_LIN="$SRC/out/LinuxOfficial" ;;
   *) echo "unknown flavour $FLAVOUR" >&2; exit 2 ;;
 esac
-[ -f "$KERNEL_WIN/chrome.exe" ] && [ -f "$KERNEL_LIN/chrome" ] || { echo "there is no built kernel in $KERNEL_WIN and $KERNEL_LIN" >&2; exit 1; }
+[ -f "$KERNEL_WIN/chrome.exe" ] && [ -f "$KERNEL_LIN/chrome" ] && [ -f "$KERNEL_WIN/chromedriver.exe" ] && [ -f "$KERNEL_LIN/chromedriver" ] || { echo "there is no built kernel in $KERNEL_WIN and $KERNEL_LIN" >&2; exit 1; }
 echo "kernels: $KERNEL_WIN, $KERNEL_LIN"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -61,7 +61,7 @@ common() {  # common <bundle dir>
 # --- Windows
 WIN="$WORK/win/Proteus"
 common "$WIN"
-(cd "$KERNEL_WIN" && cp --parents chrome.exe chrome.dll chrome_elf.dll chrome_wer.dll ./*.pak icudtl.dat \
+(cd "$KERNEL_WIN" && cp --parents chrome.exe chromedriver.exe chrome.dll chrome_elf.dll chrome_wer.dll ./*.pak icudtl.dat \
     snapshot_blob.bin ./*.manifest d3dcompiler_47.dll dxcompiler.dll libEGL.dll libGLESv2.dll \
     vk_swiftshader.dll vk_swiftshader_icd.json vulkan-1.dll msvcp140*.dll vcruntime140*.dll \
     vccorlib140.dll locales/*.pak "$WIN/kernel/")
@@ -81,12 +81,12 @@ cp "$STAGE/branding/proteus.ico" "$WIN/proteus.ico"
 # --- Linux
 LIN="$WORK/linux/Proteus"
 common "$LIN"
-(cd "$KERNEL_LIN" && cp --parents chrome chrome_crashpad_handler ./*.pak icudtl.dat v8_context_snapshot.bin \
+(cd "$KERNEL_LIN" && cp --parents chrome chromedriver chrome_crashpad_handler ./*.pak icudtl.dat v8_context_snapshot.bin \
     libEGL.so libGLESv2.so libvk_swiftshader.so vk_swiftshader_icd.json libvulkan.so.1 \
     locales/*.pak "$LIN/kernel/")
 [ -d "$KERNEL_LIN/MEIPreload" ] && cp -r "$KERNEL_LIN/MEIPreload" "$LIN/kernel/"
 rm -f "$LIN/kernel/headless_command_resources.pak"
-strip --strip-unneeded "$LIN/kernel/chrome" "$LIN/kernel/chrome_crashpad_handler" "$LIN"/kernel/*.so "$LIN/kernel/libvulkan.so.1"
+strip --strip-unneeded "$LIN/kernel/chrome" "$LIN/kernel/chromedriver" "$LIN/kernel/chrome_crashpad_handler" "$LIN"/kernel/*.so "$LIN/kernel/libvulkan.so.1"
 NODE_LIN=$(node_file "linux-x64.tar.xz")
 mkdir "$WORK/node-linux"
 tar -xJf "$NODE_LIN" -C "$WORK/node-linux"
@@ -94,7 +94,7 @@ cp "$WORK"/node-linux/node-*/bin/node "$LIN/node/"
 cp "$WORK"/node-linux/node-*/LICENSE "$LIN/licenses/Node.js-LICENSE.txt"
 sed 's/\r$//' "$STAGE/release/start-proteus.sh" > "$LIN/start-proteus.sh"
 sed 's/\r$//' "$STAGE/release/linux-sandbox.sh" > "$LIN/linux-sandbox.sh"
-chmod +x "$LIN/start-proteus.sh" "$LIN/linux-sandbox.sh" "$LIN/kernel/chrome" "$LIN/kernel/chrome_crashpad_handler" "$LIN/node/node"
+chmod +x "$LIN/start-proteus.sh" "$LIN/linux-sandbox.sh" "$LIN/kernel/chrome" "$LIN/kernel/chromedriver" "$LIN/kernel/chrome_crashpad_handler" "$LIN/node/node"
 (cd "$WORK/linux" && tar -cf - Proteus | xz -T0 -6 > "$OUT/Proteus-$VERSION-linux-x64.tar.xz")
 
 (cd "$OUT" && sha256sum Proteus-"$VERSION"-* > SHA256SUMS.txt && cat SHA256SUMS.txt && ls -la)

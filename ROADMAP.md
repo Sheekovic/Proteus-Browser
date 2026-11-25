@@ -34,7 +34,7 @@ from tests.
 - [x] A check of the public detection sites that judges every verdict, to run by hand or from a scheduler, so a regression is noticed
 - [ ] Windows 10, macOS hosts *(needs: machines)*
 - [x] A check that Puppeteer and Playwright, driving a profile, leave nothing a page can tell them by
-- [ ] The same for Selenium *(needs: a driver program of the kernel's version)*
+- [x] The same for Selenium: a driver program built with the kernel, which leaves none of the names the stock one does
 
 ## 4. A kernel that gives less away
 

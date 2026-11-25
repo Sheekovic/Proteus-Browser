@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Runs on the Linux build server. Builds the `chrome` target for one platform.
+# Runs on the Linux build server. Builds the kernel for one platform: `chrome`, and
+# `chromedriver`, the WebDriver driver program of the same version (what Selenium
+# drives a browser with), which patch 0032 keeps from leaving its names on a page.
 # usage: server-build.sh <linux|win> <jobs> <upstream-toolchain-hash> <our-toolchain-hash> [official]
 #   official   the optimised build for releases (link-time optimisation), in a folder of
 #              its own (out/LinuxOfficial, out/WinOfficial) next to the fast one. A first
@@ -43,5 +45,5 @@ echo "== gn gen $OUT"
 gn gen "$OUT"
 
 echo "== build chrome ($TARGET, $JOBS jobs) started $(date -u +%FT%TZ)"
-autoninja -j "$JOBS" -C "$OUT" chrome
+autoninja -j "$JOBS" -C "$OUT" chrome chromedriver
 echo "BUILD-OK $TARGET $(date -u +%FT%TZ)"

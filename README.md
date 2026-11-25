@@ -368,8 +368,27 @@ the browser's own, placed on the screen where the window is, after the pointer m
 there. Two things are the script's own business. A function of the page that the
 script calls sees the caller in its stack (`pptr:evaluate` for Puppeteer, an `eval`
 frame for Playwright), so a script should read from a page and not call into it. And
-how fast and how straight the pointer moves is the library's, not a hand's. Selenium
-was not measured: it needs a driver program of the kernel's version.
+how fast and how straight the pointer moves is the library's, not a hand's.
+
+Selenium drives a browser through a driver program, and the stock one (chromedriver)
+gives itself away: it keeps seven names on every page it drives
+(`cdc_adoQpoasnfa76pfcZLmcfl_Array`, …), which is the first thing a site looks for.
+The kernel folder has a `chromedriver` of its own, built with the kernel and of its
+version, that does not make them. Point Selenium at it and at the running profile:
+
+```python
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+
+options = webdriver.ChromeOptions()
+options.debugger_address = "127.0.0.1:53421"    # the profile's DevTools address
+driver = webdriver.Chrome(service=Service(r"...\Proteus\kernel\chromedriver.exe"), options=options)
+```
+
+The same check, speaking to that driver as Selenium does, finds what it finds for the
+two libraries: nothing of the above, and a page function the script calls sees an
+`eval` frame in its stack. With the stock driver of the same version it finds the
+seven names.
 
 ### A camera picture from a file
 

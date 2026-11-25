@@ -1,14 +1,19 @@
-// What a page can tell when a profile is driven by Puppeteer or Playwright.
+// What a page can tell when a profile is driven by Puppeteer, Playwright or Selenium.
 //
-// Starts the manager and a profile, then opens automation.html three times: read over
+// Starts the manager and a profile, then opens automation.html four times: read over
 // the bare debugging protocol (what the manager's own browser control does), driven by
-// Puppeteer, and driven by Playwright; each connects to the profile's running browser,
+// Puppeteer, by Playwright, and through a WebDriver driver program, which is what
+// Selenium drives a browser with; each connects to the profile's running browser,
 // which is how a profile is meant to be automated. Prints what the page saw each time.
 //
-// usage: node automation.mjs <kernel executable> <directory with node_modules>
+// usage: node automation.mjs <kernel executable> <directory with node_modules> [driver program] [extra kernel args...]
 //   The directory has puppeteer-core and playwright-core installed
 //   (npm install puppeteer-core playwright-core); neither downloads a browser.
 //   Either may be missing: its part is skipped.
+//   The driver program is the chromedriver of the kernel's own version (the build
+//   makes one: target "chromedriver"); "-" or nothing skips that part. It is spoken
+//   to as Selenium speaks to it, in WebDriver's own HTTP, so Selenium itself is not
+//   needed.
 
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -19,9 +24,9 @@ import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
-const [kernelPath, librariesDir] = process.argv.slice(2);
+const [kernelPath, librariesDir, driverPath = '-', ...extraArgs] = process.argv.slice(2);
 if (!kernelPath || !librariesDir) {
-  console.error('usage: automation.mjs <kernel executable> <directory with node_modules>');
+  console.error('usage: automation.mjs <kernel executable> <directory with node_modules> [driver program] [extra kernel args...]');
   process.exit(2);
 }
 const here = dirname(fileURLToPath(import.meta.url));
@@ -51,8 +56,12 @@ async function api(method, path, body) {
 }
 
 let failures = 0;
+/** A value as text with its keys in order: a driver may hand an object back with them sorted. */
+const ordered = (value) => JSON.stringify(value, (_, part) =>
+    part && typeof part === 'object' && !Array.isArray(part) ? Object.fromEntries(Object.entries(part).sort(([a], [b]) => a.localeCompare(b))) : part);
+
 function check(name, actual, expected) {
-  if (JSON.stringify(actual) === JSON.stringify(expected)) console.log(`ok   ${name}`);
+  if (ordered(actual) === ordered(expected)) console.log(`ok   ${name}`);
   else { console.log(`FAIL ${name}\n       got:      ${JSON.stringify(actual)}\n       expected: ${JSON.stringify(expected)}`); failures++; }
 }
 
@@ -85,7 +94,7 @@ const manager = spawn(process.execPath, [join(managerDir, 'src', 'main.ts'), '--
 });
 try {
   for (let i = 0; i < 50; i++) { try { await api('GET', '/api/health'); break; } catch { await delay(100); } }
-  await api('PUT', '/api/settings', { kernelPath, extraArgs: [], exitLookupUrl: '' });
+  await api('PUT', '/api/settings', { kernelPath, extraArgs, exitLookupUrl: '' });
   const profile = await api('POST', '/api/profiles', { name: 'Automation', os: 'windows' });
   const status = await api('POST', `/api/profiles/${profile.id}/start`);
   const version = await (await fetch(`${status.debuggerUrl}/json/version`)).json();
@@ -146,6 +155,45 @@ try {
     console.log(`info Playwright: click at page ${signals.click?.client}, screen ${signals.click?.screen}; window at ${signals.click?.windowAt}, bars ${signals.click?.chrome}`);
     await tabPage.close();
     await browser.close();   // For a browser it connected to, this only disconnects.
+  }
+
+  // --- Selenium: a WebDriver driver program attached to the running browser ------------
+  if (driverPath === '-') {
+    console.log('skip Selenium: no driver program was given');
+  } else {
+    const driverPort = 9500 + Math.floor(Math.random() * 400);
+    const driver = spawn(driverPath, [`--port=${driverPort}`], { stdio: 'ignore' });
+    const wd = async (method, path, body) => {
+      const response = await fetch(`http://127.0.0.1:${driverPort}${path}`, {
+        method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const answer = await response.json();
+      if (!response.ok) throw new Error(`driver: ${method} ${path} -> ${JSON.stringify(answer.value).slice(0, 300)}`);
+      return answer.value;
+    };
+    try {
+      for (let i = 0; i < 50; i++) { try { await wd('GET', '/status'); break; } catch { await delay(100); } }
+      // As Selenium attaches to a browser that is already running: by its debugger address.
+      const session = await wd('POST', '/session', { capabilities: { alwaysMatch: {
+        'goog:chromeOptions': { debuggerAddress: new URL(status.debuggerUrl).host } } } });
+      const at = `/session/${session.sessionId}`;
+      const opened = await wd('POST', `${at}/window/new`, { type: 'tab' });
+      await wd('POST', `${at}/window`, { handle: opened.handle });
+      await wd('POST', `${at}/url`, { url: pageUrl });
+      await delay(1200);
+      const element = await wd('POST', `${at}/element`, { using: 'css selector', value: '#target' });
+      await wd('POST', `${at}/element/${Object.values(element)[0]}/click`, {});
+      await wd('POST', `${at}/execute/sync`, { script: 'return window.whoCalls();', args: [] });
+      await delay(600);
+      const signals = await wd('POST', `${at}/execute/sync`, { script: 'return window.signals;', args: [] });
+      judge('Selenium', signals, baseline, true);
+      console.log(`info Selenium: a page function it calls sees this caller: ${JSON.stringify((signals.stack ?? '').split('\n').slice(1, 3).map((line) => line.trim()))}`);
+      console.log(`info Selenium: click at page ${signals.click?.client}, screen ${signals.click?.screen}; window at ${signals.click?.windowAt}, bars ${signals.click?.chrome}`);
+      await wd('DELETE', `${at}/window`);
+      // Ending the session of a browser the driver attached to leaves the browser running.
+      await wd('DELETE', at);
+    } finally {
+      driver.kill();
+    }
   }
 
   check('the profile is still running after the libraries disconnected', (await api('GET', `/api/profiles/${profile.id}`)).state, 'running');
