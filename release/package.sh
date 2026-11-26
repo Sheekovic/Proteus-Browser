@@ -30,7 +30,8 @@ echo "kernels: $KERNEL_WIN, $KERNEL_LIN"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$OUT"
-rm -f "$OUT"/Proteus-*"$VERSION"* "$OUT/SHA256SUMS.txt"
+# Only this version's files: "0.1.0" is also part of every preview's name.
+rm -f "$OUT/Proteus-$VERSION-win-x64.zip" "$OUT/Proteus-$VERSION-linux-x64.tar.xz" "$OUT/SHA256SUMS.txt"
 
 # --- Node.js: the newest 24.x release, checked against the checksums published with it.
 NODE_DIST=https://nodejs.org/dist/latest-v24.x
