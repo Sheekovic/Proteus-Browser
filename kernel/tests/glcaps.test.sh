@@ -4,14 +4,15 @@
 # 3379 MAX_TEXTURE_SIZE, 3386 MAX_VIEWPORT_DIMS, 33901 ALIASED_POINT_SIZE_RANGE,
 # 32883 MAX_3D_TEXTURE_SIZE, 34047 MAX_TEXTURE_MAX_ANISOTROPY_EXT,
 # 34024 MAX_RENDERBUFFER_SIZE, 34921 MAX_VERTEX_ATTRIBS,
-# 35661 MAX_COMBINED_TEXTURE_IMAGE_UNITS.
+# 35661 MAX_COMBINED_TEXTURE_IMAGE_UNITS, 36347 MAX_VERTEX_UNIFORM_VECTORS,
+# 34930 MAX_TEXTURE_IMAGE_UNITS.
 cat > "$WORK/caps.json" <<'EOF'
 {
   "seed": "1",
   "webglCaps": {
     "1": {
       "p": {"3379": 4096, "3386": [4096, 2048], "33901": [1, 511.5], "32883": 512, "34047": 4,
-            "34024": 2048, "34921": 8, "35661": 12},
+            "34024": 2048, "34921": 8, "35661": 12, "36347": 128, "34930": 8},
       "e": ["EXT_texture_filter_anisotropic", "WEBGL_debug_renderer_info", "NOT_A_real_extension"],
       "s": [101,102,103, 104,105,106, 107,108,109, 110,111,112, 113,114,115, 116,117,118,
             201,202,203, 204,205,206, 207,208,209, 210,211,212, 213,214,215, 216,217,218]
@@ -62,7 +63,15 @@ check  "WebGL 1: a texture beyond the claimed limit is refused"      "$(field "$
 check  "WebGL 1: a renderbuffer beyond the claimed limit is refused" "$(field "$CAPS" gl1BufferEdge)" "0/1281"
 check  "WebGL 1: a vertex attribute beyond the claimed count is refused" "$(field "$CAPS" gl1AttribEdge)" "0/1281"
 check  "WebGL 1: a texture unit beyond the claimed count is refused" "$(field "$CAPS" gl1UnitEdge)" "0/1280"
-check  "WebGL 1: a wide canvas is drawn as wide as the claimed card can" "$(field "$CAPS" gl1Wide)" "true"
+# The claimed card draws 4096 wide and keeps renderbuffers of 2048: the buffer of a
+# canvas 5000 wide is no wider than what it can keep.
+WIDE=$(field "$CAPS" gl1Wide)
+check  "WebGL 1: a wide canvas is drawn no wider than the claimed card can ($WIDE)" "$([ "$WIDE" -gt 0 ] 2>/dev/null && [ "$WIDE" -le 2048 ] && echo yes || echo no)" "yes"
+# Patch 0037: and where the drawing is done, the shader compiler included.
+differ "control: the real card has more uniforms than the claimed one" "$(field "$PLAIN" gl1UniformEdge)" "true/false"
+check  "control: the real card links as many samplers as it has, not one more" "$(field "$PLAIN" gl1SamplerEdge)" "true/false"
+check  "WebGL 1: a shader with more uniforms than the claimed card has is not linked" "$(field "$CAPS" gl1UniformEdge)" "true/false"
+check  "WebGL 1: nor one with more samplers" "$(field "$CAPS" gl1SamplerEdge)" "true/false"
 check  "WebGL 2: a texture beyond its claimed limit is refused"      "$(field "$CAPS" gl2TexEdge)" "0/1281"
 
 check  "WebGL 2 has its own limits"               "$(field "$CAPS" gl2Max)" "number:8192"

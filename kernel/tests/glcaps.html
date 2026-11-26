@@ -45,12 +45,36 @@ function describe(prefix, gl) {
   out.push(prefix + 'UnitEdge=' + both(gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) - 1,
       unit => gl.activeTexture(gl.TEXTURE0 + unit)));
   gl.activeTexture(gl.TEXTURE0);
-  // A canvas wider than the card can draw gets a drawing buffer as wide as it can.
+  // Shaders: one that uses as many uniforms, or samplers, as the card has is linked,
+  // and one that uses one more is not.
+  const links = (vertex, fragment) => {
+    const program = gl.createProgram();
+    for (const [type, source] of [[gl.VERTEX_SHADER, vertex], [gl.FRAGMENT_SHADER, fragment]]) {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      gl.attachShader(program, shader);
+    }
+    gl.linkProgram(program);
+    return gl.getProgramParameter(program, gl.LINK_STATUS);
+  };
+  const plainFragment = 'precision mediump float; void main() { gl_FragColor = vec4(1.0); }';
+  const withUniforms = count => links(
+      `attribute float index; uniform vec4 values[${count}]; void main() { gl_Position = values[int(index)]; }`, plainFragment);
+  const withSamplers = count => links('void main() { gl_Position = vec4(0.0); }',
+      'precision mediump float;' + Array.from({ length: count }, (_, i) => `uniform sampler2D s${i};`).join('') +
+      'void main() { gl_FragColor = ' + Array.from({ length: count }, (_, i) => `texture2D(s${i}, vec2(0.0))`).join(' + ') + '; }');
+  const uniforms = Math.min(gl.getParameter(gl.MAX_VERTEX_UNIFORM_VECTORS), 1024);
+  out.push(prefix + 'UniformEdge=' + withUniforms(uniforms) + '/' + (uniforms < 1024 ? withUniforms(uniforms + 1) : 'unlimited'));
+  const samplers = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS);
+  out.push(prefix + 'SamplerEdge=' + withSamplers(samplers) + '/' + withSamplers(samplers + 1));
+  gl.getError();
+  // A canvas wider than the card can draw gets a drawing buffer no wider than it can.
   const wide = document.createElement('canvas');
   wide.width = gl.getParameter(gl.MAX_VIEWPORT_DIMS)[0] + 904;
   wide.height = 8;
   const wideGl = wide.getContext(prefix === 'gl1' ? 'webgl' : 'webgl2');
-  out.push(prefix + 'Wide=' + (wideGl ? wideGl.drawingBufferWidth === gl.getParameter(gl.MAX_VIEWPORT_DIMS)[0] : 'none'));
+  out.push(prefix + 'Wide=' + (wideGl ? wideGl.drawingBufferWidth : 'none'));
   // The native getter must still be the native getter.
   out.push(prefix + 'Native=' + /\{\s*\[native code\]\s*\}/.test(Function.prototype.toString.call(gl.getParameter)));
   // A parameter nobody forces keeps working.
