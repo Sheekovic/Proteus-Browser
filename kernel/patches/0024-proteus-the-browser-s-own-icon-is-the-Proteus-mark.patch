@@ -1,7 +1,7 @@
 From b0ec8f9e357c127314242779425c57ff98e38d8f Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 18:29:56 +0000
-Subject: [PATCH 24/32] proteus: the browser's own icon is the Proteus mark
+Subject: [PATCH 24/33] proteus: the browser's own icon is the Proteus mark
 
 ---
  .../theme/chromium/linux/product_logo_128.png | Bin 2619 -> 7218 bytes

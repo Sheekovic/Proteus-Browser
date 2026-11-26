@@ -1,7 +1,7 @@
 From 8427de8947dfab1e5981852fd85227131aeccad8 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 01:46:57 +0000
-Subject: [PATCH 13/32] proteus: noise only device-dependent canvas and audio
+Subject: [PATCH 13/33] proteus: noise only device-dependent canvas and audio
  content; no automation marker
 
 ---

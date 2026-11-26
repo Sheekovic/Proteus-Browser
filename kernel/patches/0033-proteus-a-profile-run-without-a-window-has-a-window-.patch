@@ -1,0 +1,181 @@
+From 021ecbf27c5281bb7d93d1a9cedb0549bd882f3b Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Thu, 26 Nov 2026 13:40:27 +0000
+Subject: [PATCH 33/33] proteus: a profile run without a window has a window
+ bars, the screen colours follow the claimed system, and a first window is
+ never larger than its screen
+
+---
+ .../browser/chrome_content_browser_client.cc  |  5 ++
+ chrome/browser/ui/browser_window_state.cc     |  6 ++-
+ .../blink/renderer/core/css/media_values.cc   | 28 +++++++++++
+ .../renderer/core/frame/local_dom_window.cc   | 49 ++++++++++++++-----
+ 4 files changed, 74 insertions(+), 14 deletions(-)
+
+diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+index e54da9559f..9ae32c9124 100644
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -3103,6 +3103,11 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
+     command_line->AppendSwitchASCII(base::proteus::kConfigDataSwitch,
+                                     proteus_config.serialized);
+   }
++  // Proteus: see patch 0042.
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch("headless") &&
++      !command_line->HasSwitch("proteus-headless")) {
++    command_line->AppendSwitch("proteus-headless");
++  }
+ #if BUILDFLAG(IS_MAC)
+   std::unique_ptr<metrics::ClientInfo> client_info =
+       GoogleUpdateSettings::LoadMetricsClientInfo();
+diff --git a/chrome/browser/ui/browser_window_state.cc b/chrome/browser/ui/browser_window_state.cc
+index e703b413c8..6065e598d1 100644
+--- a/chrome/browser/ui/browser_window_state.cc
++++ b/chrome/browser/ui/browser_window_state.cc
+@@ -193,8 +193,10 @@ void UpdateWindowBoundsAndShowStateFromCommandLine(
+                                 ->GetDisplayMatching(*bounds)
+                                 .device_scale_factor();
+         if (real > 0) {
+-          width = base::ClampRound(width * screen->pixel_ratio / real);
+-          height = base::ClampRound(height * screen->pixel_ratio / real);
++          const double larger = screen->pixel_ratio / real;
++          const double room = larger > 1 ? larger - 1 : 0;
++          width = base::ClampRound(width * larger - 40 * room);
++          height = base::ClampRound(height * larger - 160 * room);
+         }
+       }
+       bounds->set_size(gfx::Size(width, height));
+diff --git a/third_party/blink/renderer/core/css/media_values.cc b/third_party/blink/renderer/core/css/media_values.cc
+index c7c4e9a2cb..d525f47f9a 100644
+--- a/third_party/blink/renderer/core/css/media_values.cc
++++ b/third_party/blink/renderer/core/css/media_values.cc
+@@ -203,9 +203,33 @@ float MediaValues::CalculateDevicePixelRatio(LocalFrame* frame) {
+   return frame->DevicePixelRatio();
+ }
+ 
++// Proteus: what the screen of the system a profile claims shows: 0 only the
++// usual colours, 1 the P3 gamut too, 2 also a high dynamic range, and -1 for
++// no profile's screen, or a system nothing is known of.
++static int ProteusScreenColours() {
++  const base::proteus::Config& config = base::proteus::GetConfig();
++  if (!config.screen) {
++    return -1;
++  }
++  const std::string& platform = config.navigator_platform;
++  if (platform.starts_with("Win") || platform.starts_with("Linux x86")) {
++    return 0;
++  }
++  if (platform.starts_with("Mac")) {
++    return 1;
++  }
++  if (platform.starts_with("iPhone")) {
++    return 2;
++  }
++  return -1;
++}
++
+ bool MediaValues::CalculateDeviceSupportsHDR(LocalFrame* frame) {
+   DCHECK(frame);
+   DCHECK(frame->GetPage());
++  if (const int colours = ProteusScreenColours(); colours >= 0) {
++    return colours == 2;
++  }
+   return frame->GetPage()
+       ->GetChromeClient()
+       .GetScreenInfo(*frame)
+@@ -396,6 +420,10 @@ ColorSpaceGamut MediaValues::CalculateColorGamut(LocalFrame* frame) {
+       frame->GetPage()->GetMediaFeatureOverrides();
+   std::optional<ColorSpaceGamut> override_value =
+       overrides ? overrides->GetColorGamut() : std::nullopt;
++  if (const int colours = ProteusScreenColours();
++      !override_value && colours >= 0) {
++    return colours == 0 ? ColorSpaceGamut::SRGB : ColorSpaceGamut::P3;
++  }
+   return override_value.value_or(color_space_utilities::GetColorSpaceGamut(
+       frame->GetPage()->GetChromeClient().GetScreenInfo(*frame)));
+ }
+diff --git a/third_party/blink/renderer/core/frame/local_dom_window.cc b/third_party/blink/renderer/core/frame/local_dom_window.cc
+index 6e1b3aaa32..9682b45c25 100644
+--- a/third_party/blink/renderer/core/frame/local_dom_window.cc
++++ b/third_party/blink/renderer/core/frame/local_dom_window.cc
+@@ -1828,6 +1828,21 @@ gfx::Vector2d LocalDOMWindow::ProteusScreenShift() const {
+   return gfx::Vector2d(window.x() - x, window.y() - y);
+ }
+ 
++// Proteus: whether the profile runs without a window, and the bars a window of
++// its scale would have around the page: both sides together, and top and
++// bottom together.
++static bool ProteusWithoutWindow() {
++  static const bool without =
++      base::CommandLine::ForCurrentProcess()->HasSwitch("proteus-headless");
++  const base::proteus::Config& config = base::proteus::GetConfig();
++  return without && config.screen && !config.mobile;
++}
++
++static gfx::Size ProteusWindowBars(float ratio) {
++  return ratio < 1.25f ? gfx::Size(16, 95)
++                       : ratio < 2 ? gfx::Size(14, 94) : gfx::Size(13, 93);
++}
++
+ // Proteus: where the page's area is on the machine's screen, in the machine's
+ // units; empty for a frame whose page's main frame is in another process.
+ static gfx::Rect ProteusViewOnScreen(LocalFrame* frame) {
+@@ -1884,14 +1899,22 @@ gfx::PointF LocalDOMWindow::ProteusScreenPoint(const gfx::PointF& real) const {
+   }
+   // Along one axis, from the window's edge: the machine's units up to the
+   // page's area, the page's pixels inside it, the machine's again after it.
+-  const auto along = [scale](float place, float edge, float start,
++  const auto along = [scale](float place, float before, float start,
+                              float size) {
+     const float inside = std::clamp(place - start, 0.f, size);
+-    return (start - edge) + inside * scale + (place - start - inside);
++    return before + inside * scale + (place - start - inside);
+   };
+-  return gfx::PointF(
+-      x + along(real.x(), window.x(), view.x(), view.width()),
+-      y + along(real.y(), window.y(), view.y(), view.height()));
++  // Without a window the page begins where it would in one.
++  float left = view.x() - window.x();
++  float top = view.y() - window.y();
++  if (ProteusWithoutWindow()) {
++    const gfx::Size bars = ProteusWindowBars(
++        frame->ProteusMachineScale() / std::max(scale, 0.01f));
++    left = bars.width() / 2;
++    top = bars.height() - bars.width() / 2;
++  }
++  return gfx::PointF(x + along(real.x(), left, view.x(), view.width()),
++                     y + along(real.y(), top, view.y(), view.height()));
+ }
+ 
+ // Proteus: the window's size as a page reads it: its bars, which are drawn at
+@@ -1906,18 +1929,20 @@ gfx::SizeF LocalDOMWindow::ProteusOuterSize() const {
+       frame->GetPage()->GetChromeClient().RootWindowRect(*frame);
+   const float scale = ProteusScreenScale();
+   const gfx::Rect view = ProteusViewOnScreen(frame);
+-  if (scale == 1 || view.IsEmpty()) {
++  const bool without_window = ProteusWithoutWindow();
++  if (view.IsEmpty() || (scale == 1 && !without_window)) {
+     return gfx::SizeF(window.width() * scale, window.height() * scale);
+   }
+   // The page's area, rounded as its inner size is.
+   const gfx::Size area = frame->LocalFrameRoot().View()->Size();
+-  const float ratio = static_cast<float>(
+-      base::proteus::GetConfig().screen->pixel_ratio);
++  const float ratio = frame->ProteusMachineScale() / scale;
++  const gfx::Size bars =
++      without_window ? ProteusWindowBars(ratio)
++                     : gfx::Size(window.width() - view.width(),
++                                 window.height() - view.height());
+   return gfx::SizeF(
+-      window.width() - view.width() +
+-          AdjustForAbsoluteZoom::AdjustInt(area.width(), ratio),
+-      window.height() - view.height() +
+-          AdjustForAbsoluteZoom::AdjustInt(area.height(), ratio));
++      bars.width() + AdjustForAbsoluteZoom::AdjustInt(area.width(), ratio),
++      bars.height() + AdjustForAbsoluteZoom::AdjustInt(area.height(), ratio));
+ }
+ 
+ int LocalDOMWindow::ProteusMachineLength(int length) const {
+-- 
+2.43.0
+

@@ -1,7 +1,7 @@
 From ef6ef4e06172e73f39f151c724313885047aad1c Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Mon, 16 Nov 2026 03:55:14 +0000
-Subject: [PATCH 19/32] proteus: weight-suffixed family names are as visible as
+Subject: [PATCH 19/33] proteus: weight-suffixed family names are as visible as
  their family
 
 ---
