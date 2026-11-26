@@ -26,19 +26,21 @@ same profile looks like the same device every time it starts.
 
 **Website and browser test:** <https://sheekovic.github.io/Proteus-Browser/>
 
-> **Status: early.** It works and is tested on Windows 11 and Linux. There are preview
-> builds to try; there is no installer and nothing is code-signed yet.
+> **Status: a first release.** It works and is tested on Windows 11, Windows Server 2022
+> and Linux. Nothing is code-signed yet, so Windows warns before running it; what a
+> profile does not hide is listed under [Limitations](#limitations).
 
 ## Download
 
-Preview builds for Windows and Linux (x64) are on the
+Builds for Windows and Linux (x64) are on the
 [releases page](https://github.com/Sheekovic/Proteus-Browser/releases). Each is one
-folder holding the kernel, the manager and the Node.js runtime it needs: unpack it and
-run `Start Proteus.cmd` (Windows) or `./start-proteus.sh` (Linux). Check the download
-against `SHA256SUMS.txt`.
+folder holding the kernel, the manager, the Node.js runtime it needs and the fonts
+profiles are drawn with: unpack it and run `Start Proteus.cmd` (Windows; or `Install
+Proteus.cmd` first, which needs no administrator rights) or `./start-proteus.sh`
+(Linux). Check the download against `SHA256SUMS.txt`; that list is signed, and a
+Proteus that updates itself checks the signature.
 
-They are previews: unsigned, so Windows warns before running them, and not optimised
-"official" builds. On Linux systems that restrict unprivileged user namespaces (Ubuntu
+They are not code-signed, so Windows warns before running them. On Linux systems that restrict unprivileged user namespaces (Ubuntu
 23.10 and later) the start script says so and names the one command that lets the
 browser use its sandbox: `sudo ./linux-sandbox.sh --install`.
 
@@ -153,7 +155,7 @@ functions still look native.
 
 ## Getting started
 
-With a [preview build](#download) there is nothing to set up. To run from this
+With a [release build](#download) there is nothing to set up. To run from this
 repository instead you need [Node.js](https://nodejs.org) 24 or newer and a built
 kernel (see [Building the kernel](#building-the-kernel)).
 

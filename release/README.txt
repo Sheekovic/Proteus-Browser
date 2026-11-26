@@ -1,5 +1,5 @@
-Proteus @VERSION@  (preview)
-=============================
+Proteus @VERSION@
+=================
 
 A browser in which every profile is its own device.
 https://github.com/Sheekovic/Proteus-Browser
@@ -23,8 +23,8 @@ in the terminal (Linux).
 Updates: at each start Proteus asks GitHub whether there is a newer version (one
 small request; turn it off in the settings). When there is, the window says so
 and offers to update. Nothing is downloaded until you press Update; then the
-new version is fetched, checked against the release's checksum, and put in the
-place of this one. Profiles and settings stay.
+new version is fetched, checked against the release's checksum and the maker's
+signature, and put in the place of this one. Profiles and settings stay.
 
 For programs and AI assistants: the same things can be done through the API at
 http://127.0.0.1:5310/api and the MCP endpoint at http://127.0.0.1:5310/mcp.
@@ -35,7 +35,9 @@ WHAT IS IN THIS FOLDER
   kernel/     the browser: Chromium 157 with the Proteus patches
   manager/    the app that stores profiles and starts the kernel
   node/       the Node.js runtime the manager runs on
-  licenses/   licences of the software included
+  fonts/      fonts a profile of another system is drawn with: Android's own,
+              and fonts with the measures of some of Windows' and Apple's
+  licenses/   licences of the software and the fonts included
 
 Your profiles are not stored here. They are in
   Windows   %APPDATA%\Proteus
@@ -43,7 +45,7 @@ Your profiles are not stored here. They are in
 so you can replace this folder with a newer one and keep them.
 
 
-THIS IS A PREVIEW
+KNOW BEFORE YOU RUN IT
 
   - Windows will warn that the program is from an unknown publisher: the files
     are not code-signed. Choose "More info", then "Run anyway".
@@ -52,7 +54,9 @@ THIS IS A PREVIEW
     and later), run this once so the browser can use its sandbox:
         sudo ./linux-sandbox.sh --install
     The start script tells you when it is needed.
-  - Not an optimised "official" build: it is somewhat slower than a retail browser.
+  - What a profile does not hide is listed under "Limitations" on the project's
+    page. No protection is complete: sites also judge the address you come
+    from, how you behave and what your accounts have done.
 
 Check how a profile looks to a website:
   https://sheekovic.github.io/Proteus-Browser/test.html
