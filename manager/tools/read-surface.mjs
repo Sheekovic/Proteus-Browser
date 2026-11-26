@@ -10,6 +10,8 @@
 // usage: node read-surface.mjs <certificate.pem> <key.pem> <output folder> [minutes]
 //   Open  https://<this computer's address>:8443/  on the phone.
 //   Each reading is written to <output folder>/surface-<browser>-<time>.json.
+//   The page then offers a second one, of the device's hardware (/collect), which is
+//   written to <output folder>/fingerprint-<browser>-<time>.json when saved there.
 //   The server stops by itself after [minutes] (default 30).
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -25,7 +27,16 @@ if (!certificate || !key || !folder) {
   process.exit(2);
 }
 mkdirSync(folder, { recursive: true });
-const page = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'surface-page.html'));
+const here = dirname(fileURLToPath(import.meta.url));
+const page = readFileSync(join(here, 'surface-page.html'));
+// The page that reads a device's hardware (what the manager's "Device fingerprints"
+// reads), offered here too, so that one visit from a phone gives both readings.
+// Served from here it can hand its result to this computer, as it does to a manager
+// that serves it on the manager's own machine.
+const collector = readFileSync(join(here, '..', 'ui', 'collect.html'), 'utf8')
+    .replace(/const servedByManager = [^;]+;/, 'const servedByManager = true;')
+    .replace('Save to Proteus on this computer', 'Send to the computer that served this page');
+if (!collector.includes('const servedByManager = true;')) throw new Error('collect.html has changed: its save button would stay hidden');
 const MAX_BYTES = 8 * 1024 * 1024;
 
 function browserOf(userAgent) {
@@ -40,6 +51,35 @@ function handle(request, response) {
   if (request.method === 'GET' && (request.url === '/' || request.url === '/index.html')) {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
     response.end(page);
+    return;
+  }
+  if (request.method === 'GET' && request.url === '/collect') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    response.end(collector);
+    return;
+  }
+  // What that page saves where a manager would take it: kept as a file, to import in
+  // the manager under "Device fingerprints".
+  if (request.method === 'POST' && request.url === '/api/fingerprints') {
+    const chunks = [];
+    let size = 0;
+    request.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BYTES) request.destroy(); else chunks.push(chunk);
+    });
+    request.on('end', () => {
+      try {
+        const fingerprint = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (typeof fingerprint.userAgent !== 'string') throw new Error('not a fingerprint');
+        const name = `fingerprint-${browserOf(fingerprint.userAgent)}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        writeFileSync(join(folder, name), JSON.stringify(fingerprint, null, 1));
+        console.log(`SAVED ${name}`);
+        response.writeHead(201, { 'Content-Type': 'application/json' }).end(JSON.stringify({ saved: name }));
+      } catch (error) {
+        console.log('refused a fingerprint:', error.message);
+        response.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: 'that is not a fingerprint' }));
+      }
+    });
     return;
   }
   if (request.method === 'POST' && request.url === '/save') {

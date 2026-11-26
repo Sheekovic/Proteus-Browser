@@ -9,6 +9,8 @@
 </style>
 <h1>What this browser has</h1>
 <p id="state">Reading…</p>
+<p id="next" hidden>One more, if you will: <a href="/collect">read this device's hardware</a> (its graphics card and what
+it can do, its screen, its processor count), press <b>Read this device</b> there and then <b>Save</b>. Or close this page.</p>
 <p><small>This page lists the names of the interfaces and functions this browser offers to
 web pages, and the voices it has for reading aloud (nothing about you, your files or
 your history), and sends the list to the computer that served it.</small></p>
@@ -141,7 +143,8 @@ const workerSource = `
     const response = await fetch('/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reading) });
     if (!response.ok) throw new Error('the computer answered ' + response.status);
     state.textContent = `Done. ${reading.page.globals.length} names and ${count} interfaces were sent` +
-        (reading.secure ? '.' : ' (this page was not opened securely, so some are missing).') + ' You can close this page.';
+        (reading.secure ? '.' : ' (this page was not opened securely, so some are missing).');
+    document.getElementById('next').hidden = false;
   } catch (error) {
     state.textContent = 'Read, but sending failed: ' + error.message;
   }
