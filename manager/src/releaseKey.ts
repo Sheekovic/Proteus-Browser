@@ -7,9 +7,9 @@
 // release put up by someone else under the same name is not taken.
 //
 // The public halves of the keys releases are signed with are below. A Proteus that
-// knows a key takes an update only with a signature one of them made. While the list
-// is empty (no release has been signed yet) an update is checked by its checksum
-// alone, as before, and the window says so.
+// knows a key takes an update only with a signature one of them made. (One that
+// knows none, as every Proteus before the first signed release, goes by the checksum
+// alone.)
 
 import { createPublicKey, verify } from 'node:crypto';
 
@@ -20,7 +20,9 @@ import { createPublicKey, verify } from 'node:crypto';
  * one if it is signed with both... which it is not, so a replaced key is added here
  * one release before the old one is dropped.
  */
-export const RELEASE_KEYS: readonly string[] = [];
+export const RELEASE_KEYS: readonly string[] = [
+  'XMNWBKvKygmge3ShvF9OOQGfG6oELXw+/BZg92ubr/Q=',   // made 2026-11-26
+];
 
 /** The DER wrapping of a raw Ed25519 public key (RFC 8410), in front of its 32 bytes. */
 const ED25519_SPKI = Buffer.from('302a300506032b6570032100', 'hex');

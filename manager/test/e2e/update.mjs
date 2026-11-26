@@ -6,7 +6,7 @@
 // usage: node update.mjs            (Windows or Linux; nothing is fetched from the internet)
 
 import { execFileSync, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -42,6 +42,10 @@ if (windows) execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System3
 else execFileSync('tar', ['-cJf', archiveFile, '-C', join(root, 'new'), 'Proteus']);
 const archive = readFileSync(archiveFile);
 const sums = `${createHash('sha256').update(archive).digest('hex')}  ${name}\n`;
+// Signed, as a release is, with a key made for this trial.
+const trialKey = generateKeyPairSync('ed25519');
+const trialPublic = trialKey.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64');
+const signature = sign(null, Buffer.from(sums), trialKey.privateKey).toString('base64') + '\n';
 
 // The pretend GitHub.
 const asked = [];
@@ -55,11 +59,13 @@ const github = createServer((request, response) => {
       assets: [
         { name, size: archive.length, browser_download_url: `${origin}/files/${name}` },
         { name: 'SHA256SUMS.txt', size: sums.length, browser_download_url: `${origin}/files/SHA256SUMS.txt` },
+        { name: 'SHA256SUMS.txt.sig', size: signature.length, browser_download_url: `${origin}/files/SHA256SUMS.txt.sig` },
       ],
     }]));
   }
   if (request.url === `/files/${name}`) return response.end(archive);
   if (request.url === '/files/SHA256SUMS.txt') return response.end(sums);
+  if (request.url === '/files/SHA256SUMS.txt.sig') return response.end(signature);
   response.writeHead(404).end();
 });
 await new Promise((listening) => github.listen(0, '127.0.0.1', listening));
@@ -79,7 +85,8 @@ const until = async (what, seconds = 30) => {
 };
 
 const manager = spawn(process.execPath, [join(installed, 'manager', 'src', 'main.ts'), '--port', String(PORT)], {
-  env: { ...process.env, PROTEUS_HOME: join(root, 'data'), PROTEUS_KERNEL: '', PROTEUS_RELEASES_URL: `http://127.0.0.1:${github.address().port}/releases` },
+  env: { ...process.env, PROTEUS_HOME: join(root, 'data'), PROTEUS_KERNEL: '', PROTEUS_RELEASES_URL: `http://127.0.0.1:${github.address().port}/releases`,
+         PROTEUS_RELEASE_KEY: trialPublic },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let output = '';

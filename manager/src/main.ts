@@ -50,7 +50,12 @@ const pretendUrl = process.env.PROTEUS_RELEASES_URL ?? '';
 const pretend = /^http:\/\/127\.0\.0\.1:\d+\//.test(pretendUrl) ? new URL(pretendUrl) : null;
 const updater = new Updater({
   managerDir, dataDir: store.dataDir,
-  ...(pretend ? { releasesUrl: pretend.href, downloadPrefix: `${pretend.origin}/` } : {}),
+  // A pretend list is signed with a pretend key, which the trial names: the real
+  // keys' owner signs real releases only.
+  ...(pretend ? {
+    releasesUrl: pretend.href, downloadPrefix: `${pretend.origin}/`,
+    ...(process.env.PROTEUS_RELEASE_KEY ? { releaseKeys: [process.env.PROTEUS_RELEASE_KEY] } : {}),
+  } : {}),
 });
 const server = createApiServer({ store, launcher, uiDir: join(managerDir, 'ui'), updater, quit: () => void shutdown(true) });
 

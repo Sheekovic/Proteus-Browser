@@ -114,7 +114,7 @@ test('a file that is not the one the release lists is thrown away', { skip: !sup
   const archive = pack(join(root, 'bad', 'new'), (makeFolder(join(root, 'bad', 'new'), '0.2.0'), '0.2.0'));
   const dataDir = join(root, 'bad', 'data');
   const { fetcher } = github('0.2.0', archive, `${'0'.repeat(64)}  ${assetName('0.2.0', process.platform)}\n`);
-  const updater = new Updater({ managerDir: join(installed, 'manager'), dataDir, fetcher });
+  const updater = new Updater({ managerDir: join(installed, 'manager'), dataDir, fetcher, releaseKeys: [] });
   await updater.prepare();
   await updater.settled();
   assert.equal(updater.status().state, 'failed');
@@ -166,7 +166,7 @@ test('a release of another version than it says is not made ready', { skip: !sup
   if (windows) execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), ['-a', '-cf', file, '-C', join(root, 'liar', 'new'), 'Proteus']);
   else execFileSync('tar', ['-cJf', file, '-C', join(root, 'liar', 'new'), 'Proteus']);
   const { fetcher } = github('0.2.0', readFileSync(file));
-  const updater = new Updater({ managerDir: join(installed, 'manager'), dataDir: join(root, 'liar', 'data'), fetcher });
+  const updater = new Updater({ managerDir: join(installed, 'manager'), dataDir: join(root, 'liar', 'data'), fetcher, releaseKeys: [] });
   await updater.prepare();
   await updater.settled();
   assert.equal(updater.status().state, 'failed');
@@ -181,7 +181,7 @@ test('a newer release is fetched, checked, unpacked, and put in by the script, w
   const archive = pack(join(root, 'good', 'new'), '0.2.0');
   const dataDir = join(root, 'good', 'data');
   const { fetcher, asked } = github('0.2.0', archive);
-  const updater = new Updater({ managerDir: join(installed, 'manager'), dataDir, fetcher });
+  const updater = new Updater({ managerDir: join(installed, 'manager'), dataDir, fetcher, releaseKeys: [] });
 
   assert.equal((await updater.check()).newer, true);
   const begun = await updater.prepare();
@@ -194,7 +194,7 @@ test('a newer release is fetched, checked, unpacked, and put in by the script, w
   assert.equal(readFileSync(join(installed, 'VERSION.txt'), 'utf8').trim(), '0.1.0', 'nothing is put in before it is asked for');
   // Asked again, it does not fetch again; nor does another manager started later.
   await updater.prepare();
-  const later = new Updater({ managerDir: join(installed, 'manager'), dataDir, fetcher });
+  const later = new Updater({ managerDir: join(installed, 'manager'), dataDir, fetcher, releaseKeys: [] });
   await later.check();
   assert.equal(later.status().state, 'ready');
   assert.equal(asked.length, 4, 'one more look at the list, no second download');
@@ -217,7 +217,7 @@ test('a newer release is fetched, checked, unpacked, and put in by the script, w
   assert.equal(existsSync(join(dataDir, 'update', '0.2.0')), false, 'what was unpacked is cleared away');
 
   // The manager that starts next is the new version: nothing newer, and nothing left over.
-  const next = new Updater({ managerDir: join(installed, 'manager'), dataDir, fetcher });
+  const next = new Updater({ managerDir: join(installed, 'manager'), dataDir, fetcher, releaseKeys: [] });
   await next.tidy();
   assert.equal((await next.check()).newer, false);
   assert.equal(existsSync(join(dataDir, 'update', windows ? 'apply.ps1' : 'apply.sh')), false);

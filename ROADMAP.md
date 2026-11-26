@@ -66,7 +66,7 @@ from tests.
 - [ ] A signed one *(needs: a code-signing certificate)*
 - [x] "Is there a newer version?", asked of GitHub when the user asks
 - [x] Fetching and putting in place the newer version from inside the app: asked for at each start, fetched when the user says so, checked against the release's checksums
-- [ ] Releases that are signed, so that an update shows who made it and not only that it arrived whole — the signing and the check are written and tested (an Ed25519 signature of the list of checksums; `release/sign-release.mjs`, `manager/src/releaseKey.ts`). Left: make the key and put its public half in the manager *(the maker's to do: the key is theirs to keep)*
+- [x] Releases that are signed, so that an update shows who made it and not only that it arrived whole — an Ed25519 signature of the list of checksums, made when a release is fetched for publishing (`release/sign-release.mjs`) and checked by the updater (`manager/src/releaseKey.ts`). The key exists and the manager knows its public half; a whole update with a signed pretend release was put in on Windows
 - [x] Release builds made by one command on the build server (`release/make-release.ps1`)
 
 ## 6. No limitation left in the README

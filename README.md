@@ -59,9 +59,9 @@ are. No profile may be running when the new version is put in.
 - The checksum shows the file is the one the release holds. Who made the release is
   shown by a signature on the list of checksums, made with a key that never leaves the
   maker's machine ([`sign-release.mjs`](release/sign-release.mjs)): a Proteus that
-  knows the key takes only a release it signed. No release has been signed yet, so
-  this Proteus knows no key and goes by the checksum alone; the first signed release
-  brings the key, and updates after it are checked against it.
+  knows the key takes only a release it signed. Releases up to preview 8 were not
+  signed and know no key: they go by the checksum alone, and so take the first signed
+  release, which brings the key; every update after it is checked against it.
 - A working tree (and the `dist` folder made from one) is not a release and is not
   updated this way. Nor is a Proteus whose data folder is inside its program folder.
 - If an update did not take, `update/apply.log` in the data folder says what the last
