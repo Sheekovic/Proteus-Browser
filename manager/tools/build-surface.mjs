@@ -51,6 +51,8 @@ const real = {
   page: together('page'), worker: together('worker'),
   userAgent: reals.map((reading) => reading.userAgent).join(' | '),
   at: reals.map((reading) => reading.at).sort().at(-1),
+  // What kind of thing each name is: from the newest reading that says (older ones only have names).
+  shapes: reals.filter((reading) => reading.shapes).sort((a, b) => String(a.at).localeCompare(String(b.at))).at(-1)?.shapes ?? null,
 };
 
 /** Room for the member lists, in bytes of JSON; some 9,000 are used. */
@@ -199,7 +201,9 @@ for (const name of [...interfaceNames].sort()) {
 }
 
 // --- What cannot be done from outside: what the real browser has and the kernel lacks ---
-const missing = [...realGlobals].filter((name) => !kernelGlobals.has(name)).sort();
+// (Not the functions of the page that did the reading, which an older reading of the kernel does not have.)
+const READER = new Set(['own', 'readScope', 'describe', 'readShapes', 'workerSource']);
+const missing = [...realGlobals].filter((name) => !kernelGlobals.has(name) && !READER.has(name)).sort();
 
 // --- What can be added (kernel patch 0040) ------------------------------------------------
 // A reading that says what kind of thing each name is (its `shapes`) lets the kernel

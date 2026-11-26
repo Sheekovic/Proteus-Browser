@@ -621,10 +621,16 @@ Worth knowing before relying on it:
   423 members of 117 interfaces, their static members and their constants. Read back
   on the kernel, four are left that nothing can remove from outside: `Symbol.dispose`
   and `Symbol.asyncDispose`, and the constants `PERSISTENT` and `TEMPORARY` of a
-  page's global object. What cannot be added is the other side: the 99 names Safari
-  has and the kernel does not (`ApplePaySession`, `GestureEvent`, …) and some 225
-  members of interfaces both have; and `navigator.gpu` is hidden although Safari has
-  it, because the kernel's would describe this machine's graphics card. An Android
+  page's global object. The other side, what Safari has and the kernel lacks, a page
+  is given as far as a name goes: of the 99 names (`ApplePaySession`, `GestureEvent`,
+  …) the profile has 96, each an interface with the members, constants and parent it
+  was read to have on the phone, a function or an event handler, and none of them
+  does anything: there are no objects of these interfaces, and they answer only the
+  question whether they are there. Three are objects that are simply there in Safari
+  and cannot be made up (`browser`, `openDatabase`, `pushManager`). Some 225 members
+  of interfaces both browsers have are still missing, since one that did nothing
+  would mislead a page that uses it; and `navigator.gpu` is hidden although Safari
+  has it, because the kernel's would describe this machine's graphics card. An Android
   profile was compared with a Galaxy's Chrome before and after an update (152 and
   158, one older and one newer than the kernel) and hides what neither has (window
   sharing, local fonts, the built-in language models, …), with `navigator.contacts`,

@@ -292,10 +292,18 @@ test('an iPhone profile is Safari, not Chrome', async () => {
       assert.ok(config.hide.Navigator.includes(name) && config.hide.WorkerNavigator.includes(name), name);
     }
     assert.equal(config.mobile.pdfViewer, true);
-    // With everything Safari lacks, read from a phone, it is the largest configuration
-    // there is: some 20,000 bytes, a third of that as it travels.
+    // With everything Safari lacks and everything it has that the kernel lacks, read
+    // from a phone, it is the largest configuration there is: some 72,000 bytes, a
+    // third of that as it travels. A fifth of the room is left for what a user adds.
     const packed = packedConfigLength(JSON.stringify(config));
-    assert.ok(packed < MAX_PACKED_CONFIG * 0.6, `${packed} characters packed`);
+    assert.ok(packed < MAX_PACKED_CONFIG * 0.8, `${packed} characters packed`);
+    // What Safari has and the kernel lacks is given to a page: interfaces, parents first.
+    const names = config.add.interfaces.map((entry: { n: string }) => entry.n);
+    assert.ok(names.includes('ApplePaySession') && names.includes('GestureEvent'), 'Safari’s own interfaces');
+    assert.ok(names.indexOf('CSSValue') < names.indexOf('CSSPrimitiveValue'), 'a parent before its child');
+    assert.equal(config.add.globals.ongesturestart, 'A');
+    assert.equal(config.add.globals.webkitIndexedDB, '=indexedDB');
+    assert.ok(!('describe' in config.add.globals) && !('readShapes' in config.add.globals), 'not the reading page’s own functions');
   }
   // None of this reaches a Chrome profile.
   const config = buildKernelConfig(await store.createProfile({ os: 'android' }));

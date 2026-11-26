@@ -12,10 +12,11 @@ import type { Voice } from './profile.ts';
 
 /**
  * The most characters a configuration may take on the command lines of the kernel's
- * child processes. Windows gives a command line 32,767; the kernel's own switches take
- * several thousand of them.
+ * child processes. Windows gives a command line 32,767. Measured on a running profile,
+ * the kernel's own switches take some 1,500 of them on the longest (a page's
+ * process); this leaves them more than three times that.
  */
-export const MAX_PACKED_CONFIG = 20_000;
+export const MAX_PACKED_CONFIG = 27_500;
 
 /**
  * How many characters `json`, a configuration as written to the profile's kernel.json,
