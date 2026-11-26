@@ -329,6 +329,39 @@ Config LoadConfig() {
       }
     }
   }
+  if (const DictValue* add = dict->FindDict("add")) {
+    const auto members_of = [](const DictValue* from) {
+      std::vector<AddedMember> members;
+      if (from) {
+        for (const auto [name, shape] : *from) {
+          if (!name.empty() && shape.is_string() && !shape.GetString().empty()) {
+            AddedMember member;
+            member.name = name;
+            member.shape = shape.GetString();
+            members.push_back(std::move(member));
+          }
+        }
+      }
+      return members;
+    };
+    if (const ListValue* interfaces = add->FindList("interfaces")) {
+      for (const Value& value : *interfaces) {
+        const DictValue* entry = value.GetIfDict();
+        if (!entry || StringOrEmpty(*entry, "n").empty()) {
+          continue;
+        }
+        AddedInterface added;
+        added.name = StringOrEmpty(*entry, "n");
+        added.parent = StringOrEmpty(*entry, "p");
+        added.tag = StringOrEmpty(*entry, "t");
+        added.length = entry->FindInt("l").value_or(0);
+        added.members = members_of(entry->FindDict("m"));
+        added.statics = members_of(entry->FindDict("s"));
+        config.added_interfaces.push_back(std::move(added));
+      }
+    }
+    config.added_globals = members_of(add->FindDict("globals"));
+  }
   if (const DictValue* answers = dict->FindDict("fontAnswers")) {
     for (const auto [name, value] : *answers) {
       if (!name.empty() && value.is_string() && !value.GetString().empty()) {
@@ -558,6 +591,16 @@ Voice::Voice() = default;
 Voice::Voice(const Voice&) = default;
 Voice& Voice::operator=(const Voice&) = default;
 Voice::~Voice() = default;
+
+AddedMember::AddedMember() = default;
+AddedMember::AddedMember(const AddedMember&) = default;
+AddedMember& AddedMember::operator=(const AddedMember&) = default;
+AddedMember::~AddedMember() = default;
+
+AddedInterface::AddedInterface() = default;
+AddedInterface::AddedInterface(const AddedInterface&) = default;
+AddedInterface& AddedInterface::operator=(const AddedInterface&) = default;
+AddedInterface::~AddedInterface() = default;
 
 FontAlias::FontAlias() = default;
 FontAlias::FontAlias(const FontAlias&) = default;

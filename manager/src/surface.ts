@@ -47,6 +47,12 @@ interface SurfaceDifference {
    */
   notHidden: { members: number; interfaces: number; fixedStatics: number; fixedConstants: number };
   cannotAdd: { globals: number };
+  /**
+   * What that browser has and the kernel lacks, with what kind of thing each is, for
+   * the kernel to give a page (kernel patch 0040). Empty for a reading that only has
+   * names.
+   */
+  add?: { interfaces: readonly Record<string, unknown>[]; globals: Record<string, string> };
 }
 const SAFARI: SurfaceDifference = JSON.parse(readFileSync(new URL('./safari-surface.json', import.meta.url), 'utf8'));
 
@@ -80,6 +86,15 @@ export function hiddenFor(os: OsFamily): HiddenMembers {
  * kernel cannot remove a constant without installing it removable everywhere it
  * exists; on the interfaces listed here it makes it fixed again.
  */
+/**
+ * The names a page of an `os` profile is given because its browser has them and the
+ * kernel does not, or null when there are none.
+ */
+export function addedFor(os: OsFamily): NonNullable<SurfaceDifference['add']> | null {
+  const add = os === 'ios' ? SAFARI.add : os === 'android' ? ANDROID.add : undefined;
+  return add !== undefined && (add.interfaces.length > 0 || Object.keys(add.globals).length > 0) ? add : null;
+}
+
 export function keptConstantsFor(os: OsFamily): Record<string, readonly string[]> {
   return os === 'ios' ? SAFARI.keepConstants : os === 'android' ? ANDROID.keepConstants : {};
 }

@@ -67,6 +67,39 @@ struct BASE_EXPORT FontAlias {
   std::vector<std::string> substitutes;
 };
 
+// A name the profile's browser has and the kernel does not, and what kind of thing
+// it is there, in the letters a reading of that browser gives (the manager's
+// tools/surface-page.html): "m2" a method that names two arguments, "a" a value that
+// can be read, "A" one that can also be set, "c16" the constant 16, and for a member
+// of the global object also "=name": another name for what `name` is.
+struct BASE_EXPORT AddedMember {
+  AddedMember();
+  AddedMember(const AddedMember&);
+  AddedMember& operator=(const AddedMember&);
+  ~AddedMember();
+
+  std::string name;
+  std::string shape;
+};
+
+// An interface the profile's browser has and the kernel does not: its name, the
+// interface it inherits from, how many arguments its constructor names, what its
+// objects are tagged as, and its members and static members. There are no objects of
+// it; a page finds the interface and what it has, as it finds one it cannot use.
+struct BASE_EXPORT AddedInterface {
+  AddedInterface();
+  AddedInterface(const AddedInterface&);
+  AddedInterface& operator=(const AddedInterface&);
+  ~AddedInterface();
+
+  std::string name;
+  std::string parent;
+  std::string tag;
+  int length = 0;
+  std::vector<AddedMember> members;
+  std::vector<AddedMember> statics;
+};
+
 // One entry of speechSynthesis.getVoices().
 struct BASE_EXPORT Voice {
   Voice();
@@ -168,6 +201,12 @@ struct BASE_EXPORT Config {
   // in its place, so the family is still found. An installed family always
   // wins over its substitutes.
   std::vector<FontAlias> font_aliases;
+
+  // What the profile's browser has and the kernel does not, given to every page
+  // (kernel patch 0040): interfaces, parents before their children, and members
+  // of the global object.
+  std::vector<AddedInterface> added_interfaces;
+  std::vector<AddedMember> added_globals;
 
   // Names the claimed system answers to with a face of its own, whether or not
   // a font of that name is installed: Android has no Arial and draws "Arial"

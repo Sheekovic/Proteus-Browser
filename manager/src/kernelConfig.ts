@@ -1,7 +1,7 @@
 // Translates a profile into what the Proteus kernel consumes: the JSON file read
 // through --proteus-config, and the command line for the browser process.
 
-import { hiddenFor, keptConstantsFor, phoneOnlyFeatures } from './surface.ts';
+import { addedFor, hiddenFor, keptConstantsFor, phoneOnlyFeatures } from './surface.ts';
 import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 
@@ -158,6 +158,8 @@ export function buildKernelConfig(profile: Profile, now: number = Date.now(), fo
   if (Object.keys(hidden).length > 0) config.hide = hidden;
   const kept = keptConstantsFor(profile.os);
   if (Object.keys(kept).length > 0) config.keepConstants = kept;
+  const added = addedFor(profile.os);
+  if (added !== null) config.add = added;
   if (profile.os === 'ios') {
     // Safari: Apple's vendor string, no client hints in script or in requests, no
     // window.chrome, none of the Navigator members Safari lacks, and (unlike an

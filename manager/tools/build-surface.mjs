@@ -201,6 +201,40 @@ for (const name of [...interfaceNames].sort()) {
 // --- What cannot be done from outside: what the real browser has and the kernel lacks ---
 const missing = [...realGlobals].filter((name) => !kernelGlobals.has(name)).sort();
 
+// --- What can be added (kernel patch 0040) ------------------------------------------------
+// A reading that says what kind of thing each name is (its `shapes`) lets the kernel
+// give a page the names it lacks: an interface with its members, a function, an event
+// handler. An object that is there in the real browser (window.browser) cannot be
+// made up, and neither can anything of a reading that only has names.
+const ALIASES = { webkitIndexedDB: 'indexedDB' };
+const memberShapes = (from) => Object.fromEntries(Object.entries(from ?? {}).filter(([, shape]) => /^(m\d+|a|A|c-?[\d.e+-]+)$/.test(shape)));
+const add = { interfaces: [], globals: {} };
+if (real.shapes) {
+  const lacking = new Set(missing);
+  const placed = new Set();
+  const place = (name) => {
+    if (placed.has(name) || !lacking.has(name)) return;
+    const shape = real.shapes.interfaces[name];
+    if (!shape) return;
+    placed.add(name);
+    place(shape.parent);   // A parent that is added too comes first.
+    add.interfaces.push({ n: name, p: shape.parent, t: shape.tag, l: shape.length, m: memberShapes(shape.members), s: memberShapes(shape.statics) });
+  };
+  for (const name of missing) place(name);
+  for (const name of missing) {
+    if (placed.has(name)) continue;
+    const own = real.shapes.globals[name];
+    const inherited = (real.shapes.inherited[name] ?? '').split(':').pop();
+    const shape = own && own !== '?' ? own : inherited;
+    if (ALIASES[name] !== undefined && kernelGlobals.has(ALIASES[name])) add.globals[name] = '=' + ALIASES[name];
+    else if (/^m\d+$/.test(shape)) add.globals[name] = shape;
+    else if (/^[aA]$/.test(shape) && name.startsWith('on')) add.globals[name] = 'A';
+    else if (shape === 'n' && name.startsWith('on')) add.globals[name] = 'A';   // A handler nobody set reads as null.
+  }
+}
+const added = new Set([...add.interfaces.map((entry) => entry.n), ...Object.keys(add.globals)]);
+const cannotAdd = missing.filter((name) => !added.has(name));
+
 const out = {
   note: 'Made by manager/tools/build-surface.mjs from a reading of the real browser. Not edited by hand.',
   readFrom: real.userAgent,
@@ -209,7 +243,8 @@ const out = {
   kept: [...KEEP].filter((name) => kernelGlobals.has(name) && !realGlobals.has(name)),
   hiddenAnyway: HIDE_ANYWAY,
   notHidden: { members: leftOut, interfaces: leftOutInterfaces, fixedStatics, fixedConstants },
-  cannotAdd: { globals: missing.length },
+  cannotAdd: { globals: cannotAdd.length },
+  add,
   globals,
   windowGlobals,
   workerGlobals,
@@ -226,6 +261,7 @@ console.log(`members of interfaces: ${Object.values(members).flat().length} in $
 console.log(`in a page alone: ${windowGlobals.join(' ') || 'none'}; in a worker alone: ${workerGlobals.join(' ') || 'none'}`);
 console.log(`static members: ${Object.values(statics).flat().length} in ${Object.keys(statics).length} interfaces; that cannot be removed: ${fixedStatics}; constants that cannot: ${fixedConstants}`);
 console.log(`constants that go: ${[...hiddenConstants.keys()].join(' ') || 'none'}; kept fixed on: ${Object.keys(keepConstants).join(' ') || 'nothing'}`);
-console.log(`the real browser has ${missing.length} names the kernel lacks (cannot be added from here)`);
+console.log(`the real browser has ${missing.length} names the kernel lacks; given to a page: ${add.interfaces.length} interfaces and ` +
+    `${Object.keys(add.globals).length} members of the global object (${Buffer.byteLength(JSON.stringify(add))} bytes); left: ${cannotAdd.join(' ') || 'none'}`);
 console.log('beginnings:', patterns.join(' '));
 console.log('written:', target);

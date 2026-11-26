@@ -1,0 +1,57 @@
+<!doctype html>
+<body>
+<script>
+// Emits one line of key=value pairs with what a page finds of names a profile adds.
+const out = [];
+const tried = run => { try { return String(run()); } catch (error) { return error.name; } };
+const has = name => name in window;
+out.push('has=' + ['ProteusPaySession', 'ProteusGestureEvent', 'proteusOpenStore', 'onproteusgesture', 'proteusOtherFetch', 'ProteusNotAdded']
+    .filter(has).join('/'));
+if (has('ProteusPaySession')) {
+  const Pay = window.ProteusPaySession;
+  out.push('kind=' + typeof Pay + '/' + Pay.name + '/' + Pay.length);
+  out.push('text=' + encodeURIComponent(Function.prototype.toString.call(Pay)));
+  out.push('construct=' + tried(() => new Pay()) + '/' + tried(() => Pay()));
+  out.push('parent=' + (Object.getPrototypeOf(Pay.prototype) === EventTarget.prototype) + '/' + (Object.getPrototypeOf(Pay) === EventTarget));
+  out.push('tag=' + encodeURIComponent(Object.prototype.toString.call(Pay.prototype)));
+  out.push('members=' + Object.getOwnPropertyNames(Pay.prototype).filter(name => name !== 'constructor').sort().join('/'));
+  out.push('statics=' + Object.getOwnPropertyNames(Pay).filter(name => !['length', 'name', 'prototype', 'arguments', 'caller'].includes(name)).sort().join('/'));
+  const begin = Object.getOwnPropertyDescriptor(Pay.prototype, 'begin');
+  out.push('method=' + typeof begin.value + '/' + begin.value.name + '/' + begin.value.length + '/' + begin.enumerable + begin.writable + begin.configurable);
+  out.push('methodCall=' + tried(() => Pay.prototype.begin()) + '/' + tried(() => new Pay.prototype.begin()));
+  const handler = Object.getOwnPropertyDescriptor(Pay.prototype, 'oncancel');
+  out.push('value=' + typeof handler.get + '/' + typeof handler.set + '/' + encodeURIComponent(handler.get.name) + '/' + tried(() => Pay.prototype.oncancel));
+  const readOnly = Object.getOwnPropertyDescriptor(Pay.prototype, 'state');
+  out.push('readOnly=' + typeof readOnly.get + '/' + typeof readOnly.set);
+  const constant = Object.getOwnPropertyDescriptor(Pay, 'STATUS_FAILURE');
+  out.push('constant=' + Pay.STATUS_FAILURE + '/' + Pay.prototype.STATUS_FAILURE + '/' + constant.writable + constant.configurable);
+  out.push('listed=' + Object.keys(window).includes('ProteusPaySession') + '/' + Object.getOwnPropertyDescriptor(window, 'ProteusPaySession').enumerable);
+  // An added interface that inherits from another added one.
+  const Gesture = window.ProteusGestureEvent;
+  out.push('chain=' + (Gesture && Object.getPrototypeOf(Gesture.prototype) === Pay.prototype));
+}
+if (has('proteusOpenStore')) {
+  out.push('function=' + typeof proteusOpenStore + '/' + proteusOpenStore.length + '/' + tried(() => proteusOpenStore(1, 2)) +
+      '/' + /\[native code\]/.test(Function.prototype.toString.call(proteusOpenStore)));
+}
+if (has('onproteusgesture')) {
+  const before = window.onproteusgesture;
+  const given = () => {};
+  window.onproteusgesture = given;
+  const kept = window.onproteusgesture === given;
+  window.onproteusgesture = 5;
+  out.push('handler=' + before + '/' + kept + '/' + window.onproteusgesture);
+}
+out.push('alias=' + (has('proteusOtherFetch') && window.proteusOtherFetch === window.fetch));
+// Nothing is added where the kernel has the name already.
+out.push('own=' + (typeof window.Screen === 'function' && Object.getOwnPropertyNames(Screen.prototype).includes('width')));
+// A frame's page gets them too.
+const frame = document.createElement('iframe');
+frame.onload = () => {
+  out.push('frame=' + ('ProteusPaySession' in frame.contentWindow) + '/' + (frame.contentWindow.ProteusPaySession !== window.ProteusPaySession));
+  document.body.innerText = 'RESULT ' + out.join(' ');
+};
+frame.srcdoc = '<body>';
+document.body.appendChild(frame);
+</script>
+</body>
