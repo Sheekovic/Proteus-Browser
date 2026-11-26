@@ -1,0 +1,183 @@
+From a34c17941909cb4fe291129ce2ba80b245de398c Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Thu, 26 Nov 2026 11:26:10 +0000
+Subject: [PATCH 32/32] proteus: what reading it back on Windows showed: places
+ a driving program gives are in the page own pixels, a step of the wheel is
+ exact, the one screen has the profile scale, and the fonts folder reaches the
+ font service pages ask on Windows
+
+---
+ .../devtools/protocol/input_handler.cc        | 12 +++++++
+ .../blink/renderer/core/events/wheel_event.cc | 30 ++++++++++++++---
+ .../modules/screen_details/screen_detailed.cc |  4 +++
+ ui/gfx/win/direct_write.cc                    | 32 +++++++++++++++++++
+ 4 files changed, 74 insertions(+), 4 deletions(-)
+
+diff --git a/content/browser/devtools/protocol/input_handler.cc b/content/browser/devtools/protocol/input_handler.cc
+index 8468f4d256..4594ed1c0e 100644
+--- a/content/browser/devtools/protocol/input_handler.cc
++++ b/content/browser/devtools/protocol/input_handler.cc
+@@ -14,6 +14,7 @@
+ #include "base/check.h"
+ #include "base/check_deref.h"
+ #include "base/functional/bind.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/functional/callback.h"
+ #include "base/functional/callback_helpers.h"
+ #include "base/memory/raw_ptr.h"
+@@ -1557,6 +1558,17 @@ float InputHandler::ScaleFactor() {
+           : web_contents_->GetPrimaryMainFrame()->GetRenderWidgetHost();
+   float scale_factor = blink::ZoomLevelToZoomFactor(
+       web_contents_->GetPendingZoomLevel(widget_host_for_zoom_level));
++  // Proteus: a CSS pixel of a profile with a scale of its own is not one of
++  // the machine's units (patch 0035).
++  if (const auto& proteus_screen = base::proteus::GetConfig().screen;
++      proteus_screen && proteus_screen->pixel_ratio > 0 &&
++      widget_host_for_zoom_level) {
++    const float machine = widget_host_for_zoom_level->GetDeviceScaleFactor();
++    if (machine > 0) {
++      scale_factor *=
++          static_cast<float>(proteus_screen->pixel_ratio) / machine;
++    }
++  }
+   // CSS zoom applied to embedding element (e.g. <iframe>), if applicable.
+   if (host_) {
+     if (RenderWidgetHostImpl* widget_host = host_->GetRenderWidgetHost()) {
+diff --git a/third_party/blink/renderer/core/events/wheel_event.cc b/third_party/blink/renderer/core/events/wheel_event.cc
+index 3d176df3ec..318a7f5ffb 100644
+--- a/third_party/blink/renderer/core/events/wheel_event.cc
++++ b/third_party/blink/renderer/core/events/wheel_event.cc
+@@ -23,12 +23,18 @@
+ 
+ #include "third_party/blink/renderer/core/events/wheel_event.h"
+ 
++#include "base/proteus/proteus_config.h"
++#include "ui/display/screen_info.h"
++
+ #include "third_party/blink/renderer/bindings/core/v8/v8_wheel_event_init.h"
+ #include "third_party/blink/renderer/core/clipboard/data_transfer.h"
+ #include "third_party/blink/renderer/core/dom/events/event_dispatcher.h"
+ #include "third_party/blink/renderer/core/event_interface_names.h"
+ #include "third_party/blink/renderer/core/frame/intervention.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
++#include "third_party/blink/renderer/core/frame/local_frame.h"
++#include "third_party/blink/renderer/core/page/chrome_client.h"
++#include "third_party/blink/renderer/core/page/page.h"
+ #include "third_party/blink/renderer/core/frame/web_feature.h"
+ #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+@@ -38,6 +44,24 @@ namespace blink {
+ 
+ namespace {
+ 
++// Proteus: device pixels to a CSS pixel as the machine has them: what a length
++// that came in the machine's units was multiplied by. With a profile's scale
++// that is the machine's scale times the user's zoom, the zoom being what the
++// page is laid out at over the profile's scale: exactly 1 without zoom.
++double ProteusMachinePixelRatio(const LocalDOMWindow& window) {
++  const double ratio = window.devicePixelRatio();
++  const auto& forced = base::proteus::GetConfig().screen;
++  LocalFrame* frame = window.GetFrame();
++  if (!forced || forced->pixel_ratio <= 0 || !frame || !frame->GetPage()) {
++    return ratio;
++  }
++  return frame->GetPage()
++             ->GetChromeClient()
++             .GetScreenInfo(*frame)
++             .device_scale_factor *
++         (ratio / forced->pixel_ratio);
++}
++
+ unsigned ConvertDeltaMode(const WebMouseWheelEvent& event) {
+   // WebMouseWheelEvent only supports these units for the delta.
+   DCHECK(event.delta_units == ui::ScrollGranularity::kScrollByPage ||
+@@ -107,10 +131,8 @@ WheelEvent::WheelEvent(const WebMouseWheelEvent& event, LocalDOMWindow& window)
+       wheel_delta_(
+           (event.wheel_ticks_x * kTickMultiplier) / window.devicePixelRatio(),
+           (event.wheel_ticks_y * kTickMultiplier) / window.devicePixelRatio()),
+-      delta_x_(-event.DeltaXInRootFrame() / window.devicePixelRatio() /
+-               window.ProteusScreenScale()),
+-      delta_y_(-event.DeltaYInRootFrame() / window.devicePixelRatio() /
+-               window.ProteusScreenScale()),
++      delta_x_(-event.DeltaXInRootFrame() / ProteusMachinePixelRatio(window)),
++      delta_y_(-event.DeltaYInRootFrame() / ProteusMachinePixelRatio(window)),
+       delta_z_(0),
+       delta_mode_(ConvertDeltaMode(event)),
+       native_event_(event),
+diff --git a/third_party/blink/renderer/modules/screen_details/screen_detailed.cc b/third_party/blink/renderer/modules/screen_details/screen_detailed.cc
+index 484459acec..28a787acf3 100644
+--- a/third_party/blink/renderer/modules/screen_details/screen_detailed.cc
++++ b/third_party/blink/renderer/modules/screen_details/screen_detailed.cc
+@@ -141,6 +141,10 @@ bool ScreenDetailed::isInternal() const {
+ float ScreenDetailed::devicePixelRatio() const {
+   if (!DomWindow())
+     return 0.f;
++  if (const auto& forced = base::proteus::GetConfig().screen;
++      forced && forced->pixel_ratio > 0) {
++    return static_cast<float>(forced->pixel_ratio);
++  }
+   return GetScreenInfo().device_scale_factor;
+ }
+ 
+diff --git a/ui/gfx/win/direct_write.cc b/ui/gfx/win/direct_write.cc
+index 83a95525a4..221523e15a 100644
+--- a/ui/gfx/win/direct_write.cc
++++ b/ui/gfx/win/direct_write.cc
+@@ -14,6 +14,9 @@
+ #include <string_view>
+ 
+ #include "base/debug/alias.h"
++#include "base/files/file_enumerator.h"
++#include "base/files/file_path.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/notreached.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/trace_event/trace_event.h"
+@@ -33,8 +36,36 @@ IDWriteFactory* g_direct_write_factory = nullptr;
+ // font. Usually this is the Ahem.ttf font. Leaked at shutdown.
+ std::vector<base::FilePath>* g_sideloaded_fonts = nullptr;
+ 
++// Proteus: the fonts of the profile's folder join the side-loaded ones.
++void ProteusSideLoadFolder() {
++  static bool done = false;
++  if (done) {
++    return;
++  }
++  done = true;
++  const std::string& font_dir = base::proteus::GetConfig().font_dir;
++  if (font_dir.empty()) {
++    return;
++  }
++  base::FileEnumerator files(base::FilePath::FromUTF8Unsafe(font_dir),
++                             /*recursive=*/false,
++                             base::FileEnumerator::FILES);
++  for (base::FilePath file = files.Next(); !file.empty();
++       file = files.Next()) {
++    if (file.MatchesExtension(FILE_PATH_LITERAL(".ttf")) ||
++        file.MatchesExtension(FILE_PATH_LITERAL(".otf")) ||
++        file.MatchesExtension(FILE_PATH_LITERAL(".ttc"))) {
++      if (!g_sideloaded_fonts) {
++        g_sideloaded_fonts = new std::vector<base::FilePath>();
++      }
++      g_sideloaded_fonts->push_back(file);
++    }
++  }
++}
++
+ bool GetFontCollection(Microsoft::WRL::ComPtr<IDWriteFactory>& factory,
+                        IDWriteFontCollection** collection) {
++  ProteusSideLoadFolder();
+   if (!g_sideloaded_fonts) {
+     // Normal path - The DirectWrite font manager will use the system's font
+     // collection with no sideloading when passed `nullptr` for the collection.
+@@ -125,6 +156,7 @@ void SideLoadFontForTesting(base::FilePath path) {
+ }
+ 
+ const std::vector<base::FilePath>* GetSideloadedFontsForTesting() {
++  ProteusSideLoadFolder();
+   return g_sideloaded_fonts;
+ }
+ 
+-- 
+2.43.0
+

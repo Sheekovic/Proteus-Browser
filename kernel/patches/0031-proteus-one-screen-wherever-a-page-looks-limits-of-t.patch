@@ -1,0 +1,2113 @@
+From 7b1780f40487f02ed0790077c9868be9bd605e44 Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Thu, 26 Nov 2026 05:04:28 +0000
+Subject: [PATCH 31/32] proteus: one screen wherever a page looks, limits of
+ the claimed card held where the drawing is done, pages laid out at the
+ profile scale with the window at the machine scale, a camera from a file in
+ the sizes a camera has, fonts that come with Proteus counted as installed,
+ and names the profile browser has given to a page
+
+---
+ base/proteus/proteus_config.cc                | 169 ++++++++++-
+ base/proteus/proteus_config.h                 |  79 ++++-
+ chrome/app/chrome_main_delegate.cc            |   8 +
+ chrome/browser/ui/browser_window_state.cc     |  15 +
+ .../chrome/devtools_client_impl.cc            |  27 +-
+ .../dwrite_font_proxy_impl_win.cc             |  22 ++
+ content/gpu/gpu_main.cc                       |  28 ++
+ .../video/file_video_capture_device.cc        |  53 +++-
+ .../capture/video/file_video_capture_device.h |   2 +
+ .../file_video_capture_device_factory.cc      |  29 +-
+ .../bindings/core/v8/local_window_proxy.cc    | 279 +++++++++++++++++-
+ .../v8/worker_or_worklet_script_controller.cc |  58 +++-
+ .../blink/renderer/core/events/mouse_event.cc |   5 +
+ .../blink/renderer/core/events/wheel_event.cc |   6 +-
+ .../renderer/core/exported/web_view_impl.h    |  14 +-
+ .../blink/renderer/core/frame/find_in_page.cc |   4 +-
+ .../renderer/core/frame/local_dom_window.cc   | 172 ++++++++++-
+ .../renderer/core/frame/local_dom_window.h    |  16 +
+ .../blink/renderer/core/frame/local_frame.cc  |   8 +-
+ .../blink/renderer/core/frame/local_frame.h   |   3 +
+ .../core/frame/local_frame_mojo_handler.cc    |   2 +-
+ .../renderer/core/page/chrome_client_impl.cc  |   6 +
+ .../blink/renderer/core/page/create_window.cc |  19 ++
+ .../modules/accessibility/ax_object.cc        |   3 +-
+ .../modules/screen_details/screen_detailed.cc |  17 ++
+ .../modules/screen_details/screen_details.cc  |  13 +-
+ .../webgl/webgl2_rendering_context_base.cc    |  10 +
+ .../webgl/webgl_rendering_context_base.cc     |  32 ++
+ .../webgl/webgl_rendering_context_base.h      |   7 +
+ .../platform/bindings/idl_member_installer.cc |  21 +-
+ .../renderer/platform/fonts/font_cache.cc     |  17 ++
+ ui/gfx/font_render_params_linux.cc            |  12 +
+ ui/gfx/linux/fontconfig_util.cc               |   8 +
+ 33 files changed, 1096 insertions(+), 68 deletions(-)
+
+diff --git a/base/proteus/proteus_config.cc b/base/proteus/proteus_config.cc
+index dae67506b3..71942e0dd3 100644
+--- a/base/proteus/proteus_config.cc
++++ b/base/proteus/proteus_config.cc
+@@ -4,7 +4,9 @@
+ 
+ #include "base/proteus/proteus_config.h"
+ 
++#include <algorithm>
+ #include <optional>
++#include <string>
+ #include <string_view>
+ #include <utility>
+ #include <vector>
+@@ -19,6 +21,7 @@
+ #include "base/no_destructor.h"
+ #include "base/strings/string_number_conversions.h"
+ #include "base/values.h"
++#include "third_party/zlib/zlib.h"
+ 
+ namespace base::proteus {
+ 
+@@ -30,6 +33,57 @@ namespace {
+ // Profile configurations are small; refuse anything implausibly large.
+ constexpr size_t kMaxConfigBytes = 1024 * 1024;
+ 
++// A configuration travels to child processes on their command lines, which on
++// Windows hold 32,767 characters with everything else on them. It is mostly
++// names (fonts, voices, the members a browser does not have), which deflate
++// to a quarter, so it travels packed: "z:<bytes unpacked>:<base64 of the
++// deflated JSON>". A value without that mark is the JSON in base64 as it is,
++// which is what earlier versions sent.
++std::string Packed(const std::string& json) {
++  uLongf size = compressBound(static_cast<uLong>(json.size()));
++  std::vector<uint8_t> packed(size);
++  const auto bytes = as_byte_span(json);
++  if (compress2(packed.data(), &size, bytes.data(),
++                static_cast<uLong>(bytes.size()), Z_BEST_COMPRESSION) != Z_OK) {
++    // The zygote is launched before base::FeatureList exists, so the regular
++    // Base64Encode(), which consults a feature, must not be used here.
++    return Base64EncodeEarlyStartup(bytes);
++  }
++  packed.resize(size);
++  return "z:" + NumberToString(json.size()) + ":" +
++         Base64EncodeEarlyStartup(packed);
++}
++
++std::optional<std::string> Unpacked(const std::string& value) {
++  if (!value.starts_with("z:")) {
++    std::optional<std::vector<uint8_t>> decoded = Base64Decode(value);
++    if (!decoded) {
++      return std::nullopt;
++    }
++    return std::string(decoded->begin(), decoded->end());
++  }
++  const size_t colon = value.find(':', 2);
++  size_t unpacked_size = 0;
++  if (colon == std::string::npos ||
++      !StringToSizeT(value.substr(2, colon - 2), &unpacked_size) ||
++      unpacked_size == 0 || unpacked_size > kMaxConfigBytes) {
++    return std::nullopt;
++  }
++  std::optional<std::vector<uint8_t>> packed =
++      Base64Decode(value.substr(colon + 1));
++  if (!packed) {
++    return std::nullopt;
++  }
++  std::vector<uint8_t> json(unpacked_size);
++  uLongf size = static_cast<uLongf>(unpacked_size);
++  if (uncompress(json.data(), &size, packed->data(),
++                 static_cast<uLong>(packed->size())) != Z_OK ||
++      size != unpacked_size) {
++    return std::nullopt;
++  }
++  return std::string(json.begin(), json.end());
++}
++
+ // Returns the raw JSON for this process, or an empty string if none was given.
+ std::string ReadConfigJson() {
+   if (!CommandLine::InitializedForCurrentProcess()) {
+@@ -38,13 +92,14 @@ std::string ReadConfigJson() {
+   const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+ 
+   if (command_line.HasSwitch(kConfigDataSwitch)) {
+-    std::optional<std::vector<uint8_t>> decoded =
+-        Base64Decode(command_line.GetSwitchValueASCII(kConfigDataSwitch));
+-    if (!decoded) {
++    const std::string value =
++        command_line.GetSwitchValueASCII(kConfigDataSwitch);
++    std::optional<std::string> json = Unpacked(value);
++    if (!json) {
+       LOG(ERROR) << "Proteus: malformed --" << kConfigDataSwitch;
+       return std::string();
+     }
+-    return std::string(decoded->begin(), decoded->end());
++    return *json;
+   }
+ 
+   if (command_line.HasSwitch(kConfigFileSwitch)) {
+@@ -80,6 +135,20 @@ std::string StringOrEmpty(const DictValue& dict, std::string_view key) {
+   return value ? *value : std::string();
+ }
+ 
++// Whether |name| is written as a constant of an interface is: in capitals,
++// digits and underscores ("RGB8", "TEXTPATH_SIDETYPE_LEFT").
++bool IsConstantName(const std::string& name) {
++  if (name.empty() || name[0] < 'A' || name[0] > 'Z') {
++    return false;
++  }
++  for (char c : name) {
++    if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) {
++      return false;
++    }
++  }
++  return true;
++}
++
+ // The address (voiceURI) of |voice| from what its entry says: nothing (the first
+ // of |shapes|, or no address of its own when there are none), "#2" (that shape),
+ // "#2:Alpana" (that shape with this in place of the voice's name), or the address
+@@ -187,9 +256,7 @@ Config LoadConfig() {
+ 
+   config.active = true;
+   config.seed = ParseSeed(*dict);
+-  // The zygote is launched before base::FeatureList exists, so the regular
+-  // Base64Encode(), which consults a feature, must not be used here.
+-  config.serialized = Base64EncodeEarlyStartup(as_byte_span(json));
++  config.serialized = Packed(json);
+ 
+   if (std::optional<int> value = dict->FindInt("hardwareConcurrency");
+       value && *value > 0) {
+@@ -215,6 +282,12 @@ Config LoadConfig() {
+     if (avail_top > 0 && avail_top <= data.height - data.avail_height) {
+       data.avail_top = avail_top;
+     }
++    data.label = StringOrEmpty(*screen, "label");
++    data.internal = screen->FindBool("internal").value_or(false);
++    const double pixel_ratio = screen->FindDouble("pixelRatio").value_or(0);
++    if (pixel_ratio >= 0.5 && pixel_ratio <= 5) {
++      data.pixel_ratio = pixel_ratio;
++    }
+     if (data.width > 0 && data.height > 0) {
+       config.screen = data;
+     }
+@@ -230,6 +303,7 @@ Config LoadConfig() {
+       config.accept_languages += language.GetString();
+     }
+   }
++  config.font_dir = StringOrEmpty(*dict, "fontDir");
+   if (const ListValue* fonts = dict->FindList("fonts")) {
+     for (const Value& font : *fonts) {
+       if (font.is_string() && !font.GetString().empty()) {
+@@ -255,6 +329,46 @@ Config LoadConfig() {
+       }
+     }
+   }
++  if (const DictValue* add = dict->FindDict("add")) {
++    const auto members_of = [](const DictValue* from) {
++      std::vector<AddedMember> members;
++      if (from) {
++        for (const auto [name, shape] : *from) {
++          if (!name.empty() && shape.is_string() && !shape.GetString().empty()) {
++            AddedMember member;
++            member.name = name;
++            member.shape = shape.GetString();
++            members.push_back(std::move(member));
++          }
++        }
++      }
++      return members;
++    };
++    if (const ListValue* interfaces = add->FindList("interfaces")) {
++      for (const Value& value : *interfaces) {
++        const DictValue* entry = value.GetIfDict();
++        if (!entry || StringOrEmpty(*entry, "n").empty()) {
++          continue;
++        }
++        AddedInterface added;
++        added.name = StringOrEmpty(*entry, "n");
++        added.parent = StringOrEmpty(*entry, "p");
++        added.tag = StringOrEmpty(*entry, "t");
++        added.length = entry->FindInt("l").value_or(0);
++        added.members = members_of(entry->FindDict("m"));
++        added.statics = members_of(entry->FindDict("s"));
++        config.added_interfaces.push_back(std::move(added));
++      }
++    }
++    config.added_globals = members_of(add->FindDict("globals"));
++  }
++  if (const DictValue* answers = dict->FindDict("fontAnswers")) {
++    for (const auto [name, value] : *answers) {
++      if (!name.empty() && value.is_string() && !value.GetString().empty()) {
++        config.font_answers.emplace_back(name, value.GetString());
++      }
++    }
++  }
+   config.timezone = StringOrEmpty(*dict, "timezone");
+   config.webrtc_proxy_only = StringOrEmpty(*dict, "webRtcPolicy") == "proxyOnly";
+   config.webrtc_public_ip = StringOrEmpty(*dict, "webRtcPublicIp");
+@@ -340,11 +454,37 @@ Config LoadConfig() {
+           hidden.members.push_back(member.GetString());
+         }
+       }
++      for (const std::string& member : hidden.members) {
++        if (IsConstantName(member) &&
++            std::find(config.loose_constants.begin(),
++                      config.loose_constants.end(),
++                      member) == config.loose_constants.end()) {
++          config.loose_constants.push_back(member);
++        }
++      }
+       if (!hidden.members.empty()) {
+         config.hidden_members.push_back(std::move(hidden));
+       }
+     }
+   }
++  if (const DictValue* keep = dict->FindDict("keepConstants")) {
++    for (const auto [interface_name, value] : *keep) {
++      const ListValue* list = value.GetIfList();
++      if (interface_name.empty() || !list) {
++        continue;
++      }
++      Config::HiddenMembers kept;
++      kept.interface_name = interface_name;
++      for (const Value& member : *list) {
++        if (member.is_string() && IsConstantName(member.GetString())) {
++          kept.members.push_back(member.GetString());
++        }
++      }
++      if (!kept.members.empty()) {
++        config.kept_constants.push_back(std::move(kept));
++      }
++    }
++  }
+   if (const DictValue* geo = dict->FindDict("geolocation")) {
+     const std::optional<double> latitude = geo->FindDouble("latitude");
+     const std::optional<double> longitude = geo->FindDouble("longitude");
+@@ -442,11 +582,26 @@ Config LoadConfig() {
+ 
+ }  // namespace
+ 
++ScreenData::ScreenData() = default;
++ScreenData::ScreenData(const ScreenData&) = default;
++ScreenData& ScreenData::operator=(const ScreenData&) = default;
++ScreenData::~ScreenData() = default;
++
+ Voice::Voice() = default;
+ Voice::Voice(const Voice&) = default;
+ Voice& Voice::operator=(const Voice&) = default;
+ Voice::~Voice() = default;
+ 
++AddedMember::AddedMember() = default;
++AddedMember::AddedMember(const AddedMember&) = default;
++AddedMember& AddedMember::operator=(const AddedMember&) = default;
++AddedMember::~AddedMember() = default;
++
++AddedInterface::AddedInterface() = default;
++AddedInterface::AddedInterface(const AddedInterface&) = default;
++AddedInterface& AddedInterface::operator=(const AddedInterface&) = default;
++AddedInterface::~AddedInterface() = default;
++
+ FontAlias::FontAlias() = default;
+ FontAlias::FontAlias(const FontAlias&) = default;
+ FontAlias& FontAlias::operator=(const FontAlias&) = default;
+diff --git a/base/proteus/proteus_config.h b/base/proteus/proteus_config.h
+index 70a5627a41..a0237d2522 100644
+--- a/base/proteus/proteus_config.h
++++ b/base/proteus/proteus_config.h
+@@ -67,6 +67,39 @@ struct BASE_EXPORT FontAlias {
+   std::vector<std::string> substitutes;
+ };
+ 
++// A name the profile's browser has and the kernel does not, and what kind of thing
++// it is there, in the letters a reading of that browser gives (the manager's
++// tools/surface-page.html): "m2" a method that names two arguments, "a" a value that
++// can be read, "A" one that can also be set, "c16" the constant 16, and for a member
++// of the global object also "=name": another name for what `name` is.
++struct BASE_EXPORT AddedMember {
++  AddedMember();
++  AddedMember(const AddedMember&);
++  AddedMember& operator=(const AddedMember&);
++  ~AddedMember();
++
++  std::string name;
++  std::string shape;
++};
++
++// An interface the profile's browser has and the kernel does not: its name, the
++// interface it inherits from, how many arguments its constructor names, what its
++// objects are tagged as, and its members and static members. There are no objects of
++// it; a page finds the interface and what it has, as it finds one it cannot use.
++struct BASE_EXPORT AddedInterface {
++  AddedInterface();
++  AddedInterface(const AddedInterface&);
++  AddedInterface& operator=(const AddedInterface&);
++  ~AddedInterface();
++
++  std::string name;
++  std::string parent;
++  std::string tag;
++  int length = 0;
++  std::vector<AddedMember> members;
++  std::vector<AddedMember> statics;
++};
++
+ // One entry of speechSynthesis.getVoices().
+ struct BASE_EXPORT Voice {
+   Voice();
+@@ -86,6 +119,11 @@ struct BASE_EXPORT Voice {
+ // window.screen and the device-width / device-height media features, in CSS
+ // pixels.
+ struct BASE_EXPORT ScreenData {
++  ScreenData();
++  ScreenData(const ScreenData&);
++  ScreenData& operator=(const ScreenData&);
++  ~ScreenData();
++
+   int width = 0;
+   int height = 0;
+   int avail_width = 0;
+@@ -93,6 +131,16 @@ struct BASE_EXPORT ScreenData {
+   int color_depth = 24;
+   // Where the work area starts from the top: the height of a Mac's menu bar.
+   int avail_top = 0;
++  // What the one screen of a profile says of itself to a page that was allowed
++  // to ask (getScreenDetails()): its name, which on a real machine is the
++  // monitor's model, and whether it is built in, as a laptop's or a phone's is.
++  std::string label;
++  bool internal = false;
++  // Device pixels to a CSS pixel, as the profile's system shows things: what
++  // devicePixelRatio says, and the scale pages are laid out at. The window is
++  // still drawn at the machine's scale. 0 means the machine's. Not for phone
++  // profiles, whose page area is emulated with a ratio of its own.
++  double pixel_ratio = 0;
+ };
+ 
+ // Per-profile identity settings. Every field is optional; an absent field means
+@@ -141,12 +189,30 @@ struct BASE_EXPORT Config {
+   // fonts on this machine".
+   std::vector<std::string> fonts;
+ 
++  // A folder of font files that count as installed for this profile, beside the
++  // machine's own: the fonts that come with Proteus (the claimed system's own
++  // where they may be passed on, and stand-ins with the same measures for the
++  // others). The list above still decides which of them a page finds. Empty
++  // means none.
++  std::string font_dir;
++
+   // Stand-ins for fonts the profile claims but the machine may lack. When a
+   // family named here is not installed, the first installed substitute is used
+   // in its place, so the family is still found. An installed family always
+   // wins over its substitutes.
+   std::vector<FontAlias> font_aliases;
+ 
++  // What the profile's browser has and the kernel does not, given to every page
++  // (kernel patch 0040): interfaces, parents before their children, and members
++  // of the global object.
++  std::vector<AddedInterface> added_interfaces;
++  std::vector<AddedMember> added_globals;
++
++  // Names the claimed system answers to with a face of its own, whether or not
++  // a font of that name is installed: Android has no Arial and draws "Arial"
++  // with Roboto. Name and face; the face is used when it is installed.
++  std::vector<std::pair<std::string, std::string>> font_answers;
++
+   // When true, WebRTC may only send traffic through the configured proxy: no
+   // direct UDP leaves the machine, so neither a STUN server nor the page can
+   // learn the real public or local address.
+@@ -228,6 +294,17 @@ struct BASE_EXPORT Config {
+   };
+   std::string vendor;
+   std::vector<HiddenMembers> hidden_members;
++  // More ways to name what is removed (patch 0031):
++  //  - "window" and "worker" are the global object of a page and of a worker
++  //    alone, for what that browser has in one and not in the other;
++  //  - an interface name with a dot after it ("Iterator.") is the interface
++  //    object itself, where its static members are.
++  // A constant cannot be removed once it is there, so the ones named here
++  // (|loose_constants|: every hidden member written in capitals) are installed
++  // removable everywhere, and |kept_constants| lists, per interface, those that
++  // stay: there they are made fixed again, as a constant is.
++  std::vector<std::string> loose_constants;
++  std::vector<HiddenMembers> kept_constants;
+   bool client_hints = true;
+   bool chrome_object = true;
+ 
+@@ -274,7 +351,7 @@ struct BASE_EXPORT Config {
+   double geolocation_longitude = 0;
+   double geolocation_accuracy = 0;
+ 
+-  // Base64 form of the source JSON, forwarded to child processes.
++  // The source JSON as it is forwarded to child processes: deflated, in base64.
+   std::string serialized;
+ };
+ 
+diff --git a/chrome/app/chrome_main_delegate.cc b/chrome/app/chrome_main_delegate.cc
+index 0447c4084b..88001a27ab 100644
+--- a/chrome/app/chrome_main_delegate.cc
++++ b/chrome/app/chrome_main_delegate.cc
+@@ -91,6 +91,7 @@
+ #include "ui/base/l10n/l10n_util.h"
+ #include "ui/base/resource/resource_bundle.h"
+ #include "ui/base/resource/scoped_startup_resource_bundle.h"
++#include "base/proteus/proteus_config.h"
+ #include "ui/base/ui_base_switches.h"
+ 
+ 
+@@ -1192,6 +1193,13 @@ void ChromeMainDelegate::SetupTracing() {
+ std::optional<int> ChromeMainDelegate::BasicStartupComplete() {
+   crash_reporter::InitializeCrashKeys();
+ 
++  // Proteus: see patch 0035.
++  if (const auto& proteus_screen = base::proteus::GetConfig().screen;
++      proteus_screen && proteus_screen->pixel_ratio > 0) {
++    base::CommandLine::ForCurrentProcess()->RemoveSwitch(
++        "force-device-scale-factor");
++  }
++
+ #if BUILDFLAG(IS_CHROMEOS)
+   ash::BootTimesRecorder::Get()->SaveChromeMainStats();
+ #endif
+diff --git a/chrome/browser/ui/browser_window_state.cc b/chrome/browser/ui/browser_window_state.cc
+index f337b9b3e0..e703b413c8 100644
+--- a/chrome/browser/ui/browser_window_state.cc
++++ b/chrome/browser/ui/browser_window_state.cc
+@@ -4,6 +4,11 @@
+ 
+ #include "chrome/browser/ui/browser_window_state.h"
+ 
++#include "base/numerics/safe_conversions.h"
++#include "base/proteus/proteus_config.h"
++#include "ui/display/display.h"
++#include "ui/display/screen.h"
++
+ #include <stddef.h>
+ 
+ #include <string_view>
+@@ -182,6 +187,16 @@ void UpdateWindowBoundsAndShowStateFromCommandLine(
+     std::string str = command_line.GetSwitchValueASCII(switches::kWindowSize);
+     int width, height;
+     if (ParseCommaSeparatedIntegers(str, &width, &height)) {
++      if (const auto& screen = base::proteus::GetConfig().screen;
++          screen && screen->pixel_ratio > 0 && display::Screen::Get()) {
++        const double real = display::Screen::Get()
++                                ->GetDisplayMatching(*bounds)
++                                .device_scale_factor();
++        if (real > 0) {
++          width = base::ClampRound(width * screen->pixel_ratio / real);
++          height = base::ClampRound(height * screen->pixel_ratio / real);
++        }
++      }
+       bounds->set_size(gfx::Size(width, height));
+       *show_state = ui::mojom::WindowShowState::kNormal;
+     }
+diff --git a/chrome/test/chromedriver/chrome/devtools_client_impl.cc b/chrome/test/chromedriver/chrome/devtools_client_impl.cc
+index fccf14f67a..c3c8ffc706 100644
+--- a/chrome/test/chromedriver/chrome/devtools_client_impl.cc
++++ b/chrome/test/chromedriver/chrome/devtools_client_impl.cc
+@@ -582,29 +582,10 @@ Status DevToolsClientImpl::SetUpDevTools() {
+     // To avoid such flakiness we enable the Page domain first.
+     SendCommandAndIgnoreResponse("Page.enable", base::DictValue());
+ 
+-    // This is a page or frame level DevToolsClient
+-    base::DictValue params;
+-    std::string script =
+-        "(function () {"
+-        "window.cdc_adoQpoasnfa76pfcZLmcfl_Array = window.Array;"
+-        "window.cdc_adoQpoasnfa76pfcZLmcfl_Object = window.Object;"
+-        "window.cdc_adoQpoasnfa76pfcZLmcfl_Promise = window.Promise;"
+-        "window.cdc_adoQpoasnfa76pfcZLmcfl_Proxy = window.Proxy;"
+-        "window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol = window.Symbol;"
+-        "window.cdc_adoQpoasnfa76pfcZLmcfl_JSON = window.JSON;"
+-        "window.cdc_adoQpoasnfa76pfcZLmcfl_Window = window.Window;"
+-        "}) ();";
+-    params.Set("source", script);
+-    Status status = SendCommandAndIgnoreResponse(
+-        "Page.addScriptToEvaluateOnNewDocument", params);
+-    if (status.IsError())
+-      return status;
+-
+-    params.clear();
+-    params.Set("expression", script);
+-    status = SendCommandAndIgnoreResponse("Runtime.evaluate", params);
+-    if (status.IsError())
+-      return status;
++    // Proteus: stock chromedriver keeps copies of Array, Object, Promise, Proxy,
++    // Symbol, JSON and Window on the page here, under fixed names a page can
++    // look for ("cdc_..."). They are not made: the scripts in js/ use the page's
++    // own when the copies are missing.
+   }
+ 
+   return Status{kOk};
+diff --git a/content/browser/renderer_host/dwrite_font_proxy_impl_win.cc b/content/browser/renderer_host/dwrite_font_proxy_impl_win.cc
+index 6b59bf2072..7f755e8445 100644
+--- a/content/browser/renderer_host/dwrite_font_proxy_impl_win.cc
++++ b/content/browser/renderer_host/dwrite_font_proxy_impl_win.cc
+@@ -4,6 +4,10 @@
+ 
+ #include "content/browser/renderer_host/dwrite_font_proxy_impl_win.h"
+ 
++#include "base/files/file_enumerator.h"
++#include "base/files/file_path.h"
++#include "base/proteus/proteus_config.h"
++
+ #include <windows.h>
+ 
+ #include <shlobj.h>
+@@ -600,6 +604,24 @@ void DWriteFontProxyImpl::InitializeDirectWrite() {
+   factory_.As<IDWriteFactory3>(&factory3_);
+   CHECK(factory3_, base::NotFatalUntil::M152);
+ 
++  // Proteus: the fonts of the profile's folder count as installed.
++  static bool proteus_fonts_added = false;
++  if (const std::string& font_dir = base::proteus::GetConfig().font_dir;
++      !proteus_fonts_added && !font_dir.empty()) {
++    proteus_fonts_added = true;
++    base::FileEnumerator files(base::FilePath::FromUTF8Unsafe(font_dir),
++                               /*recursive=*/false,
++                               base::FileEnumerator::FILES);
++    for (base::FilePath file = files.Next(); !file.empty();
++         file = files.Next()) {
++      if (file.MatchesExtension(FILE_PATH_LITERAL(".ttf")) ||
++          file.MatchesExtension(FILE_PATH_LITERAL(".otf")) ||
++          file.MatchesExtension(FILE_PATH_LITERAL(".ttc"))) {
++        SideLoadFontForTesting(file);
++      }
++    }
++  }
++
+   // Normally identical to factory_->GetSystemFontCollection() unless a
+   // sideloaded font has been added using SideLoadFontForTesting().
+   HRESULT hr = GetLocalFontCollection(factory3_, &collection_);
+diff --git a/content/gpu/gpu_main.cc b/content/gpu/gpu_main.cc
+index 543e347e14..7b080efe58 100644
+--- a/content/gpu/gpu_main.cc
++++ b/content/gpu/gpu_main.cc
+@@ -14,6 +14,10 @@
+ #include "base/byte_size.h"
+ #include "base/check.h"
+ #include "base/command_line.h"
++#include "base/environment.h"
++#include "base/numerics/safe_conversions.h"
++#include "base/proteus/proteus_config.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/feature_list.h"
+ #include "base/files/scoped_file.h"
+ #include "base/functional/bind.h"
+@@ -239,6 +243,30 @@ int GpuMain(MainFunctionParams parameters) {
+ 
+   const base::CommandLine& command_line = *parameters.command_line;
+ 
++  // Proteus: see patch 0037.
++  {
++    std::string limits;
++    for (int version = 0; version < 2; ++version) {
++      limits += base::NumberToString(version + 1) + ":";
++      for (const auto& [name, numbers] :
++           base::proteus::GetConfig().webgl_caps[version].params) {
++        if (numbers.empty() || numbers.size() > 2) {
++          continue;
++        }
++        limits += base::NumberToString(name) + "=" +
++                  base::NumberToString(
++                      base::saturated_cast<int>(numbers.front()));
++        if (numbers.size() == 2) {
++          limits += "x" + base::NumberToString(
++                              base::saturated_cast<int>(numbers.back()));
++        }
++        limits += ",";
++      }
++      limits += ";";
++    }
++    base::Environment::Create()->SetVar("PROTEUS_GL_LIMITS", limits);
++  }
++
+   gpu::GpuPreferences gpu_preferences;
+   if (command_line.HasSwitch(switches::kGpuPreferences)) {
+     std::string value =
+diff --git a/media/capture/video/file_video_capture_device.cc b/media/capture/video/file_video_capture_device.cc
+index 41bf34d4ad..5acaf87a6d 100644
+--- a/media/capture/video/file_video_capture_device.cc
++++ b/media/capture/video/file_video_capture_device.cc
+@@ -20,6 +20,7 @@
+ #include "base/location.h"
+ #include "base/logging.h"
+ #include "base/numerics/safe_conversions.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/strings/string_number_conversions.h"
+ #include "base/strings/string_util.h"
+ #include "base/task/single_thread_task_runner.h"
+@@ -630,6 +631,14 @@ void FileVideoCaptureDevice::OnAllocateAndStart(
+     return;
+   }
+ 
++  proteus_size_ = gfx::Size();
++  if (base::proteus::GetConfig().has_media_devices &&
++      capture_format_.pixel_format == PIXEL_FORMAT_I420 &&
++      !params.requested_format.frame_size.IsEmpty() &&
++      params.requested_format.frame_size != capture_format_.frame_size) {
++    proteus_size_ = params.requested_format.frame_size;
++  }
++
+   zoom_max_levels_ = gcd(capture_format_.frame_size.width(),
+                          capture_format_.frame_size.height());
+   aspect_ratio_numerator_ =
+@@ -656,6 +665,43 @@ void FileVideoCaptureDevice::OnStopAndDeAllocate() {
+   next_frame_time_ = base::TimeTicks();
+ }
+ 
++// Proteus: a frame of |size| as one of |to|.
++static std::vector<uint8_t> ProteusScaleFrame(const std::vector<uint8_t>& from,
++                                              const gfx::Size& size,
++                                              const gfx::Size& to) {
++  int width = size.width();
++  int height = size.height();
++  if (width * to.height() > height * to.width()) {
++    width = (height * to.width() / to.height()) & ~1;
++  } else {
++    height = (width * to.height() / to.width()) & ~1;
++  }
++  const int left = ((size.width() - width) / 2) & ~1;
++  const int top = ((size.height() - height) / 2) & ~1;
++  const int stride = size.width();
++  const int half = (size.width() + 1) / 2;
++  const size_t luma = static_cast<size_t>(stride) * size.height();
++  const size_t chroma =
++      static_cast<size_t>(half) * ((size.height() + 1) / 2);
++  if (width <= 0 || height <= 0 || from.size() < luma + 2 * chroma) {
++    return from;
++  }
++  const int to_half = (to.width() + 1) / 2;
++  const size_t to_luma = static_cast<size_t>(to.width()) * to.height();
++  const size_t to_chroma =
++      static_cast<size_t>(to_half) * ((to.height() + 1) / 2);
++  std::vector<uint8_t> scaled(to_luma + 2 * to_chroma);
++  const size_t first = static_cast<size_t>(top) * stride + left;
++  const size_t first_chroma = static_cast<size_t>(top / 2) * half + left / 2;
++  UNSAFE_TODO(libyuv::I420Scale(
++      from.data() + first, stride, from.data() + luma + first_chroma, half,
++      from.data() + luma + chroma + first_chroma, half, width, height,
++      scaled.data(), to.width(), scaled.data() + to_luma, to_half,
++      scaled.data() + to_luma + to_chroma, to_half, to.width(), to.height(),
++      libyuv::kFilterBilinear));
++  return scaled;
++}
++
+ void FileVideoCaptureDevice::OnCaptureTask() {
+   DCHECK(capture_thread_.task_runner()->BelongsToCurrentThread());
+   if (!client_) {
+@@ -673,6 +719,11 @@ void FileVideoCaptureDevice::OnCaptureTask() {
+ 
+   VideoCaptureFormat ptz_format = capture_format_;
+   ptz_format.pixel_format = ptz_pixel_format;
++  if (!proteus_size_.IsEmpty() && ptz_pixel_format == PIXEL_FORMAT_I420) {
++    ptz_frame = ProteusScaleFrame(ptz_frame, capture_format_.frame_size,
++                                  proteus_size_);
++    ptz_format.frame_size = proteus_size_;
++  }
+ 
+   CHECK(!ptz_frame.empty());
+ 
+@@ -682,7 +733,7 @@ void FileVideoCaptureDevice::OnCaptureTask() {
+   }
+ 
+   if (video_capture_use_mappable_buffer_) {
+-    const gfx::Size& buffer_size = capture_format_.frame_size;
++    const gfx::Size& buffer_size = ptz_format.frame_size;
+     scoped_refptr<gpu::ClientSharedImage> shared_image;
+     VideoCaptureDevice::Client::Buffer capture_buffer;
+     auto reserve_result = AllocateNV12SharedImage(
+diff --git a/media/capture/video/file_video_capture_device.h b/media/capture/video/file_video_capture_device.h
+index 8e8a9f6fdc..122b6fa888 100644
+--- a/media/capture/video/file_video_capture_device.h
++++ b/media/capture/video/file_video_capture_device.h
+@@ -95,6 +95,8 @@ class CAPTURE_EXPORT FileVideoCaptureDevice : public VideoCaptureDevice {
+   const base::FilePath file_path_;
+   std::unique_ptr<VideoFileParser> file_parser_;
+   VideoCaptureFormat capture_format_;
++  // Proteus: the size frames are delivered at when it is not the file's.
++  gfx::Size proteus_size_;
+ 
+   // The max zoom-able integer level that can be zoomed-in with respect to
+   // aspect ratio of original file.
+diff --git a/media/capture/video/file_video_capture_device_factory.cc b/media/capture/video/file_video_capture_device_factory.cc
+index 8a83245946..0915c9d358 100644
+--- a/media/capture/video/file_video_capture_device_factory.cc
++++ b/media/capture/video/file_video_capture_device_factory.cc
+@@ -5,7 +5,10 @@
+ #include "media/capture/video/file_video_capture_device_factory.h"
+ 
+ #include "base/command_line.h"
++#include <array>
++
+ #include "base/files/file_path.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/strings/sys_string_conversions.h"
+ #include "base/threading/scoped_blocking_call.h"
+ #include "base/threading/thread_restrictions.h"
+@@ -59,9 +62,11 @@ void FileVideoCaptureDeviceFactory::GetDevicesInfo(
+ #endif
+ 
+   VideoCaptureControlSupport control_support;
+-  control_support.pan = true;
+-  control_support.tilt = true;
+-  control_support.zoom = true;
++  // Proteus: the camera of a profile's device cannot be turned or zoomed.
++  const base::proteus::Config& proteus = base::proteus::GetConfig();
++  control_support.pan = !proteus.has_media_devices;
++  control_support.tilt = !proteus.has_media_devices;
++  control_support.zoom = !proteus.has_media_devices;
+ 
+   devices_info.emplace_back(VideoCaptureDeviceDescriptor(
+       GetFilePathFromCommandLine().AsUTF8Unsafe(), kFileVideoCaptureDeviceName,
+@@ -74,6 +79,24 @@ void FileVideoCaptureDeviceFactory::GetDevicesInfo(
+     return;
+   }
+   devices_info.back().supported_formats.push_back(capture_format);
++  // Proteus: and the other sizes a camera has, which the device makes from
++  // the file's frames (see FileVideoCaptureDevice::OnCaptureTask).
++  if (proteus.has_media_devices &&
++      capture_format.pixel_format == PIXEL_FORMAT_I420) {
++    static constexpr std::array<std::array<int, 2>, 10> kSizes = {{
++        {1920, 1080}, {1280, 720}, {960, 540}, {848, 480}, {640, 480},
++        {640, 360},   {424, 240},  {320, 240}, {320, 180}, {160, 120}}};
++    const int widest = proteus.mobile ? 1920 : 1280;
++    for (const auto& size : kSizes) {
++      const gfx::Size offered(size[0], size[1]);
++      if (size[0] > widest || offered == capture_format.frame_size) {
++        continue;
++      }
++      VideoCaptureFormat other = capture_format;
++      other.frame_size = offered;
++      devices_info.back().supported_formats.push_back(other);
++    }
++  }
+ 
+   std::move(callback).Run(std::move(devices_info));
+ }
+diff --git a/third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc b/third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc
+index e5841a000e..d2de506f53 100644
+--- a/third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc
++++ b/third_party/blink/renderer/bindings/core/v8/local_window_proxy.cc
+@@ -244,6 +244,226 @@ void LocalWindowProxy::DisposeContext(Lifecycle next_status,
+   lifecycle_ = next_status;
+ }
+ 
++// Proteus: the names the profile's browser has and the kernel does not (patch 0040).
++namespace {
++
++void ProteusThrow(const v8::FunctionCallbackInfo<v8::Value>& info,
++                  const char* message) {
++  v8::Isolate* isolate = info.GetIsolate();
++  isolate->ThrowException(v8::Exception::TypeError(
++      v8::String::NewFromUtf8(isolate, message).ToLocalChecked()));
++}
++
++void ProteusIllegalConstructor(const v8::FunctionCallbackInfo<v8::Value>& info) {
++  ProteusThrow(info, "Illegal constructor");
++}
++
++void ProteusIllegalInvocation(const v8::FunctionCallbackInfo<v8::Value>& info) {
++  ProteusThrow(info, "Illegal invocation");
++}
++
++void ProteusNothing(const v8::FunctionCallbackInfo<v8::Value>& info) {}
++
++// An event handler of the global object: what it was given, or null. The name of
++// the handler is the callback's data; the value is kept on the global object under
++// a key no script can reach.
++void ProteusHandlerGet(const v8::FunctionCallbackInfo<v8::Value>& info) {
++  v8::Isolate* isolate = info.GetIsolate();
++  v8::Local<v8::Context> context = isolate->GetCurrentContext();
++  v8::Local<v8::Value> kept;
++  if (info.Data()->IsString() &&
++      context->Global()
++          ->GetPrivate(context,
++                       v8::Private::ForApi(isolate, info.Data().As<v8::String>()))
++          .ToLocal(&kept) &&
++      (kept->IsFunction() || kept->IsObject())) {
++    info.GetReturnValue().Set(kept);
++    return;
++  }
++  info.GetReturnValue().SetNull();
++}
++
++void ProteusHandlerSet(const v8::FunctionCallbackInfo<v8::Value>& info) {
++  v8::Isolate* isolate = info.GetIsolate();
++  v8::Local<v8::Context> context = isolate->GetCurrentContext();
++  if (!info.Data()->IsString()) {
++    return;
++  }
++  v8::Local<v8::Value> given = info.Length() > 0 ? info[0] : v8::Local<v8::Value>();
++  if (given.IsEmpty() || !(given->IsFunction() || given->IsObject())) {
++    given = v8::Null(isolate);
++  }
++  std::ignore = context->Global()->SetPrivate(
++      context, v8::Private::ForApi(isolate, info.Data().As<v8::String>()), given);
++}
++
++int ProteusNumberOf(const std::string& shape) {
++  return shape.size() > 1 ? atoi(shape.c_str() + 1) : 0;
++}
++
++v8::Local<v8::String> ProteusName(v8::Isolate* isolate, const std::string& name) {
++  return v8::String::NewFromUtf8(isolate, name.c_str(),
++                                 v8::NewStringType::kInternalized)
++      .ToLocalChecked();
++}
++
++// A function a page finds and cannot construct with, named and with as many named
++// arguments as the real one.
++v8::MaybeLocal<v8::Function> ProteusFunction(v8::Isolate* isolate,
++                                            v8::Local<v8::Context> context,
++                                            v8::FunctionCallback callback,
++                                            const std::string& name,
++                                            int length,
++                                            v8::Local<v8::Value> data = {}) {
++  v8::Local<v8::FunctionTemplate> made = v8::FunctionTemplate::New(
++      isolate, callback, data, v8::Local<v8::Signature>(), length,
++      v8::ConstructorBehavior::kThrow);
++  made->SetClassName(ProteusName(isolate, name));
++  return made->GetFunction(context);
++}
++
++// The members of an interface's prototype, or of the interface itself.
++void ProteusAddMembers(v8::Isolate* isolate,
++                       v8::Local<v8::Context> context,
++                       v8::Local<v8::Object> holder,
++                       const std::vector<base::proteus::AddedMember>& members,
++                       v8::FunctionCallback method) {
++  for (const auto& member : members) {
++    v8::Local<v8::String> key = ProteusName(isolate, member.name);
++    v8::Local<v8::Function> function;
++    switch (member.shape[0]) {
++      case 'm':
++        if (ProteusFunction(isolate, context, method, member.name,
++                            ProteusNumberOf(member.shape))
++                .ToLocal(&function)) {
++          std::ignore = holder->CreateDataProperty(context, key, function);
++        }
++        break;
++      case 'a':
++      case 'A': {
++        v8::Local<v8::Function> setter;
++        if (!ProteusFunction(isolate, context, ProteusIllegalInvocation,
++                             "get " + member.name, 0)
++                 .ToLocal(&function)) {
++          break;
++        }
++        if (member.shape[0] == 'A') {
++          std::ignore = ProteusFunction(isolate, context,
++                                        ProteusIllegalInvocation,
++                                        "set " + member.name, 1)
++                            .ToLocal(&setter);
++        }
++        holder->SetAccessorProperty(key, function, setter, v8::None);
++        break;
++      }
++      case 'c':
++        std::ignore = holder->DefineOwnProperty(
++            context, key,
++            v8::Number::New(isolate, strtod(member.shape.c_str() + 1, nullptr)),
++            static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontDelete));
++        break;
++      default:
++        break;
++    }
++  }
++}
++
++void ProteusAddWindowNames(v8::Isolate* isolate, v8::Local<v8::Context> context) {
++  const base::proteus::Config& config = base::proteus::GetConfig();
++  if (config.added_interfaces.empty() && config.added_globals.empty()) {
++    return;
++  }
++  v8::HandleScope handle_scope(isolate);
++  v8::Context::Scope context_scope(context);
++  v8::TryCatch try_catch(isolate);
++  v8::Local<v8::Object> global = context->Global();
++  v8::Local<v8::String> prototype_key = ProteusName(isolate, "prototype");
++
++  for (const auto& entry : config.added_interfaces) {
++    v8::Local<v8::String> name = ProteusName(isolate, entry.name);
++    if (global->HasRealNamedProperty(context, name).FromMaybe(true)) {
++      continue;  // The kernel has it after all.
++    }
++    v8::Local<v8::FunctionTemplate> made =
++        v8::FunctionTemplate::New(isolate, ProteusIllegalConstructor);
++    made->SetClassName(name);
++    made->SetLength(entry.length);
++    v8::Local<v8::Function> constructor;
++    v8::Local<v8::Value> prototype_value;
++    if (!made->GetFunction(context).ToLocal(&constructor) ||
++        !constructor->Get(context, prototype_key).ToLocal(&prototype_value) ||
++        !prototype_value->IsObject()) {
++      continue;
++    }
++    v8::Local<v8::Object> prototype = prototype_value.As<v8::Object>();
++    // It inherits from what the real one inherits from, when that is here
++    // (an added one before it in the list, or one of the kernel's own).
++    v8::Local<v8::Value> parent;
++    v8::Local<v8::Value> parent_prototype;
++    if (!entry.parent.empty() && entry.parent != "Object" &&
++        global->Get(context, ProteusName(isolate, entry.parent)).ToLocal(&parent) &&
++        parent->IsFunction() &&
++        parent.As<v8::Object>()->Get(context, prototype_key).ToLocal(&parent_prototype) &&
++        parent_prototype->IsObject()) {
++      std::ignore = prototype->SetPrototype(context, parent_prototype);
++      std::ignore = constructor->SetPrototype(context, parent);
++    }
++    ProteusAddMembers(isolate, context, prototype, entry.members,
++                      ProteusIllegalInvocation);
++    ProteusAddMembers(isolate, context, constructor, entry.statics,
++                      ProteusNothing);
++    if (!entry.tag.empty()) {
++      std::ignore = prototype->DefineOwnProperty(
++          context, v8::Symbol::GetToStringTag(isolate),
++          ProteusName(isolate, entry.tag),
++          static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontEnum));
++    }
++    std::ignore =
++        global->DefineOwnProperty(context, name, constructor, v8::DontEnum);
++  }
++
++  for (const auto& member : config.added_globals) {
++    v8::Local<v8::String> key = ProteusName(isolate, member.name);
++    if (global->HasRealNamedProperty(context, key).FromMaybe(true)) {
++      continue;
++    }
++    v8::Local<v8::Function> function;
++    v8::Local<v8::Value> other;
++    switch (member.shape[0]) {
++      case 'm':
++        if (ProteusFunction(isolate, context, ProteusNothing, member.name,
++                            ProteusNumberOf(member.shape))
++                .ToLocal(&function)) {
++          std::ignore = global->CreateDataProperty(context, key, function);
++        }
++        break;
++      case 'A': {
++        v8::Local<v8::Function> setter;
++        if (ProteusFunction(isolate, context, ProteusHandlerGet,
++                            "get " + member.name, 0, key)
++                .ToLocal(&function) &&
++            ProteusFunction(isolate, context, ProteusHandlerSet,
++                            "set " + member.name, 1, key)
++                .ToLocal(&setter)) {
++          global->SetAccessorProperty(key, function, setter, v8::None);
++        }
++        break;
++      }
++      case '=':
++        if (global->Get(context, ProteusName(isolate, member.shape.substr(1)))
++                .ToLocal(&other) &&
++            !other->IsUndefined()) {
++          std::ignore = global->CreateDataProperty(context, key, other);
++        }
++        break;
++      default:
++        break;
++    }
++  }
++}
++
++}  // namespace
++
+ // Proteus: removes the members the profile's browser does not have.
+ static void ProteusHideWindowMembers(v8::Isolate* isolate,
+     v8::Local<v8::Context> context) {
+@@ -257,7 +477,11 @@ static void ProteusHideWindowMembers(v8::Isolate* isolate,
+   v8::Local<v8::String> prototype_key =
+       v8::String::NewFromUtf8Literal(isolate, "prototype");
+   for (const auto& entry : hidden) {
+-    if (entry.interface_name == "globalThis") {
++    if (entry.interface_name == "worker") {
++      continue;
++    }
++    if (entry.interface_name == "globalThis" ||
++        entry.interface_name == "window") {
+       v8::Local<v8::Object> global = context->Global();
+       for (const std::string& member : entry.members) {
+         if (member.back() != '*') {
+@@ -291,10 +515,16 @@ static void ProteusHideWindowMembers(v8::Isolate* isolate,
+       }
+       continue;
+     }
++    // "Name." is the interface object itself, where static members are.
++    const bool on_interface = entry.interface_name.back() == '.';
++    const std::string interface_name =
++        on_interface ? entry.interface_name.substr(
++                           0, entry.interface_name.size() - 1)
++                     : entry.interface_name;
+     v8::Local<v8::String> name;
+     v8::Local<v8::Value> constructor;
+     v8::Local<v8::Value> prototype;
+-    if (!v8::String::NewFromUtf8(isolate, entry.interface_name.c_str())
++    if (!v8::String::NewFromUtf8(isolate, interface_name.c_str())
+              .ToLocal(&name) ||
+         !context->Global()->Get(context, name).ToLocal(&constructor) ||
+         !constructor->IsObject() ||
+@@ -304,10 +534,52 @@ static void ProteusHideWindowMembers(v8::Isolate* isolate,
+         !prototype->IsObject()) {
+       continue;
+     }
++    v8::Local<v8::Object> holder = on_interface
++                                       ? constructor.As<v8::Object>()
++                                       : prototype.As<v8::Object>();
+     for (const std::string& member : entry.members) {
+       v8::Local<v8::String> key;
+       if (v8::String::NewFromUtf8(isolate, member.c_str()).ToLocal(&key)) {
+-        std::ignore = prototype.As<v8::Object>()->Delete(context, key);
++        std::ignore = holder->Delete(context, key);
++      }
++    }
++  }
++  // A constant a profile hides is installed deletable on every interface
++  // (idl_member_installer.cc). On the ones that keep it, it is made what a
++  // constant is again: fixed.
++  const v8::PropertyAttribute fixed =
++      static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontDelete);
++  for (const auto& entry : base::proteus::GetConfig().kept_constants) {
++    v8::Local<v8::String> name;
++    v8::Local<v8::Value> constructor;
++    v8::Local<v8::Value> prototype;
++    if (!v8::String::NewFromUtf8(isolate, entry.interface_name.c_str())
++             .ToLocal(&name) ||
++        !context->Global()->Get(context, name).ToLocal(&constructor) ||
++        !constructor->IsObject() ||
++        !constructor.As<v8::Object>()
++             ->Get(context, prototype_key)
++             .ToLocal(&prototype)) {
++      continue;
++    }
++    for (const std::string& member : entry.members) {
++      v8::Local<v8::String> key;
++      v8::Local<v8::Value> value;
++      if (!v8::String::NewFromUtf8(isolate, member.c_str()).ToLocal(&key) ||
++          !constructor.As<v8::Object>()
++               ->GetRealNamedProperty(context, key)
++               .ToLocal(&value) ||
++          !value->IsNumber()) {
++        continue;
++      }
++      std::ignore = constructor.As<v8::Object>()->DefineOwnProperty(
++          context, key, value, fixed);
++      if (prototype->IsObject() &&
++          prototype.As<v8::Object>()
++              ->HasOwnProperty(context, key)
++              .FromMaybe(false)) {
++        std::ignore = prototype.As<v8::Object>()->DefineOwnProperty(
++            context, key, value, fixed);
+       }
+     }
+   }
+@@ -387,6 +659,7 @@ void LocalWindowProxy::Initialize() {
+                     !document->Url().ProtocolIs("chrome-untrusted") &&
+                     !document->Url().ProtocolIs("devtools"))) {
+     ProteusHideWindowMembers(script_state_->GetIsolate(), context);
++    ProteusAddWindowNames(script_state_->GetIsolate(), context);
+   }
+ 
+   if (World().IsMainWorld()) {
+diff --git a/third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.cc b/third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.cc
+index 93474a1532..f4e1fa1cf6 100644
+--- a/third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.cc
++++ b/third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.cc
+@@ -127,7 +127,11 @@ static void ProteusHideWorkerMembers(v8::Isolate* isolate,
+   v8::Local<v8::String> prototype_key =
+       v8::String::NewFromUtf8Literal(isolate, "prototype");
+   for (const auto& entry : hidden) {
+-    if (entry.interface_name == "globalThis") {
++    if (entry.interface_name == "window") {
++      continue;
++    }
++    if (entry.interface_name == "globalThis" ||
++        entry.interface_name == "worker") {
+       v8::Local<v8::Object> global = context->Global();
+       for (const std::string& member : entry.members) {
+         if (member.back() != '*') {
+@@ -161,10 +165,16 @@ static void ProteusHideWorkerMembers(v8::Isolate* isolate,
+       }
+       continue;
+     }
++    // "Name." is the interface object itself, where static members are.
++    const bool on_interface = entry.interface_name.back() == '.';
++    const std::string interface_name =
++        on_interface ? entry.interface_name.substr(
++                           0, entry.interface_name.size() - 1)
++                     : entry.interface_name;
+     v8::Local<v8::String> name;
+     v8::Local<v8::Value> constructor;
+     v8::Local<v8::Value> prototype;
+-    if (!v8::String::NewFromUtf8(isolate, entry.interface_name.c_str())
++    if (!v8::String::NewFromUtf8(isolate, interface_name.c_str())
+              .ToLocal(&name) ||
+         !context->Global()->Get(context, name).ToLocal(&constructor) ||
+         !constructor->IsObject() ||
+@@ -174,10 +184,52 @@ static void ProteusHideWorkerMembers(v8::Isolate* isolate,
+         !prototype->IsObject()) {
+       continue;
+     }
++    v8::Local<v8::Object> holder = on_interface
++                                       ? constructor.As<v8::Object>()
++                                       : prototype.As<v8::Object>();
+     for (const std::string& member : entry.members) {
+       v8::Local<v8::String> key;
+       if (v8::String::NewFromUtf8(isolate, member.c_str()).ToLocal(&key)) {
+-        std::ignore = prototype.As<v8::Object>()->Delete(context, key);
++        std::ignore = holder->Delete(context, key);
++      }
++    }
++  }
++  // A constant a profile hides is installed deletable on every interface
++  // (idl_member_installer.cc). On the ones that keep it, it is made what a
++  // constant is again: fixed.
++  const v8::PropertyAttribute fixed =
++      static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontDelete);
++  for (const auto& entry : base::proteus::GetConfig().kept_constants) {
++    v8::Local<v8::String> name;
++    v8::Local<v8::Value> constructor;
++    v8::Local<v8::Value> prototype;
++    if (!v8::String::NewFromUtf8(isolate, entry.interface_name.c_str())
++             .ToLocal(&name) ||
++        !context->Global()->Get(context, name).ToLocal(&constructor) ||
++        !constructor->IsObject() ||
++        !constructor.As<v8::Object>()
++             ->Get(context, prototype_key)
++             .ToLocal(&prototype)) {
++      continue;
++    }
++    for (const std::string& member : entry.members) {
++      v8::Local<v8::String> key;
++      v8::Local<v8::Value> value;
++      if (!v8::String::NewFromUtf8(isolate, member.c_str()).ToLocal(&key) ||
++          !constructor.As<v8::Object>()
++               ->GetRealNamedProperty(context, key)
++               .ToLocal(&value) ||
++          !value->IsNumber()) {
++        continue;
++      }
++      std::ignore = constructor.As<v8::Object>()->DefineOwnProperty(
++          context, key, value, fixed);
++      if (prototype->IsObject() &&
++          prototype.As<v8::Object>()
++              ->HasOwnProperty(context, key)
++              .FromMaybe(false)) {
++        std::ignore = prototype.As<v8::Object>()->DefineOwnProperty(
++            context, key, value, fixed);
+       }
+     }
+   }
+diff --git a/third_party/blink/renderer/core/events/mouse_event.cc b/third_party/blink/renderer/core/events/mouse_event.cc
+index 7f9b51bb4d..cebf9a6a3e 100644
+--- a/third_party/blink/renderer/core/events/mouse_event.cc
++++ b/third_party/blink/renderer/core/events/mouse_event.cc
+@@ -23,6 +23,7 @@
+ #include "third_party/blink/renderer/core/events/mouse_event.h"
+ 
+ #include "third_party/blink/public/common/input/web_pointer_properties.h"
++#include "ui/gfx/geometry/vector2d_f.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_mouse_event_init.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+ #include "third_party/blink/renderer/core/dom/element.h"
+@@ -219,6 +220,10 @@ void MouseEvent::SetCoordinatesFromWebPointerProperties(
+     client_point = gfx::ScalePoint(frame_point, inverse_zoom_factor);
+   }
+ 
++  if (dom_window) {
++    // Proteus: see LocalDOMWindow::ProteusScreenPoint().
++    screen_point = dom_window->ProteusScreenPoint(screen_point);
++  }
+   initializer->setScreenX(screen_point.x());
+   initializer->setScreenY(screen_point.y());
+   initializer->setClientX(client_point.x());
+diff --git a/third_party/blink/renderer/core/events/wheel_event.cc b/third_party/blink/renderer/core/events/wheel_event.cc
+index a1f0b96e54..3d176df3ec 100644
+--- a/third_party/blink/renderer/core/events/wheel_event.cc
++++ b/third_party/blink/renderer/core/events/wheel_event.cc
+@@ -107,8 +107,10 @@ WheelEvent::WheelEvent(const WebMouseWheelEvent& event, LocalDOMWindow& window)
+       wheel_delta_(
+           (event.wheel_ticks_x * kTickMultiplier) / window.devicePixelRatio(),
+           (event.wheel_ticks_y * kTickMultiplier) / window.devicePixelRatio()),
+-      delta_x_(-event.DeltaXInRootFrame() / window.devicePixelRatio()),
+-      delta_y_(-event.DeltaYInRootFrame() / window.devicePixelRatio()),
++      delta_x_(-event.DeltaXInRootFrame() / window.devicePixelRatio() /
++               window.ProteusScreenScale()),
++      delta_y_(-event.DeltaYInRootFrame() / window.devicePixelRatio() /
++               window.ProteusScreenScale()),
+       delta_z_(0),
+       delta_mode_(ConvertDeltaMode(event)),
+       native_event_(event),
+diff --git a/third_party/blink/renderer/core/exported/web_view_impl.h b/third_party/blink/renderer/core/exported/web_view_impl.h
+index 1c4e22e2d7..1df71ac06a 100644
+--- a/third_party/blink/renderer/core/exported/web_view_impl.h
++++ b/third_party/blink/renderer/core/exported/web_view_impl.h
+@@ -40,6 +40,7 @@
+ #include "base/memory/raw_ptr.h"
+ #include "base/memory/raw_ref.h"
+ #include "base/memory/scoped_refptr.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/observer_list.h"
+ #include "build/build_config.h"
+ #include "mojo/public/cpp/bindings/associated_receiver.h"
+@@ -193,9 +194,16 @@ class CORE_EXPORT WebViewImpl final : public WebView,
+     // compositor_device_scale_factor_override_ is set by dev tools emulation to
+     // simulate a device scale factor of a particular device. If this is set we
+     // should use it rather than the host's device scale factor.
+-    return compositor_device_scale_factor_override_
+-               ? compositor_device_scale_factor_override_
+-               : zoom_factor_for_device_scale_factor_;
++    if (compositor_device_scale_factor_override_) {
++      return compositor_device_scale_factor_override_;
++    }
++    // Proteus: the scale of the profile's system stands for the machine's.
++    if (const auto& screen = base::proteus::GetConfig().screen;
++        screen && screen->pixel_ratio > 0) {
++      return static_cast<float>(screen->pixel_ratio *
++                                zoom_factor_for_text_scale_multiplier_);
++    }
++    return zoom_factor_for_device_scale_factor_;
+   }
+   float ZoomFactorForViewportLayoutWithoutTextScale() override {
+     return ZoomFactorForViewportLayout() /
+diff --git a/third_party/blink/renderer/core/frame/find_in_page.cc b/third_party/blink/renderer/core/frame/find_in_page.cc
+index 8b52967c36..4062be7b65 100644
+--- a/third_party/blink/renderer/core/frame/find_in_page.cc
++++ b/third_party/blink/renderer/core/frame/find_in_page.cc
+@@ -364,9 +364,7 @@ void FindInPage::ReportFindInPageSelection(
+ 
+   float device_scale_factor = 1.f;
+   if (LocalFrame* local_frame = frame_->GetFrame()) {
+-    device_scale_factor =
+-        local_frame->GetPage()->GetChromeClient().WindowToViewportScalar(
+-            local_frame, 1.0f);
++    device_scale_factor = local_frame->ProteusMachineScale();
+   }
+   auto selection_rect = gfx::ScaleToEnclosingRect(local_selection_rect,
+                                                   1.f / device_scale_factor);
+diff --git a/third_party/blink/renderer/core/frame/local_dom_window.cc b/third_party/blink/renderer/core/frame/local_dom_window.cc
+index f2aeb1ac0c..6e1b3aaa32 100644
+--- a/third_party/blink/renderer/core/frame/local_dom_window.cc
++++ b/third_party/blink/renderer/core/frame/local_dom_window.cc
+@@ -26,11 +26,13 @@
+ 
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ 
++#include <algorithm>
+ #include <memory>
+ #include <optional>
+ #include <utility>
+ 
+ #include "base/command_line.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/metrics/histogram_macros.h"
+ #include "base/task/single_thread_task_runner.h"
+ #include "base/trace_event/trace_id_helper.h"
+@@ -1715,7 +1717,7 @@ int LocalDOMWindow::outerHeight() const {
+         lroundf(chrome_client.RootWindowRect(*frame).height() *
+                 chrome_client.GetScreenInfo(*frame).device_scale_factor));
+   }
+-  int height = chrome_client.RootWindowRect(*frame).height();
++  int height = static_cast<int>(lroundf(ProteusOuterSize().height()));
+   if (document() && document()->TextScaleMetaTagPresent()) {
+     height = static_cast<int>(lroundf(
+         height * chrome_client.GetScreenInfo(*frame).text_scale_multiplier));
+@@ -1747,7 +1749,7 @@ int LocalDOMWindow::outerWidth() const {
+         lroundf(chrome_client.RootWindowRect(*frame).width() *
+                 chrome_client.GetScreenInfo(*frame).device_scale_factor));
+   }
+-  int width = chrome_client.RootWindowRect(*frame).width();
++  int width = static_cast<int>(lroundf(ProteusOuterSize().width()));
+   if (document() && document()->TextScaleMetaTagPresent()) {
+     width = static_cast<int>(lroundf(
+         width * chrome_client.GetScreenInfo(*frame).text_scale_multiplier));
+@@ -1806,6 +1808,151 @@ int LocalDOMWindow::innerWidth() const {
+                                           GetFrame()->LayoutZoomFactor());
+ }
+ 
++// Proteus: a profile's screen is one screen that starts at 0,0. The window is
++// told to be where it is on the machine's screen it is on, kept inside the
++// profile's screen as far as its size allows; this is the difference from
++// where it really is, which every position on the screen is moved by.
++gfx::Vector2d LocalDOMWindow::ProteusScreenShift() const {
++  const auto& forced = base::proteus::GetConfig().screen;
++  LocalFrame* frame = GetFrame();
++  if (!forced || !frame || !frame->GetPage()) {
++    return gfx::Vector2d();
++  }
++  ChromeClient& chrome_client = frame->GetPage()->GetChromeClient();
++  const gfx::Rect window = chrome_client.RootWindowRect(*frame);
++  const gfx::Rect screen = chrome_client.GetScreenInfo(*frame).rect;
++  const int x = std::clamp(window.x() - screen.x(), 0,
++                           std::max(0, forced->width - window.width()));
++  const int y = std::clamp(window.y() - screen.y(), 0,
++                           std::max(0, forced->height - window.height()));
++  return gfx::Vector2d(window.x() - x, window.y() - y);
++}
++
++// Proteus: where the page's area is on the machine's screen, in the machine's
++// units; empty for a frame whose page's main frame is in another process.
++static gfx::Rect ProteusViewOnScreen(LocalFrame* frame) {
++  LocalFrame& root = frame->LocalFrameRoot();
++  if (!root.IsOutermostMainFrame() || !root.View() || !frame->GetPage()) {
++    return gfx::Rect();
++  }
++  return frame->GetPage()->GetChromeClient().LocalRootToScreenDIPs(
++      gfx::Rect(root.View()->Size()), root.View());
++}
++
++// Proteus: sizes and places on the screen reach a page in the machine's units.
++// A profile with a scale of its own has pages laid out at that scale, so one
++// of the machine's units is this many of the page's CSS pixels.
++float LocalDOMWindow::ProteusScreenScale() const {
++  const auto& forced = base::proteus::GetConfig().screen;
++  LocalFrame* frame = GetFrame();
++  if (!forced || forced->pixel_ratio <= 0 || !frame || !frame->GetPage()) {
++    return 1;
++  }
++  const float real = frame->GetPage()
++                         ->GetChromeClient()
++                         .GetScreenInfo(*frame)
++                         .device_scale_factor;
++  return real > 0 ? real / static_cast<float>(forced->pixel_ratio) : 1;
++}
++
++// Proteus: the window is told to be where it is on the machine's screen it is
++// on, in the profile's units and kept inside the profile's screen as far as
++// its size allows; every other place on the screen keeps its distance to it.
++gfx::PointF LocalDOMWindow::ProteusScreenPoint(const gfx::PointF& real) const {
++  const auto& forced = base::proteus::GetConfig().screen;
++  LocalFrame* frame = GetFrame();
++  if (!forced || !frame || !frame->GetPage()) {
++    return real;
++  }
++  ChromeClient& chrome_client = frame->GetPage()->GetChromeClient();
++  const gfx::Rect window = chrome_client.RootWindowRect(*frame);
++  const gfx::Rect screen = chrome_client.GetScreenInfo(*frame).rect;
++  const float scale = ProteusScreenScale();
++  const gfx::SizeF outer = ProteusOuterSize();
++  const float x =
++      std::clamp((window.x() - screen.x()) * scale, 0.f,
++                 std::max(0.f, forced->width - outer.width()));
++  const float y =
++      std::clamp((window.y() - screen.y()) * scale, 0.f,
++                 std::max(0.f, forced->height - outer.height()));
++  // The window's bars are as thick as they are; the page begins after them
++  // and is measured in its own pixels.
++  const gfx::Rect view = ProteusViewOnScreen(frame);
++  if (view.IsEmpty()) {
++    return gfx::PointF(x + (real.x() - window.x()) * scale,
++                       y + (real.y() - window.y()) * scale);
++  }
++  // Along one axis, from the window's edge: the machine's units up to the
++  // page's area, the page's pixels inside it, the machine's again after it.
++  const auto along = [scale](float place, float edge, float start,
++                             float size) {
++    const float inside = std::clamp(place - start, 0.f, size);
++    return (start - edge) + inside * scale + (place - start - inside);
++  };
++  return gfx::PointF(
++      x + along(real.x(), window.x(), view.x(), view.width()),
++      y + along(real.y(), window.y(), view.y(), view.height()));
++}
++
++// Proteus: the window's size as a page reads it: its bars, which are drawn at
++// the machine's scale and are as many units there as on any machine, around
++// the page's area in the page's own pixels.
++gfx::SizeF LocalDOMWindow::ProteusOuterSize() const {
++  LocalFrame* frame = GetFrame();
++  if (!frame || !frame->GetPage()) {
++    return gfx::SizeF();
++  }
++  const gfx::Rect window =
++      frame->GetPage()->GetChromeClient().RootWindowRect(*frame);
++  const float scale = ProteusScreenScale();
++  const gfx::Rect view = ProteusViewOnScreen(frame);
++  if (scale == 1 || view.IsEmpty()) {
++    return gfx::SizeF(window.width() * scale, window.height() * scale);
++  }
++  // The page's area, rounded as its inner size is.
++  const gfx::Size area = frame->LocalFrameRoot().View()->Size();
++  const float ratio = static_cast<float>(
++      base::proteus::GetConfig().screen->pixel_ratio);
++  return gfx::SizeF(
++      window.width() - view.width() +
++          AdjustForAbsoluteZoom::AdjustInt(area.width(), ratio),
++      window.height() - view.height() +
++          AdjustForAbsoluteZoom::AdjustInt(area.height(), ratio));
++}
++
++int LocalDOMWindow::ProteusMachineLength(int length) const {
++  return static_cast<int>(lroundf(length / ProteusScreenScale()));
++}
++
++gfx::Point LocalDOMWindow::ProteusMachinePoint(int x, int y) const {
++  LocalFrame* frame = GetFrame();
++  if (!base::proteus::GetConfig().screen || !frame || !frame->GetPage()) {
++    return gfx::Point(x, y);
++  }
++  // A page's screen starts at 0,0; the machine's screen it is on may not.
++  const gfx::Rect screen =
++      frame->GetPage()->GetChromeClient().GetScreenInfo(*frame).rect;
++  return gfx::Point(screen.x() + ProteusMachineLength(x),
++                    screen.y() + ProteusMachineLength(y));
++}
++
++gfx::Size LocalDOMWindow::ProteusMachineOuterSize(int width, int height) const {
++  LocalFrame* frame = GetFrame();
++  const float scale = ProteusScreenScale();
++  if (scale == 1 || !frame || !frame->GetPage()) {
++    return gfx::Size(width, height);
++  }
++  // The window's bars are as thick as they are; the rest is the page's.
++  const gfx::Rect window =
++      frame->GetPage()->GetChromeClient().RootWindowRect(*frame);
++  const gfx::Rect view = ProteusViewOnScreen(frame);
++  const int bars_wide = view.IsEmpty() ? 0 : window.width() - view.width();
++  const int bars_high = view.IsEmpty() ? 0 : window.height() - view.height();
++  return gfx::Size(
++      bars_wide + static_cast<int>(lroundf((width - bars_wide) / scale)),
++      bars_high + static_cast<int>(lroundf((height - bars_high) / scale)));
++}
++
+ int LocalDOMWindow::screenX() const {
+   LocalFrame* frame = GetFrame();
+   if (!frame) {
+@@ -1823,7 +1970,10 @@ int LocalDOMWindow::screenX() const {
+         lroundf(chrome_client.RootWindowRect(*frame).x() *
+                 chrome_client.GetScreenInfo(*frame).device_scale_factor));
+   }
+-  int screenX = chrome_client.RootWindowRect(*frame).x();
++  int screenX = static_cast<int>(lroundf(
++      ProteusScreenPoint(
++          gfx::PointF(chrome_client.RootWindowRect(*frame).origin()))
++          .x()));
+   if (document() && document()->TextScaleMetaTagPresent()) {
+     screenX = static_cast<int>(lroundf(
+         screenX * chrome_client.GetScreenInfo(*frame).text_scale_multiplier));
+@@ -1848,7 +1998,10 @@ int LocalDOMWindow::screenY() const {
+         lroundf(chrome_client.RootWindowRect(*frame).y() *
+                 chrome_client.GetScreenInfo(*frame).device_scale_factor));
+   }
+-  int screenY = chrome_client.RootWindowRect(*frame).y();
++  int screenY = static_cast<int>(lroundf(
++      ProteusScreenPoint(
++          gfx::PointF(chrome_client.RootWindowRect(*frame).origin()))
++          .y()));
+   if (document() && document()->TextScaleMetaTagPresent()) {
+     screenY = static_cast<int>(lroundf(
+         screenY * chrome_client.GetScreenInfo(*frame).text_scale_multiplier));
+@@ -2135,7 +2288,7 @@ void LocalDOMWindow::moveBy(int x, int y) const {
+   }
+ 
+   gfx::Rect window_rect = page->GetChromeClient().RootWindowRect(*frame);
+-  window_rect.Offset(x, y);
++  window_rect.Offset(ProteusMachineLength(x), ProteusMachineLength(y));
+   if (base::FeatureList::IsEnabled(features::kMoveResizeWindowToIPCs)) {
+     page->GetChromeClient().MoveWindowTo(window_rect.origin(), *frame);
+   } else {
+@@ -2160,10 +2313,10 @@ void LocalDOMWindow::moveTo(int x, int y) const {
+   }
+ 
+   if (base::FeatureList::IsEnabled(features::kMoveResizeWindowToIPCs)) {
+-    page->GetChromeClient().MoveWindowTo(gfx::Point(x, y), *frame);
++    page->GetChromeClient().MoveWindowTo(ProteusMachinePoint(x, y), *frame);
+   } else {
+     gfx::Rect window_rect = page->GetChromeClient().RootWindowRect(*frame);
+-    window_rect.set_origin(gfx::Point(x, y));
++    window_rect.set_origin(ProteusMachinePoint(x, y));
+     page->GetChromeClient().SetWindowRect(window_rect, *frame);
+   }
+ }
+@@ -2192,7 +2345,8 @@ void LocalDOMWindow::resizeBy(int x,
+   }
+ 
+   gfx::Rect fr = page->GetChromeClient().RootWindowRect(*frame);
+-  gfx::Size dest(fr.width() + x, fr.height() + y);
++  gfx::Size dest(fr.width() + ProteusMachineLength(x),
++                 fr.height() + ProteusMachineLength(y));
+   if (base::FeatureList::IsEnabled(features::kMoveResizeWindowToIPCs)) {
+     page->GetChromeClient().ResizeWindowTo(dest, *frame);
+   } else {
+@@ -2223,7 +2377,7 @@ void LocalDOMWindow::resizeTo(int width,
+     return;
+   }
+ 
+-  const gfx::Size dest(width, height);
++  const gfx::Size dest = ProteusMachineOuterSize(width, height);
+   if (base::FeatureList::IsEnabled(features::kMoveResizeWindowToIPCs)) {
+     page->GetChromeClient().ResizeWindowTo(dest, *frame);
+   } else {
+diff --git a/third_party/blink/renderer/core/frame/local_dom_window.h b/third_party/blink/renderer/core/frame/local_dom_window.h
+index d9457ae5f0..4c64ab5511 100644
+--- a/third_party/blink/renderer/core/frame/local_dom_window.h
++++ b/third_party/blink/renderer/core/frame/local_dom_window.h
+@@ -40,6 +40,9 @@
+ #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_scroll_result.h"
+ #include "third_party/blink/renderer/core/core_export.h"
++#include "ui/gfx/geometry/point_f.h"
++#include "ui/gfx/geometry/size_f.h"
++#include "ui/gfx/geometry/vector2d.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+ #include "third_party/blink/renderer/core/dom/events/event_target.h"
+ #include "third_party/blink/renderer/core/editing/spellcheck/spell_checker.h"
+@@ -298,6 +301,19 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
+   int innerWidth() const;
+   int screenX() const;
+   int screenY() const;
++  // Proteus: how far the place a page is told lies from the real one, for a
++  // profile with a screen of its own (see local_dom_window.cc).
++  gfx::Vector2d ProteusScreenShift() const;
++  // Proteus: how many CSS pixels of the profile's system one of the machine's
++  // is, and a place on the machine's screen as the profile's screen has it.
++  float ProteusScreenScale() const;
++  gfx::PointF ProteusScreenPoint(const gfx::PointF& real) const;
++  gfx::SizeF ProteusOuterSize() const;
++  // Proteus: the other way: a length, a place on the screen and a window's
++  // size that a page gives in its own pixels, in the machine's units.
++  int ProteusMachineLength(int length) const;
++  gfx::Point ProteusMachinePoint(int x, int y) const;
++  gfx::Size ProteusMachineOuterSize(int width, int height) const;
+   int screenLeft() const { return screenX(); }
+   int screenTop() const { return screenY(); }
+   double scrollX() const;
+diff --git a/third_party/blink/renderer/core/frame/local_frame.cc b/third_party/blink/renderer/core/frame/local_frame.cc
+index 5cf4b1e38e..f7e9a36dc4 100644
+--- a/third_party/blink/renderer/core/frame/local_frame.cc
++++ b/third_party/blink/renderer/core/frame/local_frame.cc
+@@ -1942,6 +1942,11 @@ mojom::blink::DevicePostureType LocalFrame::GetDevicePosture() {
+   return mojo_handler_->GetDevicePosture();
+ }
+ 
++float LocalFrame::ProteusMachineScale() {
++  FrameWidget* widget = GetWidgetForLocalRoot();
++  return widget ? widget->DIPsToBlinkSpace(1.0f) : 1.0f;
++}
++
+ double LocalFrame::DevicePixelRatio() const {
+   if (!page_) {
+     return 0;
+@@ -3720,8 +3725,7 @@ void LocalFrame::UpdateWindowControlsOverlay(
+   // window control overlay.
+   LocalFrame& local_frame_root = LocalFrameRoot();
+   const float window_to_viewport_factor =
+-      GetPage()->GetChromeClient().WindowToViewportScalar(&local_frame_root,
+-                                                          1.0f);
++      local_frame_root.ProteusMachineScale();
+   const float zoom_factor = local_frame_root.LayoutZoomFactor();
+   const float scale_factor = zoom_factor / window_to_viewport_factor;
+   gfx::Rect window_controls_overlay_rect =
+diff --git a/third_party/blink/renderer/core/frame/local_frame.h b/third_party/blink/renderer/core/frame/local_frame.h
+index 68130b23d9..5a01d0a359 100644
+--- a/third_party/blink/renderer/core/frame/local_frame.h
++++ b/third_party/blink/renderer/core/frame/local_frame.h
+@@ -445,6 +445,9 @@ class CORE_EXPORT LocalFrame final
+ 
+   void SetLayoutZoomFactor(float);
+   float LayoutZoomFactor() const { return layout_zoom_factor_; }
++  // Proteus: device pixels to one of the machine's units, for what is placed
++  // on the machine's screen (see patch 0035).
++  float ProteusMachineScale();
+   void SetTextZoomFactor(float);
+   float TextZoomFactor() const { return text_zoom_factor_; }
+   void SetCssZoomFactor(float);
+diff --git a/third_party/blink/renderer/core/frame/local_frame_mojo_handler.cc b/third_party/blink/renderer/core/frame/local_frame_mojo_handler.cc
+index e42771a344..0f4387f683 100644
+--- a/third_party/blink/renderer/core/frame/local_frame_mojo_handler.cc
++++ b/third_party/blink/renderer/core/frame/local_frame_mojo_handler.cc
+@@ -594,7 +594,7 @@ void LocalFrameMojoHandler::NotifyVirtualKeyboardOverlayRect(
+   // page.
+   blink::LocalFrame& local_frame_root = frame_->LocalFrameRoot();
+   const float window_to_viewport_factor =
+-      page->GetChromeClient().WindowToViewportScalar(&local_frame_root, 1.0f);
++      local_frame_root.ProteusMachineScale();
+   const float zoom_factor = local_frame_root.LayoutZoomFactor();
+   const float scale_factor = zoom_factor / window_to_viewport_factor;
+   gfx::Rect scaled_rect(keyboard_rect.x() / scale_factor,
+diff --git a/third_party/blink/renderer/core/page/chrome_client_impl.cc b/third_party/blink/renderer/core/page/chrome_client_impl.cc
+index 8a9acc6dc7..7027d61498 100644
+--- a/third_party/blink/renderer/core/page/chrome_client_impl.cc
++++ b/third_party/blink/renderer/core/page/chrome_client_impl.cc
+@@ -37,6 +37,7 @@
+ 
+ #include "base/check.h"
+ #include "base/debug/alias.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/feature_list.h"
+ #include "build/build_config.h"
+ #include "cc/animation/animation_host.h"
+@@ -645,6 +646,11 @@ float ChromeClientImpl::WindowToViewportScalar(LocalFrame* frame,
+     return scalar_value;
+   }
+ 
++  // Proteus: at the scale pages are laid out at.
++  if (const auto& screen = base::proteus::GetConfig().screen;
++      screen && screen->pixel_ratio > 0) {
++    return scalar_value * static_cast<float>(screen->pixel_ratio);
++  }
+   if (auto* widget = frame->GetWidgetForLocalRoot()) {
+     return widget->DIPsToBlinkSpace(scalar_value);
+   }
+diff --git a/third_party/blink/renderer/core/page/create_window.cc b/third_party/blink/renderer/core/page/create_window.cc
+index cdcd831f42..9d21b23695 100644
+--- a/third_party/blink/renderer/core/page/create_window.cc
++++ b/third_party/blink/renderer/core/page/create_window.cc
+@@ -344,6 +344,25 @@ Frame* CreateNewWindow(LocalFrame& opener_frame,
+   if (features.height) {
+     features.height = std::max(features.height, min_size);
+   }
++  // Proteus: in the page's own pixels (patch 0039).
++  if (opener_window.ProteusScreenScale() != 1) {
++    if (features.width) {
++      features.width = opener_window.ProteusMachineLength(features.width);
++    }
++    if (features.height) {
++      features.height = opener_window.ProteusMachineLength(features.height);
++    }
++    if (features.x_set || features.y_set) {
++      const gfx::Point place =
++          opener_window.ProteusMachinePoint(features.x, features.y);
++      if (features.x_set) {
++        features.x = place.x();
++      }
++      if (features.y_set) {
++        features.y = place.y();
++      }
++    }
++  }
+ 
+   // Sandboxed frames cannot open new auxiliary browsing contexts.
+   if (opener_window.IsSandboxed(
+diff --git a/third_party/blink/renderer/modules/accessibility/ax_object.cc b/third_party/blink/renderer/modules/accessibility/ax_object.cc
+index 7c76983c0f..81330d2c91 100644
+--- a/third_party/blink/renderer/modules/accessibility/ax_object.cc
++++ b/third_party/blink/renderer/modules/accessibility/ax_object.cc
+@@ -7851,8 +7851,7 @@ void AXObject::GetRelativeBounds(AXObject** out_container,
+         // Accessibility expects device scale factor applied here which is
+         // unapplied at the destination AXTree.
+         float scale_factor =
+-            view->GetPage()->GetChromeClient().WindowToViewportScalar(
+-                layout_object->GetFrame(), 1.0f);
++            layout_object->GetFrame()->ProteusMachineScale();
+         out_bounds_in_container.set_origin(gfx::PointF(
+             scale_factor * (frame_rect.x() - reference_frame_rect.x()),
+             scale_factor * (frame_rect.y() - reference_frame_rect.y())));
+diff --git a/third_party/blink/renderer/modules/screen_details/screen_detailed.cc b/third_party/blink/renderer/modules/screen_details/screen_detailed.cc
+index 490cda3600..484459acec 100644
+--- a/third_party/blink/renderer/modules/screen_details/screen_detailed.cc
++++ b/third_party/blink/renderer/modules/screen_details/screen_detailed.cc
+@@ -7,6 +7,7 @@
+ #include <cmath>
+ 
+ #include "base/numerics/safe_conversions.h"
++#include "base/proteus/proteus_config.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+ #include "third_party/blink/renderer/core/frame/settings.h"
+@@ -104,24 +105,36 @@ bool ScreenDetailed::AreHdrHeadroomEqual(const display::ScreenInfo& prev,
+ int ScreenDetailed::left() const {
+   if (!DomWindow())
+     return 0;
++  if (base::proteus::GetConfig().screen) {
++    return 0;
++  }
+   return GetRect(/*available=*/false).x();
+ }
+ 
+ int ScreenDetailed::top() const {
+   if (!DomWindow())
+     return 0;
++  if (base::proteus::GetConfig().screen) {
++    return 0;
++  }
+   return GetRect(/*available=*/false).y();
+ }
+ 
+ bool ScreenDetailed::isPrimary() const {
+   if (!DomWindow())
+     return false;
++  if (base::proteus::GetConfig().screen) {
++    return true;
++  }
+   return GetScreenInfo().is_primary;
+ }
+ 
+ bool ScreenDetailed::isInternal() const {
+   if (!DomWindow())
+     return false;
++  if (base::proteus::GetConfig().screen) {
++    return base::proteus::GetConfig().screen->internal;
++  }
+   return GetScreenInfo().is_internal;
+ }
+ 
+@@ -134,6 +147,10 @@ float ScreenDetailed::devicePixelRatio() const {
+ String ScreenDetailed::label() const {
+   if (!DomWindow())
+     return String();
++  // Proteus: the machine's is its monitor's model, the same in every profile.
++  if (const auto& forced = base::proteus::GetConfig().screen) {
++    return String::FromUtf8(forced->label);
++  }
+   return String::FromUtf8(GetScreenInfo().label);
+ }
+ 
+diff --git a/third_party/blink/renderer/modules/screen_details/screen_details.cc b/third_party/blink/renderer/modules/screen_details/screen_details.cc
+index cce3fa3395..dcaedb643e 100644
+--- a/third_party/blink/renderer/modules/screen_details/screen_details.cc
++++ b/third_party/blink/renderer/modules/screen_details/screen_details.cc
+@@ -6,6 +6,7 @@
+ 
+ #include <algorithm>
+ 
++#include "base/proteus/proteus_config.h"
+ #include "third_party/blink/renderer/core/dom/events/event.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+@@ -64,9 +65,15 @@ void ScreenDetails::UpdateScreenInfos(LocalDOMWindow* window,
+   UpdateScreenInfosImpl(window, new_infos, /*dispatch_events=*/true);
+ }
+ 
+-void ScreenDetails::UpdateScreenInfosImpl(LocalDOMWindow* window,
+-                                          const display::ScreenInfos& new_infos,
+-                                          bool dispatch_events) {
++void ScreenDetails::UpdateScreenInfosImpl(
++    LocalDOMWindow* window,
++    const display::ScreenInfos& real_infos,
++    bool dispatch_events) {
++  // Proteus: a profile with a screen of its own has that one screen.
++  const display::ScreenInfos new_infos =
++      base::proteus::GetConfig().screen && !real_infos.screen_infos.empty()
++          ? display::ScreenInfos(real_infos.current())
++          : real_infos;
+   // Expect that all updates contain a non-zero set of screens.
+   DCHECK(!new_infos.screen_infos.empty());
+ 
+diff --git a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
+index f9a3507e1d..2a9237d360 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
+@@ -8,6 +8,7 @@
+ 
+ #include "base/compiler_specific.h"
+ #include "base/containers/heap_array.h"
++#include "base/containers/span.h"
+ #include "base/feature_list.h"
+ #include "base/numerics/checked_math.h"
+ #include "base/numerics/safe_conversions.h"
+@@ -273,6 +274,7 @@ void WebGL2RenderingContextBase::InitializeNewContext() {
+   GLint num_combined_texture_image_units = 0;
+   ContextGL()->GetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS,
+                            &num_combined_texture_image_units);
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, base::span_from_ref(num_combined_texture_image_units));
+   sampler_units_.clear();
+   sampler_units_.resize(num_combined_texture_image_units);
+ 
+@@ -281,6 +283,7 @@ void WebGL2RenderingContextBase::InitializeNewContext() {
+   // objects.
+   ContextGL()->GetIntegerv(GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS,
+                            &max_transform_feedback_separate_attribs_);
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS, base::span_from_ref(max_transform_feedback_separate_attribs_));
+   // Create a default transform feedback object so there is a place to
+   // hold any bound buffers.
+   default_transform_feedback_ = MakeGarbageCollected<WebGLTransformFeedback>(
+@@ -291,6 +294,7 @@ void WebGL2RenderingContextBase::InitializeNewContext() {
+   GLint max_uniform_buffer_bindings = 0;
+   ContextGL()->GetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS,
+                            &max_uniform_buffer_bindings);
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_UNIFORM_BUFFER_BINDINGS, base::span_from_ref(max_uniform_buffer_bindings));
+   bound_indexed_uniform_buffers_.clear();
+   bound_indexed_uniform_buffers_.resize(max_uniform_buffer_bindings);
+ 
+@@ -1099,6 +1103,12 @@ void WebGL2RenderingContextBase::renderbufferStorageMultisample(
+   }
+   if (!ValidateSize("renderbufferStorage", width, height))
+     return;
++  if (width > max_renderbuffer_size_ || height > max_renderbuffer_size_) {
++    // Proteus: the limit is the profile's where its card has less.
++    SynthesizeGLError(GL_INVALID_VALUE, function_name,
++                      "width or height > MAX_RENDERBUFFER_SIZE");
++    return;
++  }
+   if (samples < 0) {
+     SynthesizeGLError(GL_INVALID_VALUE, function_name, "samples < 0");
+     return;
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index c68e8a117c..609c5d2208 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -1370,6 +1370,7 @@ WebGLRenderingContextBase::WebGLRenderingContextBase(
+   max_viewport_dims_ = {};
+   context_provider->ContextGL()->GetIntegerv(GL_MAX_VIEWPORT_DIMS,
+                                              max_viewport_dims_.data());
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_VIEWPORT_DIMS, max_viewport_dims_);
+   InitializeWebGLContextLimits(context_provider.get());
+ 
+   scoped_refptr<DrawingBuffer> buffer =
+@@ -1477,35 +1478,42 @@ void WebGLRenderingContextBase::InitializeNewContext() {
+   GLint num_combined_texture_image_units = 0;
+   ContextGL()->GetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS,
+                            &num_combined_texture_image_units);
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, base::span_from_ref(num_combined_texture_image_units));
+   texture_units_.clear();
+   texture_units_.resize(num_combined_texture_image_units);
+ 
+   GLint num_vertex_attribs = 0;
+   ContextGL()->GetIntegerv(GL_MAX_VERTEX_ATTRIBS, &num_vertex_attribs);
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_VERTEX_ATTRIBS, base::span_from_ref(num_vertex_attribs));
+   max_vertex_attribs_ = num_vertex_attribs;
+ 
+   max_texture_size_ = 0;
+   ContextGL()->GetIntegerv(GL_MAX_TEXTURE_SIZE, &max_texture_size_);
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_TEXTURE_SIZE, base::span_from_ref(max_texture_size_));
+   max_texture_level_ =
+       WebGLTexture::ComputeLevelCount(max_texture_size_, max_texture_size_, 1);
+   max_cube_map_texture_size_ = 0;
+   ContextGL()->GetIntegerv(GL_MAX_CUBE_MAP_TEXTURE_SIZE,
+                            &max_cube_map_texture_size_);
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_CUBE_MAP_TEXTURE_SIZE, base::span_from_ref(max_cube_map_texture_size_));
+   max3d_texture_size_ = 0;
+   max3d_texture_level_ = 0;
+   max_array_texture_layers_ = 0;
+   if (IsWebGL2()) {
+     ContextGL()->GetIntegerv(GL_MAX_3D_TEXTURE_SIZE, &max3d_texture_size_);
++    ProteusLowerLimit(IsWebGL2(), GL_MAX_3D_TEXTURE_SIZE, base::span_from_ref(max3d_texture_size_));
+     max3d_texture_level_ = WebGLTexture::ComputeLevelCount(
+         max3d_texture_size_, max3d_texture_size_, max3d_texture_size_);
+     ContextGL()->GetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS,
+                              &max_array_texture_layers_);
+   }
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_ARRAY_TEXTURE_LAYERS, base::span_from_ref(max_array_texture_layers_));
+   max_cube_map_texture_level_ = WebGLTexture::ComputeLevelCount(
+       max_cube_map_texture_size_, max_cube_map_texture_size_, 1);
+   max_renderbuffer_size_ = 0;
+   ContextGL()->GetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &max_renderbuffer_size_);
+ 
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_RENDERBUFFER_SIZE, base::span_from_ref(max_renderbuffer_size_));
+   // These two values from EXT_draw_buffers are lazily queried.
+   max_draw_buffers_ = 0;
+   max_color_attachments_ = 0;
+@@ -3906,6 +3914,21 @@ ScriptValue WebGLRenderingContextBase::ProteusForceParameter(
+   return stock;
+ }
+ 
++void WebGLRenderingContextBase::ProteusLowerLimit(bool webgl2,
++                                                  GLenum pname,
++                                                  base::span<GLint> values) {
++  const std::vector<double>* claimed = ProteusFindParameter(webgl2, pname);
++  if (!claimed || claimed->size() != values.size()) {
++    return;
++  }
++  for (size_t i = 0; i < values.size(); ++i) {
++    const GLint limit = base::saturated_cast<GLint>((*claimed)[i]);
++    if (limit > 0 && limit < values[i]) {
++      values[i] = limit;
++    }
++  }
++}
++
+ static bool ProteusExtensionHidden(bool webgl2, const String& name) {
+   const base::proteus::Config::WebGLCaps& caps = ProteusCaps(webgl2);
+   if (!caps.has_extensions) {
+@@ -5592,6 +5615,12 @@ void WebGLRenderingContextBase::renderbufferStorage(GLenum target,
+   }
+   if (!ValidateSize(function_name, width, height))
+     return;
++  if (width > max_renderbuffer_size_ || height > max_renderbuffer_size_) {
++    // Proteus: the limit is the profile's where its card has less.
++    SynthesizeGLError(GL_INVALID_VALUE, function_name,
++                      "width or height > MAX_RENDERBUFFER_SIZE");
++    return;
++  }
+   RenderbufferStorageImpl(target, 0, internalformat, width, height,
+                           function_name);
+   ApplyDepthAndStencilTest();
+@@ -9420,6 +9449,8 @@ GLint WebGLRenderingContextBase::MaxDrawBuffers() {
+   if (!max_color_attachments_)
+     ContextGL()->GetIntegerv(GL_MAX_COLOR_ATTACHMENTS_EXT,
+                              &max_color_attachments_);
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_DRAW_BUFFERS_EXT, base::span_from_ref(max_draw_buffers_));
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_COLOR_ATTACHMENTS_EXT, base::span_from_ref(max_color_attachments_));
+   // WEBGL_draw_buffers requires MAX_COLOR_ATTACHMENTS >= MAX_DRAW_BUFFERS.
+   return std::min(max_draw_buffers_, max_color_attachments_);
+ }
+@@ -9431,6 +9462,7 @@ GLint WebGLRenderingContextBase::MaxColorAttachments() {
+   if (!max_color_attachments_)
+     ContextGL()->GetIntegerv(GL_MAX_COLOR_ATTACHMENTS_EXT,
+                              &max_color_attachments_);
++  ProteusLowerLimit(IsWebGL2(), GL_MAX_COLOR_ATTACHMENTS_EXT, base::span_from_ref(max_color_attachments_));
+   return max_color_attachments_;
+ }
+ 
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h
+index 76851e7ef6..4c8d92d796 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h
+@@ -32,6 +32,7 @@
+ 
+ #include "base/byte_size.h"
+ #include "base/check_op.h"
++#include "base/containers/span.h"
+ #include "base/memory/raw_ptr_exclusion.h"
+ #include "base/memory/scoped_refptr.h"
+ #include "base/numerics/checked_math.h"
+@@ -324,6 +325,12 @@ class MODULES_EXPORT WebGLRenderingContextBase
+   // behave as always.
+   bool proteus_in_stock_parameter_ = false;
+   static bool ProteusHasForcedParameter(bool webgl2, GLenum pname);
++  // Proteus: lowers limits read from the machine's card to the profile's,
++  // where the profile's card has less, so that what goes beyond them is
++  // refused by the checks that use them.
++  static void ProteusLowerLimit(bool webgl2,
++                                GLenum pname,
++                                base::span<GLint> values);
+   static ScriptValue ProteusForceParameter(ScriptState*,
+                                            bool webgl2,
+                                            GLenum pname,
+diff --git a/third_party/blink/renderer/platform/bindings/idl_member_installer.cc b/third_party/blink/renderer/platform/bindings/idl_member_installer.cc
+index ac0fdf8ee2..1fa0cb28a4 100644
+--- a/third_party/blink/renderer/platform/bindings/idl_member_installer.cc
++++ b/third_party/blink/renderer/platform/bindings/idl_member_installer.cc
+@@ -4,6 +4,13 @@
+ 
+ #include "third_party/blink/renderer/platform/bindings/idl_member_installer.h"
+ 
++#include <algorithm>
++#include <string>
++#include <string_view>
++#include <vector>
++
++#include "base/proteus/proteus_config.h"
++
+ #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
+ #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
+ #include "third_party/blink/renderer/platform/bindings/v8_private_property.h"
+@@ -504,8 +511,18 @@ void IDLMemberInstaller::InstallConstants(
+   const bool has_prototype_template = !prototype_template.IsEmpty();
+   const v8::PropertyAttribute v8_property_attribute =
+       static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontDelete);
++  // Proteus: see proteus_config.h, |loose_constants|.
++  const std::vector<std::string>& proteus_loose =
++      base::proteus::GetConfig().loose_constants;
+   for (const auto& config : configs) {
+     v8::Local<v8::String> name = V8AtomicString(isolate, config.name);
++    const v8::PropertyAttribute proteus_attribute =
++        !proteus_loose.empty() &&
++                std::find(proteus_loose.begin(), proteus_loose.end(),
++                          std::string_view(config.name)) !=
++                    proteus_loose.end()
++            ? v8::ReadOnly
++            : v8_property_attribute;
+     v8::Local<v8::Integer> value;
+     if (config.value < 0) {
+       int32_t i32_value = static_cast<int32_t>(config.value);
+@@ -517,9 +534,9 @@ void IDLMemberInstaller::InstallConstants(
+       value = v8::Integer::NewFromUnsigned(isolate, u32_value);
+     }
+     if (has_prototype_template) {
+-      prototype_template->Set(name, value, v8_property_attribute);
++      prototype_template->Set(name, value, proteus_attribute);
+     }
+-    interface_template->Set(name, value, v8_property_attribute);
++    interface_template->Set(name, value, proteus_attribute);
+   }
+ }
+ 
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+index 0066dbbb18..9b397cefd0 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -28,6 +28,8 @@
+  */
+ 
+ #include "third_party/blink/renderer/platform/fonts/font_cache.h"
++
++#include "base/proteus/proteus_config.h"
+ #include "third_party/blink/renderer/platform/fonts/proteus_font_filter.h"
+ 
+ #include <unicode/uscript.h>
+@@ -189,6 +191,21 @@ const SimpleFontData* FontCache::GetFontData(
+              ProteusIsFontFamilyHidden(family)) {
+     return nullptr;
+   }
++  if (!proteus_by_unique_name &&
++      altername_font_name != AlternateFontName::kLastResort) {
++    for (const auto& [name, face] : base::proteus::GetConfig().font_answers) {
++      if (!DeprecatedEqualIgnoringCase(family, String::FromUtf8(name))) {
++        continue;
++      }
++      if (const FontPlatformData* platform_data = GetFontPlatformData(
++              font_description,
++              FontFaceCreationParams(AtomicString(String::FromUtf8(face))),
++              altername_font_name)) {
++        return FontDataFromFontPlatformData(
++            platform_data, font_description.SubpixelAscentDescent());
++      }
++    }
++  }
+   if (const FontPlatformData* platform_data = GetFontPlatformData(
+           font_description,
+           FontFaceCreationParams(
+diff --git a/ui/gfx/font_render_params_linux.cc b/ui/gfx/font_render_params_linux.cc
+index 84d1d86061..81bbac59dd 100644
+--- a/ui/gfx/font_render_params_linux.cc
++++ b/ui/gfx/font_render_params_linux.cc
+@@ -11,6 +11,7 @@
+ #include <memory>
+ 
+ #include "base/command_line.h"
++#include "base/proteus/proteus_config.h"
+ #include "base/containers/hashing_lru_cache.h"
+ #include "base/logging.h"
+ #include "base/no_destructor.h"
+@@ -212,6 +213,13 @@ FontRenderParams GetFontRenderParams(const FontRenderParamsQuery& query,
+   TRACE_EVENT0("fonts", "gfx::GetFontRenderParams");
+ 
+   FontRenderParamsQuery actual_query(query);
++  // Proteus: letters are drawn as on a machine at the profile's scale.
++  if (const auto& proteus_screen = base::proteus::GetConfig().screen;
++      actual_query.device_scale_factor != 0 && proteus_screen &&
++      proteus_screen->pixel_ratio > 0) {
++    actual_query.device_scale_factor =
++        static_cast<float>(proteus_screen->pixel_ratio);
++  }
+   if (actual_query.device_scale_factor == 0)
+     actual_query.device_scale_factor = device_scale_factor_;
+ 
+@@ -299,6 +307,10 @@ float GetFontRenderParamsDeviceScaleFactor() {
+ }
+ 
+ void SetFontRenderParamsDeviceScaleFactor(float device_scale_factor) {
++  if (const auto& proteus_screen = base::proteus::GetConfig().screen;
++      proteus_screen && proteus_screen->pixel_ratio > 0) {
++    device_scale_factor = static_cast<float>(proteus_screen->pixel_ratio);
++  }
+   device_scale_factor_ = device_scale_factor;
+ }
+ 
+diff --git a/ui/gfx/linux/fontconfig_util.cc b/ui/gfx/linux/fontconfig_util.cc
+index 3397bafba1..82df7e7b17 100644
+--- a/ui/gfx/linux/fontconfig_util.cc
++++ b/ui/gfx/linux/fontconfig_util.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "ui/gfx/linux/fontconfig_util.h"
+ 
++#include "base/proteus/proteus_config.h"
++
+ #include <fontconfig/fontconfig.h>
+ 
+ #include "base/check_op.h"
+@@ -65,6 +67,12 @@ class COMPONENT_EXPORT(GFX) GlobalFontConfig {
+     // being used (see http://crbug.com/1004254).
+     fc_config_ = FcConfigGetCurrent();
+     FcConfigReference(fc_config_);
++    // Proteus: the fonts of the profile's folder count as installed.
++    if (const std::string& font_dir = base::proteus::GetConfig().font_dir;
++        !font_dir.empty()) {
++      FcConfigAppFontAddDir(
++          fc_config_, reinterpret_cast<const FcChar8*>(font_dir.c_str()));
++    }
+ #if BUILDFLAG(IS_CHROMEOS)
+     // TODO(b/268691415): Leave until M119 when all builds have the variable
+     // font.
+-- 
+2.43.0
+
