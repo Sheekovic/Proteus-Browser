@@ -21,7 +21,14 @@ echo "== apply sources"
 # Line endings are fixed in text files only (grep -I matches nothing in a binary
 # one): doing it to a picture corrupts it.
 find "$STAGE" -type f -exec grep -Iq . {} \; -exec sed -i 's/\r$//' {} +
-cp -r "$STAGE/src/." "$SRC/"
+# Only the files that differ are copied: a copy of an unchanged file looks new to the
+# build, which then compiles everything that depends on it again, at every test.
+(cd "$STAGE/src" && find . -type f -print0) | while IFS= read -r -d '' file; do
+  if ! cmp -s "$STAGE/src/$file" "$SRC/$file"; then
+    mkdir -p "$(dirname "$SRC/$file")"
+    cp "$STAGE/src/$file" "$SRC/$file"
+  fi
+done
 # Edit scripts build on one another (a later patch rewrites lines an earlier one
 # added), so a script cannot be re-run once its successors have been applied.
 # applied-edits.txt records which scripts this checkout already has; only newer
