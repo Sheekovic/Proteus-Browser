@@ -103,7 +103,11 @@ export function buildKernelConfig(profile: Profile, now: number = Date.now()): R
     deviceMemory: profile.deviceMemory,
     // A phone's one screen is built in, which a page that may ask for the screens'
     // details is told (kernel patch 0033); a computer's is left as a monitor's.
-    screen: profile.mobile === null ? profile.screen : { ...profile.screen, internal: true },
+    // A computer's scale goes to the kernel as pixelRatio: pages are laid out at it
+    // while the window is drawn at the machine's own (kernel patch 0035).
+    screen: profile.mobile !== null ? { ...profile.screen, internal: true }
+        : profile.screen.devicePixelRatio === undefined ? profile.screen
+        : { ...profile.screen, pixelRatio: profile.screen.devicePixelRatio },
     canvasNoise: profile.noise.canvas,
     audioNoise: profile.noise.audio,
     webglVendor: profile.webgl.vendor,
@@ -242,6 +246,8 @@ export function buildKernelArgs(profile: Profile, paths: LaunchPaths, extraArgs:
   // A computer's pixel ratio is the scale its system shows things at. The browser is
   // started at the profile's, so everything that follows from it (the ratio a page
   // reads, media queries, how text is laid out) is that scale's and not the host's.
+  // A kernel that knows the scale from the profile (pixelRatio, above) drops this
+  // switch and keeps its window at the machine's scale; an earlier one obeys it.
   if (profile.mobile === null && profile.screen.devicePixelRatio !== undefined) {
     args.push(`--force-device-scale-factor=${profile.screen.devicePixelRatio}`);
   }

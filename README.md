@@ -631,11 +631,15 @@ Worth knowing before relying on it:
 - **The second screen is the machine's.** A profile says it has one screen
   (`screen.isExtended` is false) whatever is plugged into the machine; an iPhone
   profile has no such member at all, as Safari has none.
-- **A profile's window is drawn at the profile's scale.** A screen comes with the
-  pixel ratio it was read at (1536 by 864 is a 1920 by 1080 panel at 125%, a Mac's is
-  2), and the browser is started at that ratio so that what a page reads agrees with
-  it. On your monitor that makes a profile's window look larger or smaller than your
-  other programs. A profile made before this has no ratio and uses the machine's.
+- **A profile's page has the profile's scale, its window the machine's.** A screen
+  comes with the pixel ratio it was read at (1536 by 864 is a 1920 by 1080 panel at
+  125%, a Mac's is 2). Pages are laid out at that ratio, so that everything a page
+  measures agrees with it, while the window and its bars are drawn at your monitor's
+  own scale. Nothing is resampled: on a monitor at another scale a page's text is
+  smaller or larger than in your other programs, as it would be on the profile's
+  screen. Not turned into the profile's units yet: the size a page asks a new window
+  to have, and `moveTo` and `resizeTo`. A profile made before this has no ratio and
+  uses the machine's.
 - **Not every limit refuses.** What goes beyond a WebGL limit of the profile's card
   is refused as that card refuses it: a texture, cube map, 3D texture or renderbuffer
   too large, a canvas wider than it can draw, too many vertex attributes, texture

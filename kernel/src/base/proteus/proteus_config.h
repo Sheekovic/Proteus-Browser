@@ -103,6 +103,11 @@ struct BASE_EXPORT ScreenData {
   // monitor's model, and whether it is built in, as a laptop's or a phone's is.
   std::string label;
   bool internal = false;
+  // Device pixels to a CSS pixel, as the profile's system shows things: what
+  // devicePixelRatio says, and the scale pages are laid out at. The window is
+  // still drawn at the machine's scale. 0 means the machine's. Not for phone
+  // profiles, whose page area is emulated with a ratio of its own.
+  double pixel_ratio = 0;
 };
 
 // Per-profile identity settings. Every field is optional; an absent field means

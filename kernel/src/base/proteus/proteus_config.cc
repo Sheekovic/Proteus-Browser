@@ -284,6 +284,10 @@ Config LoadConfig() {
     }
     data.label = StringOrEmpty(*screen, "label");
     data.internal = screen->FindBool("internal").value_or(false);
+    const double pixel_ratio = screen->FindDouble("pixelRatio").value_or(0);
+    if (pixel_ratio >= 0.5 && pixel_ratio <= 5) {
+      data.pixel_ratio = pixel_ratio;
+    }
     if (data.width > 0 && data.height > 0) {
       config.screen = data;
     }

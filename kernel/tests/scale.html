@@ -1,0 +1,79 @@
+<!doctype html>
+<style>
+  body { margin: 0; font: 16px Arial, sans-serif; }
+  #box { position: absolute; left: 10.3px; top: 20.7px; width: 100.55px; height: 33.33px; border: 0.5px solid; }
+  #lines { border-top: 1px solid; border-bottom: 0.3px solid; border-left: thin solid; border-right: thick solid; width: 10px; outline: 0.4px solid; }
+  #scroller { width: 120px; height: 60px; overflow: scroll; }
+  #text { font: 13.37px Arial, sans-serif; display: inline-block; }
+  #tall { height: 3000px; }
+</style>
+<body>
+<div id="box"></div>
+<div id="lines"></div>
+<div id="scroller"><div style="height:400px"></div></div>
+<span id="text">The quick brown fox jumps over the lazy dog 1234567890</span>
+<form id="controls">
+  <input id="checkbox" type="checkbox"><input id="radio" type="radio"><input id="field" type="text" value="a">
+  <input id="range" type="range"><input id="number" type="number"><input id="date" type="date"><input id="color" type="color">
+  <button id="button" type="button">Go</button><select id="select"><option>One</option></select>
+  <select id="list" size="3"><option>One</option></select><textarea id="area"></textarea>
+  <progress id="progress"></progress><meter id="meter"></meter>
+</form>
+<hr id="rule">
+<details id="details"><summary id="summary">More</summary></details>
+<img id="image" srcset="/one.png 1x, /onequarter.png 1.25x, /onehalf.png 1.5x, /two.png 2x" width="10" height="10">
+<div id="tall"></div>
+<script>
+// Emits one line of key=value pairs with everything here that a page can measure and
+// that depends on the scale it is shown at.
+const out = [];
+const number = value => +value.toFixed(4);
+const rect = id => { const b = document.getElementById(id).getBoundingClientRect(); return [b.left, b.top, b.width, b.height].map(number).join('/'); };
+const style = (id, ...names) => { const s = getComputedStyle(document.getElementById(id)); return names.map(name => s[name]).join('/'); };
+out.push('ratio=' + devicePixelRatio);
+out.push('media=' + [1, 1.25, 1.5, 2, 3].filter(x => matchMedia(`(resolution: ${x}dppx)`).matches).join('/'));
+out.push('mediaDpi=' + [96, 120, 144, 192].filter(x => matchMedia(`(resolution: ${x}dpi)`).matches).join('/'));
+out.push('screen=' + [screen.width, screen.height, screen.availWidth, screen.availHeight].join('/'));
+out.push('pageBar=' + (innerWidth - document.documentElement.clientWidth));
+const scroller = document.getElementById('scroller');
+out.push('boxBar=' + (scroller.offsetWidth - scroller.clientWidth) + '/' + (scroller.offsetHeight - scroller.clientHeight));
+out.push('box=' + rect('box'));
+out.push('boxBorder=' + style('box', 'borderTopWidth'));
+out.push('lines=' + style('lines', 'borderTopWidth', 'borderBottomWidth', 'borderLeftWidth', 'borderRightWidth', 'outlineWidth'));
+out.push('text=' + rect('text'));
+const context = document.createElement('canvas').getContext('2d');
+context.font = '13.37px Arial, sans-serif';
+out.push('measure=' + number(context.measureText('The quick brown fox').width));
+for (const id of ['checkbox', 'radio', 'field', 'range', 'number', 'date', 'color', 'button', 'select', 'list', 'area', 'progress', 'meter', 'rule', 'summary']) {
+  out.push(id + '=' + rect(id));
+}
+out.push('fieldStyle=' + style('field', 'borderTopWidth', 'paddingLeft', 'fontSize', 'lineHeight'));
+out.push('areaStyle=' + style('area', 'borderTopWidth', 'paddingLeft', 'width', 'height'));
+out.push('canvas=' + (() => { const c = document.createElement('canvas'); return c.width + 'x' + c.height; })());
+// A click the page makes itself: where the pointer is said to be on the screen.
+let click = 'none';
+document.addEventListener('click', event => { click = [event.clientX, event.clientY, event.screenX - screenX, event.screenY - screenY].join('/'); });
+// A frame inside the page is at the same scale.
+const frame = document.createElement('iframe');
+frame.srcdoc = '<body style="margin:0"><div id="d" style="border:0.5px solid;width:10.3px"></div>';
+frame.onload = () => {
+  const inner = frame.contentWindow;
+  out.push('frameRatio=' + inner.devicePixelRatio);
+  out.push('frameBorder=' + inner.getComputedStyle(inner.document.getElementById('d')).borderTopWidth);
+  setTimeout(() => {
+    out.push('image=' + document.getElementById('image').currentSrc.split('/').pop());
+    // The window, read last: a page that has just started is told its size a moment
+    // later. Its height is not compared: the browser's bars are drawn at the machine's
+    // scale, so the page has more or less room under them. What must agree is the
+    // width, and how thick the bars are, which is so many units on any machine.
+    out.push('width=' + [innerWidth, document.documentElement.clientWidth, number(visualViewport.width), visualViewport.scale].join('/'));
+    out.push('bars=' + (outerWidth - innerWidth) + 'x' + (outerHeight - innerHeight));
+    out.push('place=' + [screenX, screenY, screenLeft, screenTop].join('/'));
+    document.getElementById('button').dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 5, clientY: 6, screenX: 7, screenY: 8 }));
+    out.push('ownClick=' + click);
+    document.body.innerText = 'RESULT ' + out.join(' ');
+  }, 300);
+};
+document.body.appendChild(frame);
+</script>
+</body>
