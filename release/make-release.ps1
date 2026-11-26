@@ -109,7 +109,7 @@ if (Test-Path $key) {
   node (Join-Path $repo 'release\sign-release.mjs') (Join-Path $out 'SHA256SUMS.txt') $key
   if ($LASTEXITCODE -ne 0) { throw 'signing the release failed' }
 } else {
-  Write-Warning "No release key in $key: this release is not signed."
+  Write-Warning "No release key in ${key}: this release is not signed."
 }
 $patches = Join-Path $env:TEMP 'proteus-patches.tar'
 scp @ssh -q "${h}:/opt/proteus/patches.tar" $patches
