@@ -9,6 +9,9 @@ import type { GeneratedIdentity, Rng } from './fingerprint.ts';
 import { randomSeed } from './fingerprint.ts';
 import { mediaDevicesFor } from './mediaDevices.ts';
 import { voicesFor } from './voices.ts';
+import { cleanWebGLCaps, type WebGLCaps } from './webglCaps.ts';
+
+import { readFileSync } from 'node:fs';
 
 interface Device {
   /** Model name as the client hints report it. */
@@ -23,6 +26,12 @@ interface Device {
   cores: number;
   /** navigator.deviceMemory, which Chrome on Android caps at 8. */
   memory: number;
+  /**
+   * For a phone that was read (tools/build-phone-caps.mjs): its card as it names
+   * itself, what the card can do, and its WebGPU names. A phone from the list below
+   * has none of these and reports the limits of the machine it runs on.
+   */
+  read?: { webgl: { vendor: string; renderer: string }; webglCaps: WebGLCaps | null; webgpu: { vendor: string; architecture: string } };
 }
 
 // All of these use ARM Mali GPUs, whose WebGPU family names (Bifrost, Valhall) are
@@ -35,6 +44,22 @@ const DEVICES: readonly Device[] = [
   { model: 'SM-A155F', width: 360, height: 780, pixelRatio: 3, gpu: 'Mali-G57 MC2', gpuFamily: 'valhall', cores: 8, memory: 4 },
   { model: 'SM-A145F', width: 360, height: 780, pixelRatio: 3, gpu: 'Mali-G52 MC2', gpuFamily: 'bifrost', cores: 8, memory: 4 },
 ];
+
+interface ReadPhone {
+  model: string; width: number; height: number; pixelRatio: number; cores: number; memory: number;
+  webgl: { vendor: string; renderer: string }; webglCaps: unknown; webgpu: { vendor: string; architecture: string };
+}
+/** The phones that were read, as devices a profile can be. */
+const READ_DEVICES: readonly Device[] = (JSON.parse(readFileSync(new URL('./phone-caps.json', import.meta.url), 'utf8')) as
+    { android: ReadPhone[] }).android.map((phone) => ({
+  model: phone.model, width: phone.width, height: phone.height, pixelRatio: phone.pixelRatio,
+  gpu: /ANGLE \([^,]+, ([^,]+),/.exec(phone.webgl.renderer)?.[1] ?? phone.webgl.renderer, gpuFamily: phone.webgpu.architecture,
+  cores: phone.cores, memory: Math.min(8, phone.memory),
+  read: { webgl: phone.webgl, webglCaps: cleanWebGLCaps(phone.webglCaps), webgpu: phone.webgpu },
+}));
+
+/** Every phone a generated identity can be: the ones that were read, and the listed ones. */
+export const ANDROID_DEVICES: readonly Device[] = [...READ_DEVICES, ...DEVICES.filter((device) => !READ_DEVICES.some((read) => read.model === device.model))];
 
 const ANDROID_VERSIONS = ['13.0.0', '14.0.0', '15.0.0'];
 
@@ -64,7 +89,7 @@ const SYSTEM_BARS_HEIGHT = 130;
 /** A fresh Chrome-on-Android identity matching kernel version `kernelVersion`. */
 export function generateAndroidIdentity(kernelVersion: string, rng: Rng, model?: string): GeneratedIdentity {
   // `model` picks one phone (a ready-made setup); otherwise any of them.
-  const device = DEVICES.find((candidate) => candidate.model === model) ?? DEVICES[rng(DEVICES.length)];
+  const device = ANDROID_DEVICES.find((candidate) => candidate.model === model) ?? ANDROID_DEVICES[rng(ANDROID_DEVICES.length)];
   const major = kernelVersion.split('.')[0];
   return {
     seed: randomSeed(),
@@ -90,9 +115,9 @@ export function generateAndroidIdentity(kernelVersion: string, rng: Rng, model?:
     hardwareConcurrency: device.cores,
     deviceMemory: device.memory,
     screen: { width: device.width, height: device.height, availWidth: device.width, availHeight: device.height, colorDepth: 24 },
-    webgl: { vendor: 'Google Inc. (ARM)', renderer: `ANGLE (ARM, ${device.gpu}, OpenGL ES 3.2)` },
-    webglCaps: null,
-    webgpu: { vendor: 'arm', architecture: device.gpuFamily },
+    webgl: device.read?.webgl ?? { vendor: 'Google Inc. (ARM)', renderer: `ANGLE (ARM, ${device.gpu}, OpenGL ES 3.2)` },
+    webglCaps: device.read?.webglCaps ?? null,
+    webgpu: device.read?.webgpu ?? { vendor: 'arm', architecture: device.gpuFamily },
     noise: { canvas: true, audio: true },
     fonts: [...ANDROID_FONTS],
     voices: voicesFor('android'),

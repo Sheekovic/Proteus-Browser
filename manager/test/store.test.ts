@@ -292,11 +292,12 @@ test('an iPhone profile is Safari, not Chrome', async () => {
       assert.ok(config.hide.Navigator.includes(name) && config.hide.WorkerNavigator.includes(name), name);
     }
     assert.equal(config.mobile.pdfViewer, true);
+    assert.ok(Object.keys(config.webglCaps['1'].p).length >= 10, 'what Safari on an iPhone says its card can do, as it was read');
     // With everything Safari lacks and everything it has that the kernel lacks, read
     // from a phone, it is the largest configuration there is: some 72,000 bytes, a
-    // third of that as it travels. A fifth of the room is left for what a user adds.
+    // third of that as it travels. A sixth of the room is left for what a user adds.
     const packed = packedConfigLength(JSON.stringify(config));
-    assert.ok(packed < MAX_PACKED_CONFIG * 0.8, `${packed} characters packed`);
+    assert.ok(packed < MAX_PACKED_CONFIG * 0.85, `${packed} characters packed`);
     // What Safari has and the kernel lacks is given to a page: interfaces, parents first.
     const names = config.add.interfaces.map((entry: { n: string }) => entry.n);
     assert.ok(names.includes('ApplePaySession') && names.includes('GestureEvent'), 'Safari’s own interfaces');
@@ -395,8 +396,10 @@ test('an Android profile is one real phone model, consistently', async () => {
     assert.equal(profile.mobile.viewWidth, profile.screen.width, 'the page spans the screen width');
     assert.ok(profile.mobile.viewHeight < profile.screen.height, 'the bars take some of the height');
     assert.ok(profile.screen.height > profile.screen.width, 'portrait');
-    assert.match(profile.webgl.renderer, /^ANGLE \(ARM, Mali-G\d+.*, OpenGL ES 3\.2\)$/);
-    assert.equal(profile.webgpu.vendor, 'arm');
+    // A listed phone names a Mali card; a phone that was read names its own, and has what it can do.
+    assert.match(profile.webgl.renderer, /^ANGLE \((ARM, Mali-G\d+.*|Qualcomm, Adreno \(TM\) \d+), OpenGL ES 3\.2\)$/);
+    assert.equal(profile.webglCaps !== null, /Adreno/.test(profile.webgl.renderer), 'capabilities come with a reading');
+    assert.equal(profile.webgpu.vendor, /Adreno/.test(profile.webgl.renderer) ? 'qualcomm' : 'arm');
     assert.ok(profile.voices.every((voice) => voice.local && !voice.name.startsWith('Google')));
     // A phone claims its own system's fonts and none of a desktop's.
     assert.ok(profile.fonts.includes('Roboto') && profile.fonts.includes('Noto Sans'));

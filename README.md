@@ -641,16 +641,19 @@ Worth knowing before relying on it:
   resource's timing that the kernel's version of Chrome does not have yet. (The
   others the phone has and a desktop Chrome keeps switched off are switched on: a
   file field's `capture`, `navigator.globalPrivacyControl`, and the like.)
-- **The second screen is the machine's.** A profile says it has one screen
-  (`screen.isExtended` is false) whatever is plugged into the machine; an iPhone
-  profile has no such member at all, as Safari has none.
 - **A profile's page has the profile's scale, its window the machine's.** A screen
   comes with the pixel ratio it was read at (1536 by 864 is a 1920 by 1080 panel at
   125%, a Mac's is 2). Pages are laid out at that ratio, so that everything a page
   measures agrees with it, while the window and its bars are drawn at your monitor's
   own scale. Nothing is resampled: on a monitor at another scale a page's text is
   smaller or larger than in your other programs, as it would be on the profile's
-  screen. A profile made before this has no ratio and uses the machine's.
+  screen. Read back on Windows, on a monitor at 150% with two more beside it, a
+  profile at 100%, 125% and 200% agreed with a browser really started at that scale
+  in everything a page measures. What does not come out to the pixel: a window can
+  only be as large as whole units of the machine allow, so a size a page asks of a
+  window (`resizeTo`, a new window's size) may read back a pixel or two off, and a
+  click a driving program places lands within a pixel of where it aimed. A profile
+  made before this has no ratio and uses the machine's.
 - **A limit above the machine's is the machine's.** What goes beyond a WebGL limit
   of the profile's card is refused as that card refuses it, where the drawing is
   done: a texture or renderbuffer too large, a canvas wider than it can draw, and a
@@ -672,8 +675,10 @@ Worth knowing before relying on it:
   Georgia as Gelasio); the others with a font of their kind, the same on every
   machine. A page finds every name; careful measurement of the glyphs can tell such a
   stand-in from the real font. Japanese stands in for all of Android's Chinese,
-  Japanese and Korean. Without the `fonts` folder (running from the repository, or a
-  release updated from one that had none) the stand-ins are fonts of the machine.
+  Japanese and Korean. Read back on Windows and on Linux, an Android profile finds
+  every one of Android's fonts and they measure the same on both. Without the `fonts`
+  folder (running from the repository, or a release updated from one that had none)
+  the stand-ins are fonts of the machine.
 - **A profile's cameras show one picture.** A covered lens, or a `.y4m` video, is
   offered in the sizes a camera has (up to 1280 by 720 on a computer, 1920 by 1080 on
   a phone), cut and scaled from the one picture; that list is the same for every

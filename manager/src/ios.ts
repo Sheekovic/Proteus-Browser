@@ -13,6 +13,18 @@ import type { GeneratedIdentity, Rng } from './fingerprint.ts';
 import { randomSeed } from './fingerprint.ts';
 import { mediaDevicesFor } from './mediaDevices.ts';
 import { voicesFor } from './voices.ts';
+import { cleanWebGLCaps } from './webglCaps.ts';
+
+import { readFileSync } from 'node:fs';
+
+/**
+ * What Safari on an iPhone says its graphics card can do, read from a real one
+ * (tools/build-phone-caps.mjs). Every iPhone names its card "Apple GPU", so the one
+ * reading is every iPhone profile's; without it a profile would report the limits of
+ * the machine it runs on.
+ */
+const READ_CAPS = cleanWebGLCaps((JSON.parse(readFileSync(new URL('./phone-caps.json', import.meta.url), 'utf8')) as
+    { ios: { webglCaps: unknown } | null }).ios?.webglCaps);
 
 /** Screens in points (CSS pixels); every one of these has three device pixels per point. */
 const SCREENS: readonly (readonly [number, number])[] = [
@@ -76,7 +88,7 @@ export function generateIosIdentity(rng: Rng, screen?: readonly [number, number]
     deviceMemory: 4,
     screen: { width, height, availWidth: width, availHeight: height, colorDepth: 24 },
     webgl: { vendor: 'Apple Inc.', renderer: 'Apple GPU' },
-    webglCaps: null,
+    webglCaps: READ_CAPS,
     webgpu: { vendor: '', architecture: '' },
     noise: { canvas: true, audio: true },
     fonts: [...IOS_FONTS],
