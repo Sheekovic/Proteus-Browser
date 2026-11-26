@@ -156,11 +156,23 @@ struct BASE_EXPORT Config {
   // fonts on this machine".
   std::vector<std::string> fonts;
 
+  // A folder of font files that count as installed for this profile, beside the
+  // machine's own: the fonts that come with Proteus (the claimed system's own
+  // where they may be passed on, and stand-ins with the same measures for the
+  // others). The list above still decides which of them a page finds. Empty
+  // means none.
+  std::string font_dir;
+
   // Stand-ins for fonts the profile claims but the machine may lack. When a
   // family named here is not installed, the first installed substitute is used
   // in its place, so the family is still found. An installed family always
   // wins over its substitutes.
   std::vector<FontAlias> font_aliases;
+
+  // Names the claimed system answers to with a face of its own, whether or not
+  // a font of that name is installed: Android has no Arial and draws "Arial"
+  // with Roboto. Name and face; the face is used when it is installed.
+  std::vector<std::pair<std::string, std::string>> font_answers;
 
   // When true, WebRTC may only send traffic through the configured proxy: no
   // direct UDP leaves the machine, so neither a STUN server nor the page can

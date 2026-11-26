@@ -14,7 +14,8 @@ web pages, and the voices it has for reading aloud (nothing about you, your file
 your history), and sends the list to the computer that served it.</small></p>
 <script>
 // Reads what a page finds in this browser: the members of the global object, the
-// members of every interface, and the same inside a worker. Names only.
+// members of every interface, and the same inside a worker. Names, and for a page what
+// kind of thing each name is (readShapes).
 const own = (object) => { try { return Object.getOwnPropertyNames(object).sort(); } catch { return []; } };
 
 function readScope(scope) {
@@ -37,6 +38,52 @@ function readScope(scope) {
   return { globals, interfaces };
 }
 
+// What each name is, for the names a profile of this browser would have to be given:
+// a method and how many arguments it names, a value that can only be read or one that
+// can be set, a constant and its number. Without touching anything: a member is
+// looked at through its description, never called, and never read from an object it
+// does not belong to.
+function describe(holder, name) {
+  let d;
+  try { d = Object.getOwnPropertyDescriptor(holder, name); } catch { return '?'; }
+  if (!d) return '?';
+  if (d.get || d.set) return (d.set ? 'A' : 'a');                      // read and set, or read only
+  const value = d.value;
+  if (typeof value === 'function') return 'm' + value.length;        // a method
+  if (typeof value === 'number') return 'c' + value;                 // a constant
+  if (typeof value === 'string') return 's' + value.slice(0, 40);
+  if (value === null) return 'n';
+  if (typeof value === 'object') { try { return 'o' + (Object.getPrototypeOf(value)?.constructor?.name ?? ''); } catch { return 'o'; } }
+  return 't' + typeof value;
+}
+function readShapes(scope) {
+  const interfaces = {};
+  const globals = {};
+  for (const name of own(scope)) {
+    let value;
+    try { value = scope[name]; } catch { globals[name] = '?'; continue; }
+    const isInterface = typeof value === 'function' && /^[A-Z]/.test(name) && value.prototype !== null && typeof value.prototype === 'object';
+    if (!isInterface) { globals[name] = describe(scope, name); continue; }
+    let parent = '';
+    try { parent = Object.getPrototypeOf(value.prototype)?.constructor?.name ?? ''; } catch { /* none */ }
+    const members = {}, statics = {};
+    for (const member of own(value.prototype)) if (member !== 'constructor') members[member] = describe(value.prototype, member);
+    for (const member of own(value)) if (!['length', 'name', 'prototype', 'arguments', 'caller'].includes(member)) statics[member] = describe(value, member);
+    let tag = '';
+    try { tag = String(value.prototype[Symbol.toStringTag] ?? ''); } catch { /* reading it needs an instance */ }
+    interfaces[name] = { parent, length: value.length, tag, members, statics };
+  }
+  // Members of the global object that sit on its prototypes (event handlers do).
+  const inherited = {};
+  try {
+    for (let proto = Object.getPrototypeOf(scope); proto && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
+      const holder = proto.constructor?.name ?? '';
+      for (const name of own(proto)) if (name !== 'constructor' && !(name in inherited)) inherited[name] = holder + ':' + describe(proto, name);
+    }
+  } catch { /* as far as it went */ }
+  return { interfaces, globals, inherited, functionText: (function () {}).toString.call(Object) };
+}
+
 const workerSource = `
   const own = (object) => { try { return Object.getOwnPropertyNames(object).sort(); } catch { return []; } };
   ${readScope.toString()}
@@ -49,6 +96,7 @@ const workerSource = `
     secure: window.isSecureContext,
     at: new Date().toISOString(),
     page: readScope(window),
+    shapes: null,
     // Instances hold what prototypes do not: the members a browser puts on the object itself.
     instances: { navigator: own(navigator), screen: own(screen), document: own(document), window: own(window).length },
     worker: null,
@@ -84,6 +132,7 @@ const workerSource = `
   } catch (error) {
     reading.workerError = String(error.message || error);
   }
+  try { reading.shapes = readShapes(window); } catch (error) { reading.shapesError = String(error.message || error); }
   const count = Object.keys(reading.page.interfaces).length;
   state.textContent = `Read ${reading.page.globals.length} names and ${count} interfaces. Listening for voices…`;
   await voicesRead;

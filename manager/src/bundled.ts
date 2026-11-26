@@ -9,6 +9,15 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
+ * The folder of the fonts that come with Proteus, when it is there: the one
+ * PROTEUS_FONTS names, else `fonts` next to `managerDir` (a release folder has it).
+ */
+export function findFonts(managerDir: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const candidates = [env.PROTEUS_FONTS, join(managerDir, '..', 'fonts')];
+  return candidates.find((path): path is string => typeof path === 'string' && path !== '' && existsSync(path));
+}
+
+/**
  * Path of a kernel executable that exists: the one PROTEUS_KERNEL names, else the one
  * in the `kernel` folder next to `managerDir`. undefined when there is neither.
  */

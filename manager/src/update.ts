@@ -67,9 +67,12 @@ function downloadOf(assets: unknown, version: string, platform: NodeJS.Platform,
   if (wanted === null || !Array.isArray(assets)) return null;
   const find = (name: string) => assets.find((asset) => typeof asset === 'object' && asset !== null && asset.name === name &&
       typeof asset.browser_download_url === 'string' && asset.browser_download_url.startsWith(prefix));
-  const file = find(wanted), sums = find('SHA256SUMS.txt');
+  const file = find(wanted), sums = find('SHA256SUMS.txt'), signature = find('SHA256SUMS.txt.sig');
   if (!file || !sums) return null;
-  return { name: wanted, url: file.browser_download_url, size: Number(file.size) || 0, sums: sums.browser_download_url };
+  return {
+    name: wanted, url: file.browser_download_url, size: Number(file.size) || 0, sums: sums.browser_download_url,
+    ...(signature ? { signature: signature.browser_download_url } : {}),
+  };
 }
 
 export interface UpdateReport {
@@ -86,7 +89,7 @@ export interface UpdateReport {
   /** In words. */
   message: string;
   /** The newest release's file for this system and the list of checksums, when it has both. */
-  download: { name: string; url: string; size: number; sums: string } | null;
+  download: { name: string; url: string; size: number; sums: string; signature?: string } | null;
 }
 
 /** Asks GitHub for the releases and says whether one is newer than `current`. */

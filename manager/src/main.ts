@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { autostartPlan, setAutostart } from './autostart.ts';
-import { appWindowArguments, findKernel, openCommand } from './bundled.ts';
+import { appWindowArguments, findFonts, findKernel, openCommand } from './bundled.ts';
 import { Launcher } from './launcher.ts';
 import { createApiServer } from './server.ts';
 import { ValidationError } from './profile.ts';
@@ -33,6 +33,7 @@ const argv = process.argv.slice(2);
 const managerDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const store = new Store();
 const launcher = new Launcher(store);
+launcher.fontDir = findFonts(managerDir);
 // Starting with the machine (autostart.ts): the setting tells the system, and a
 // Proteus that was moved since tells it again where it is now.
 const startPlan = autostartPlan({ platform: process.platform, managerDir, nodePath: process.execPath, configHome: process.env.XDG_CONFIG_HOME });

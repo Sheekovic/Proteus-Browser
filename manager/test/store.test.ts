@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 
 import { generateIdentity } from '../src/fingerprint.ts';
-import { buildFontSubstitutes, kindOf } from '../src/fontSubstitutes.ts';
+import { buildFontSubstitutes, SHIPPED_FONTS, kindOf } from '../src/fontSubstitutes.ts';
 import { buildKernelArgs, buildKernelConfig, MAX_PACKED_CONFIG, packedConfigLength } from '../src/kernelConfig.ts';
 import { ValidationError } from '../src/profile.ts';
 import { NotFoundError, Store } from '../src/store.ts';
@@ -183,6 +183,28 @@ test('every claimed font gets substitutes of its own kind', () => {
   assert.notDeepEqual(subs.Avenir, subs.Geneva, 'different fonts start from different stand-ins');
 });
 
+test('with the fonts that come with Proteus, stand-ins are those and the same on every machine', async () => {
+  const windows = buildFontSubstitutes(['Arial', 'Times New Roman', 'Courier New', 'Calibri', 'Avenir', 'Menlo'], { host: 'linux', shippedFor: 'macos' });
+  assert.equal(windows.Arial[0], 'Arimo', 'the font with the same measures comes first');
+  assert.deepEqual([windows['Times New Roman'][0], windows['Courier New'][0], windows.Calibri[0]], ['Tinos', 'Cousine', 'Carlito']);
+  assert.ok(SHIPPED_FONTS.includes(windows.Avenir[0]) && SHIPPED_FONTS.includes(windows.Menlo[0]), 'a font without a counterpart gets shipped ones of its kind');
+  for (const [font, list] of Object.entries(windows)) {
+    assert.equal(list.length, 3, font);
+    assert.deepEqual(list.slice(0, 2), buildFontSubstitutes([font], { host: 'windows', shippedFor: 'macos' })[font].slice(0, 2), `${font}: the same on another machine`);
+    assert.ok(!SHIPPED_FONTS.includes(list[2]), `${font}: the last is the machine's, for a kernel without the folder`);
+  }
+  // Android answers to names it has no font for, with its own faces.
+  const android = buildFontSubstitutes(['Arial', 'Georgia', 'Courier New', 'Monaco', 'Noto Sans CJK JP'], { host: 'windows', shippedFor: 'android' });
+  assert.deepEqual(Object.values(android).map((list) => list[0]), ['Roboto', 'Noto Serif', 'Cutive Mono', 'Droid Sans Mono', 'Noto Sans JP']);
+
+  const phone = await store.createProfile({ os: 'android' });
+  const config = buildKernelConfig(phone, Date.now(), '/opt/proteus/fonts') as Record<string, any>;
+  assert.equal(config.fontDir, '/opt/proteus/fonts');
+  assert.equal(config.fontAliases.Arial[0], 'Roboto');
+  assert.ok(!('fontDir' in buildKernelConfig(phone)), 'without the folder nothing is said of it');
+  assert.ok(!('fontDir' in buildKernelConfig(await store.createProfile({ fonts: [] }), Date.now(), '/opt/proteus/fonts')), 'nor for a profile with the fonts of the machine');
+});
+
 test('a profile saved before the WebRTC setting existed loads as protected', async () => {
   const profile = await store.createProfile({ name: 'Old' });
   const file = join(dir, 'profiles', profile.id, 'profile.json');
@@ -340,7 +362,8 @@ test('a phone profile has no more of the web than its browser does', async () =>
   }
   assert.deepEqual(android.MediaDevices, ['getDisplayMedia', 'setCaptureHandleConfig'], 'a phone cannot share its screen with a page');
   assert.ok(buildKernelArgs(phone, { userDataDir: 'u', configFile: 'c' }, [])
-      .includes('--enable-blink-features=ContactsManager,ContactsManagerExtraProperties,WebNFC,ContentIndex,DigitalGoods,BarcodeDetector'));
+      .some((a) => a.startsWith('--enable-blink-features=ContactsManager,ContactsManagerExtraProperties,WebNFC,ContentIndex,DigitalGoods,BarcodeDetector,') &&
+          a.includes('MediaCapture') && a.includes('GlobalPrivacyControl') && a.endsWith('WebTransportDraining')));
   // Every name is one the kernel's check of a member name lets through, and a pattern is a prefix.
   for (const list of [safari.globalThis, android.globalThis]) {
     for (const name of list) assert.match(name, /^[A-Za-z_$][A-Za-z0-9_$]{1,}\*?$/, name);

@@ -103,6 +103,14 @@ foreach ($line in Get-Content (Join-Path $out 'SHA256SUMS.txt')) {
   $actual = (Get-FileHash (Join-Path $out $name.Trim()) -Algorithm SHA256).Hash.ToLower()
   if ($actual -ne $sum) { throw "checksum mismatch: $name" }
 }
+# Signed with the release key, when this machine has it (release\sign-release.mjs).
+$key = Join-Path $env:USERPROFILE '.proteus-release\release-key.pem'
+if (Test-Path $key) {
+  node (Join-Path $repo 'release\sign-release.mjs') (Join-Path $out 'SHA256SUMS.txt') $key
+  if ($LASTEXITCODE -ne 0) { throw 'signing the release failed' }
+} else {
+  Write-Warning "No release key in $key: this release is not signed."
+}
 $patches = Join-Path $env:TEMP 'proteus-patches.tar'
 scp @ssh -q "${h}:/opt/proteus/patches.tar" $patches
 if ($LASTEXITCODE -ne 0) { throw 'download of the patch series failed' }

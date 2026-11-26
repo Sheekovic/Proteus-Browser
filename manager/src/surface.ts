@@ -85,6 +85,22 @@ export function keptConstantsFor(os: OsFamily): Record<string, readonly string[]
 }
 
 /**
+ * Features behind single members that Chrome on the phone was read to have and the
+ * kernel has switched off: a file field's `capture`,
+ * `navigator.globalPrivacyControl`, the style and layout times of a long frame, the
+ * side of text on a path, an offline audio context's `close()`, and three members
+ * of WebTransport. Some are Android's alone, the others Chrome turns on from its
+ * servers; either way the phone has them. Three stay missing: a link's
+ * `hrefTranslate`, which waits for a translating service the profile's browser does
+ * not start (it would call home), and two members of a resource's timing that the
+ * kernel's version of Chrome does not have yet.
+ */
+const ANDROID_MEMBERS = [
+  'MediaCapture', 'GlobalPrivacyControl', 'LongAnimationFrameStyleDuration', 'SVGTextPathSideAttribute',
+  'OfflineAudioContextIncrementalRendering', 'WebTransportAnticipatedConcurrentIncomingStreams', 'WebTransportDraining',
+];
+
+/**
  * Interfaces Chrome has only on a phone, which the kernel can switch on: picking from
  * the phone's contacts (navigator.contacts), reading NFC tags (NDEFReader), reading
  * barcodes, the index of content kept for offline, and the shop's purchases. They
@@ -93,6 +109,7 @@ export function keptConstantsFor(os: OsFamily): Record<string, readonly string[]
  */
 export function phoneOnlyFeatures(os: OsFamily): string[] {
   return os === 'android'
-    ? ['ContactsManager', 'ContactsManagerExtraProperties', 'WebNFC', 'ContentIndex', 'DigitalGoods', 'BarcodeDetector']
+    ? ['ContactsManager', 'ContactsManagerExtraProperties', 'WebNFC', 'ContentIndex', 'DigitalGoods', 'BarcodeDetector',
+       ...ANDROID_MEMBERS]
     : [];
 }

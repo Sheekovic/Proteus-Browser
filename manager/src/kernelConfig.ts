@@ -5,7 +5,7 @@ import { hiddenFor, keptConstantsFor, phoneOnlyFeatures } from './surface.ts';
 import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 
-import { buildFontSubstitutes } from './fontSubstitutes.ts';
+import { androidAnswers, buildFontSubstitutes } from './fontSubstitutes.ts';
 import { cameraSource, type Profile } from './profile.ts';
 import { claimOf, shapeSwitches } from './transportClaim.ts';
 import type { Voice } from './profile.ts';
@@ -91,9 +91,10 @@ function batteryOf(profile: Profile, now: number): Record<string, unknown> {
 
 /**
  * The JSON document the kernel's config loader (base/proteus/proteus_config.cc) parses.
- * `now` is the moment of the launch, in milliseconds.
+ * `now` is the moment of the launch, in milliseconds; `fontDir` the folder of the fonts
+ * that come with Proteus, when it is there (bundled.ts).
  */
-export function buildKernelConfig(profile: Profile, now: number = Date.now()): Record<string, unknown> {
+export function buildKernelConfig(profile: Profile, now: number = Date.now(), fontDir?: string): Record<string, unknown> {
   const config: Record<string, unknown> = {
     seed: profile.seed,
     userAgent: profile.userAgent,
@@ -118,7 +119,13 @@ export function buildKernelConfig(profile: Profile, now: number = Date.now()): R
   if (profile.fonts.length > 0) {
     config.fonts = profile.fonts;
     // Lets a claimed font the machine lacks still be found (see fontSubstitutes.ts).
-    config.fontAliases = buildFontSubstitutes(profile.fonts);
+    // With the fonts that come with Proteus, the stand-ins are those and the folder
+    // goes to the kernel, which counts its fonts as installed (kernel patch 0038).
+    config.fontAliases = buildFontSubstitutes(profile.fonts, fontDir === undefined ? {} : { shippedFor: profile.os });
+    if (fontDir !== undefined) {
+      config.fontDir = fontDir;
+      if (profile.os === 'android') config.fontAnswers = androidAnswers(profile.fonts);
+    }
   }
   if (profile.webglCaps !== null) config.webglCaps = profile.webglCaps;
   if (profile.webgpu.vendor !== '' || profile.webgpu.architecture !== '') config.webgpu = profile.webgpu;

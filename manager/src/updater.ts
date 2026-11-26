@@ -17,8 +17,9 @@
 // in the data folder and are not touched. Only a release folder can be updated: a
 // working tree has no version to compare and is the developer's to change.
 //
-// The checksum shows the file is the one the release holds. It does not show who made
-// the release: both come from the same place, over HTTPS, and nothing is signed.
+// The checksum shows the file is the one the release holds. Who made the release is
+// shown by the signature on the list of checksums (releaseKey.ts): a Proteus that
+// knows a release key takes only a release that key signed.
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -26,6 +27,7 @@ import { createWriteStream, existsSync, readFileSync } from 'node:fs';
 import { access, constants, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 
+import { RELEASE_KEYS, signedBy } from './releaseKey.ts';
 import { type UpdateReport, bundleVersion, checkForUpdate, compareVersions, RELEASES_URL, DOWNLOAD_PREFIX } from './update.ts';
 
 export type UpdateState = 'idle' | 'downloading' | 'checking' | 'unpacking' | 'ready' | 'failed';
@@ -54,10 +56,12 @@ export interface UpdaterOptions {
   /** For tests: another list of releases, and where its files may come from. */
   releasesUrl?: string;
   downloadPrefix?: string;
+  /** The keys a release must be signed with; those of releaseKey.ts unless given. */
+  releaseKeys?: readonly string[];
 }
 
 /** The parts of a release folder that are replaced; what else is in it is left alone. */
-const FOLDERS = ['kernel', 'manager', 'node', 'licenses'];
+const FOLDERS = ['kernel', 'manager', 'node', 'licenses', 'fonts'];
 
 const execute = (program: string, args: string[], env: NodeJS.ProcessEnv = process.env): Promise<void> => new Promise((done, failed) => {
   const child = spawn(program, args, { stdio: 'ignore', windowsHide: true, env });
@@ -185,7 +189,19 @@ export class Updater {
     this.message = 'Comparing the file with the checksum the release lists.';
     const sums = await fetcher(download.sums, { headers: { 'User-Agent': 'Proteus' }, redirect: 'follow', signal: AbortSignal.timeout(30_000) });
     if (!sums.ok) throw new Error(`the list of checksums answered ${sums.status}`);
-    const expected = (await sums.text()).split(/\r?\n/)
+    const listed = await sums.text();
+    // Whose list it is. A Proteus that knows no key (none was ever published) goes by
+    // the checksum alone.
+    const keys = this.options.releaseKeys ?? RELEASE_KEYS;
+    if (keys.length > 0) {
+      if (download.signature === undefined) throw new Error('the release is not signed; it was thrown away');
+      const signature = await fetcher(download.signature, { headers: { 'User-Agent': 'Proteus' }, redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+      if (!signature.ok) throw new Error(`the signature of the release answered ${signature.status}`);
+      if (!signedBy(listed, await signature.text(), keys)) {
+        throw new Error('the release is not signed with the key this Proteus knows; it was thrown away');
+      }
+    }
+    const expected = listed.split(/\r?\n/)
         .map((line) => /^([0-9a-f]{64})\s+\*?(.+)$/i.exec(line.trim()))
         .find((match) => match !== null && match[2] === download.name)?.[1].toLowerCase();
     if (expected === undefined) throw new Error('the release lists no checksum for its file');

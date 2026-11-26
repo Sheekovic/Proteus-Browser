@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, type KeyObject, sign } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +12,7 @@ import { after, test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { assetName, checkForUpdate, DOWNLOAD_PREFIX } from '../src/update.ts';
+import { signedBy } from '../src/releaseKey.ts';
 import { Updater } from '../src/updater.ts';
 
 const windows = process.platform === 'win32';
@@ -50,7 +51,7 @@ function pack(parent: string, version: string): Buffer {
 }
 
 /** A pretend GitHub with one release, and what was asked of it. */
-function github(version: string, archive: Buffer, sums?: string) {
+function github(version: string, archive: Buffer, sums?: string, signature?: string) {
   const name = assetName(version, process.platform)!;
   const base = `${DOWNLOAD_PREFIX}v${version}/`;
   const listed = sums ?? `${createHash('sha256').update(archive).digest('hex')}  ${name}\n`;
@@ -59,16 +60,18 @@ function github(version: string, archive: Buffer, sums?: string) {
     asked.push(String(url));
     if (String(url) === base + name) return new Response(new Uint8Array(archive));
     if (String(url) === base + 'SHA256SUMS.txt') return new Response(listed);
+    if (String(url) === base + 'SHA256SUMS.txt.sig' && signature !== undefined) return new Response(signature);
     return new Response(JSON.stringify([{
       tag_name: `v${version}`, html_url: `https://github.com/Sheekovic/Proteus-Browser/releases/tag/v${version}`,
       assets: [
         { name, size: archive.length, browser_download_url: base + name },
         { name: 'SHA256SUMS.txt', size: listed.length, browser_download_url: base + 'SHA256SUMS.txt' },
+        ...(signature !== undefined ? [{ name: 'SHA256SUMS.txt.sig', size: signature.length, browser_download_url: base + 'SHA256SUMS.txt.sig' }] : []),
         { name: 'elsewhere.zip', size: 1, browser_download_url: 'https://example.com/elsewhere.zip' },
       ],
     }]));
   }) as typeof fetch;
-  return { fetcher, asked };
+  return { fetcher, asked, listed };
 }
 
 test('a release names its file for this system only when it is where releases are', async () => {
@@ -118,6 +121,40 @@ test('a file that is not the one the release lists is thrown away', { skip: !sup
   assert.match(updater.status().message, /checksum/);
   assert.equal(existsSync(join(dataDir, 'update', '0.2.0')), false, 'nothing of it is kept');
   await assert.rejects(updater.apply(1), /No update is ready/);
+});
+
+test('a Proteus that knows a release key takes only a release that key signed', { skip: !supported }, async () => {
+  const pair = () => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const der = publicKey.export({ format: 'der', type: 'spki' });
+    return { privateKey, known: der.subarray(der.length - 32).toString('base64') };
+  };
+  const maker = pair(), other = pair();
+  const installed = makeFolder(join(root, 'signed', 'installed'), '0.1.0');
+  const archive = pack(join(root, 'signed', 'new'), (makeFolder(join(root, 'signed', 'new'), '0.2.0'), '0.2.0'));
+  const listed = github('0.2.0', archive).listed;
+  const signatureOf = (key: KeyObject) => sign(null, Buffer.from(listed), key).toString('base64') + '\n';
+
+  assert.equal(signedBy(listed, signatureOf(maker.privateKey), [maker.known]), true);
+  assert.equal(signedBy(listed, signatureOf(maker.privateKey), [other.known, maker.known]), true, 'any key it knows');
+  assert.equal(signedBy(listed + ' ', signatureOf(maker.privateKey), [maker.known]), false, 'of this list, to the byte');
+  assert.equal(signedBy(listed, signatureOf(other.privateKey), [maker.known]), false);
+  assert.equal(signedBy(listed, 'not a signature', [maker.known]), false);
+  assert.equal(signedBy(listed, signatureOf(maker.privateKey), []), false);
+
+  const attempt = async (name: string, signature: string | undefined) => {
+    const { fetcher } = github('0.2.0', archive, undefined, signature);
+    const updater = new Updater({ managerDir: join(installed, 'manager'), dataDir: join(root, 'signed', name), fetcher, releaseKeys: [maker.known] });
+    await updater.prepare();
+    await updater.settled();
+    return updater.status();
+  };
+  const unsigned = await attempt('unsigned', undefined);
+  assert.deepEqual([unsigned.state, /not signed/.test(unsigned.message)], ['failed', true], unsigned.message);
+  const forged = await attempt('forged', signatureOf(other.privateKey));
+  assert.deepEqual([forged.state, /not signed with the key/.test(forged.message)], ['failed', true], forged.message);
+  assert.equal(existsSync(join(root, 'signed', 'forged', 'update', '0.2.0')), false, 'nothing of it is kept');
+  assert.equal((await attempt('good', signatureOf(maker.privateKey))).state, 'ready');
 });
 
 test('a release of another version than it says is not made ready', { skip: !supported }, async () => {

@@ -303,6 +303,7 @@ Config LoadConfig() {
       config.accept_languages += language.GetString();
     }
   }
+  config.font_dir = StringOrEmpty(*dict, "fontDir");
   if (const ListValue* fonts = dict->FindList("fonts")) {
     for (const Value& font : *fonts) {
       if (font.is_string() && !font.GetString().empty()) {
@@ -325,6 +326,13 @@ Config LoadConfig() {
       }
       if (!alias.substitutes.empty()) {
         config.font_aliases.push_back(std::move(alias));
+      }
+    }
+  }
+  if (const DictValue* answers = dict->FindDict("fontAnswers")) {
+    for (const auto [name, value] : *answers) {
+      if (!name.empty() && value.is_string() && !value.GetString().empty()) {
+        config.font_answers.emplace_back(name, value.GetString());
       }
     }
   }

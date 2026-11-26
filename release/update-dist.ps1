@@ -60,6 +60,13 @@ if ($Kernel) {
   }
 }
 
+# --- The fonts that come with Proteus, when they have been fetched to out\fonts
+#     (a release bundle has them in its fonts folder; release\fetch-fonts.sh makes it).
+$fonts = Join-Path $repo 'out\fonts'
+if (Test-Path $fonts) {
+  if (-not (Mirror $fonts (Join-Path $dist 'fonts'))) { Write-Warning 'The fonts in dist\ could not be replaced completely.' }
+}
+
 # --- The manager, the launcher, the icon, the skill.
 New-Item -ItemType Directory -Force (Join-Path $dist 'manager') | Out-Null
 foreach ($part in 'src', 'ui') {

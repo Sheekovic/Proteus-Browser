@@ -56,8 +56,12 @@ are. No profile may be running when the new version is put in.
 
 - Turn the asking off in the settings ("Ask GitHub at each start…"); the button
   "Check for a newer version" there still asks when pressed.
-- The checksum shows the file is the one the release holds, not who made the release:
-  both come from the same place over HTTPS, and nothing is signed.
+- The checksum shows the file is the one the release holds. Who made the release is
+  shown by a signature on the list of checksums, made with a key that never leaves the
+  maker's machine ([`sign-release.mjs`](release/sign-release.mjs)): a Proteus that
+  knows the key takes only a release it signed. No release has been signed yet, so
+  this Proteus knows no key and goes by the checksum alone; the first signed release
+  brings the key, and updates after it are checked against it.
 - A working tree (and the `dist` folder made from one) is not a release and is not
   updated this way. Nor is a Proteus whose data folder is inside its program folder.
 - If an update did not take, `update/apply.log` in the data folder says what the last
@@ -591,11 +595,11 @@ Worth knowing before relying on it:
 
 - **It is Chromium underneath.** An iPhone profile reports Safari's identity and
   lacks what Safari lacks, and its TLS and HTTP/2 handshake is Safari's, but a site
-  that probes engine behaviour can still tell it is not WebKit. It does not use
-  HTTP/3. There is no Firefox kernel.
-- **One kernel, two handshakes.** A Chrome profile shakes hands as the Chrome version
-  the kernel was built from, an iPhone profile as the one Safari that was measured.
-  A profile claiming another Chrome version is reported, not fixed.
+  that probes engine behaviour can still tell it is not WebKit. The handshake is that
+  of the one Safari that was measured, and such a profile does not use HTTP/3. There
+  is no Firefox kernel. (A Chrome profile always claims the Chrome its kernel is: one
+  made for another kernel is moved to this one when it starts, so what it says and how
+  it shakes hands are the same version.)
 - **A generated identity is put together, not copied from one computer.** A new
   Windows or Mac identity takes a graphics card that Chrome reported on a real
   computer, with that card's own WebGL limits, extensions, shader precision and WebGPU
@@ -625,9 +629,12 @@ Worth knowing before relying on it:
   158, one older and one newer than the kernel) and hides what neither has (window
   sharing, local fonts, the built-in language models, …), with `navigator.contacts`,
   `NDEFReader`, `BarcodeDetector` and the like switched on. Read back on the kernel
-  it has nothing the phone's Chrome 158 lacks, in a page or in a worker; some 15
-  members of interfaces that the phone has are still missing (14 on Windows, 17 on
-  Linux).
+  it has nothing the phone's Chrome 158 lacks, in a page or in a worker, and of the
+  members the phone has, three are missing: a link's `hrefTranslate`, which waits for
+  a translating service a profile's browser does not start, and two members of a
+  resource's timing that the kernel's version of Chrome does not have yet. (The
+  others the phone has and a desktop Chrome keeps switched off are switched on: a
+  file field's `capture`, `navigator.globalPrivacyControl`, and the like.)
 - **The second screen is the machine's.** A profile says it has one screen
   (`screen.isExtended` is false) whatever is plugged into the machine; an iPhone
   profile has no such member at all, as Safari has none.
@@ -637,23 +644,30 @@ Worth knowing before relying on it:
   measures agrees with it, while the window and its bars are drawn at your monitor's
   own scale. Nothing is resampled: on a monitor at another scale a page's text is
   smaller or larger than in your other programs, as it would be on the profile's
-  screen. Not turned into the profile's units yet: the size a page asks a new window
-  to have, and `moveTo` and `resizeTo`. A profile made before this has no ratio and
-  uses the machine's.
+  screen. A profile made before this has no ratio and uses the machine's.
 - **A limit above the machine's is the machine's.** What goes beyond a WebGL limit
   of the profile's card is refused as that card refuses it, where the drawing is
   done: a texture or renderbuffer too large, a canvas wider than it can draw, and a
   shader that uses more uniforms, varyings or samplers than it has. A limit the
   profile claims above the machine's own is the machine's when tried, and the memory
   a profile claims is a number: a page that allocates gets what the machine has.
-- **Two things still come from the machine a profile runs on.** The stand-in fonts
-  below are chosen from the machine's own, and a profile without a device reading
-  reports the machine's graphics limits (above). Moved to another computer, a profile
-  keeps everything else.
-- **Fonts of another system are stand-ins.** A profile of a system other than the
-  machine's own — which includes every phone profile — claims that system's fonts and
-  hides the machine's, but draws them with substitutes. A page finds the names;
-  careful measurement of the glyphs can tell a substitute from the real font.
+- **One thing still comes from the machine a profile runs on.** A profile without a
+  device reading reports the machine's graphics limits (above). Moved to another
+  computer, a profile keeps everything else.
+- **Some fonts of another system are stand-ins.** A profile of a system other than
+  the machine's own claims that system's fonts and hides the machine's. Android's
+  fonts come with Proteus (Roboto, Noto Sans and Serif, the emoji, Droid Sans Mono and
+  the rest: they may be passed on), so an Android profile draws them as a phone does,
+  and draws the names Android only answers to (Arial, Times New Roman, …) with the
+  faces Android uses. Windows' and Apple's fonts may not be passed on. Six of them
+  are drawn with fonts made to have their measures, so text breaks its lines where
+  the real one does though the letters differ (Arial and Helvetica as Arimo, Times
+  New Roman as Tinos, Courier New as Cousine, Calibri as Carlito, Cambria as Caladea,
+  Georgia as Gelasio); the others with a font of their kind, the same on every
+  machine. A page finds every name; careful measurement of the glyphs can tell such a
+  stand-in from the real font. Japanese stands in for all of Android's Chinese,
+  Japanese and Korean. Without the `fonts` folder (running from the repository, or a
+  release updated from one that had none) the stand-ins are fonts of the machine.
 - **A profile's cameras show one picture.** A covered lens, or a `.y4m` video, is
   offered in the sizes a camera has (up to 1280 by 720 on a computer, 1920 by 1080 on
   a phone), cut and scaled from the one picture; that list is the same for every

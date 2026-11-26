@@ -54,6 +54,9 @@ common() {  # common <bundle dir>
   cp "$SRC/LICENSE" "$dir/licenses/Chromium-LICENSE.txt"
   # Licences of what the manager includes (the readings its identities are drawn from).
   cp "$STAGE/manager/licenses/"* "$dir/licenses/"
+  # The fonts that come with Proteus, each checked against release/fonts.txt, and
+  # their licences (fetched once; later runs take them from the cache).
+  bash "$STAGE/release/fetch-fonts.sh" "$STAGE/release/fonts.txt" "$dir" /opt/proteus/fonts-cache/files
   # Which version this folder is: the manager reads it when asked whether there is a newer one.
   echo "$VERSION" > "$dir/VERSION.txt"
 }

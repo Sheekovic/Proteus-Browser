@@ -152,6 +152,12 @@ export class Launcher {
   private readonly running = new Map<string, Running>();
   private readonly lastExit = new Map<string, NonNullable<ProfileStatus['lastExit']>>();
 
+  /**
+   * The folder of the fonts that come with Proteus, when there is one (bundled.ts):
+   * set by the program that runs the manager.
+   */
+  fontDir?: string;
+
   constructor(store: Store, spawnKernel: SpawnKernel = spawnRealKernel,
               prepareKernel: PrepareKernel = (kernelPath) => allowSandboxToReadKernel(kernelPath),
               readLists: ReadLists = readRealLists) {
@@ -290,7 +296,7 @@ export class Launcher {
     // The kernel hands the file's text, deflated, to each of its child processes on
     // their command line, which Windows limits to 32,767 characters. Past that, the
     // children cannot start and the browser dies at once.
-    const config = JSON.stringify(buildKernelConfig(profile));
+    const config = JSON.stringify(buildKernelConfig(profile, Date.now(), this.fontDir));
     if (packedConfigLength(config) > MAX_PACKED_CONFIG) {
       throw new LaunchError(`This profile's settings are too large to start (${packedConfigLength(config)} characters ` +
           `when packed; the limit is ${MAX_PACKED_CONFIG}). Shorten its font or voice list.`);
@@ -509,7 +515,7 @@ export class Launcher {
       const userDataDir = join(dir, 'browser');
       const configFile = join(dir, 'kernel.json');
       await mkdir(userDataDir, { recursive: true });
-      await writeFile(configFile, JSON.stringify(buildKernelConfig(profile)), 'utf8');
+      await writeFile(configFile, JSON.stringify(buildKernelConfig(profile, Date.now(), this.fontDir)), 'utf8');
       const args = buildKernelArgs(profile, { userDataDir, configFile, networkSandbox }, [
         ...settings.extraArgs,
         '--headless=new',
