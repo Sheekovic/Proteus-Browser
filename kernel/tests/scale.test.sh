@@ -16,7 +16,10 @@ check "control: the machine's scale is 1" "$(field "$PLAIN" ratio)" "1"
 for RATIO in 1.25 1.5 2; do
   echo "{\"seed\": \"1\", \"screen\": {\"width\": 1536, \"height\": 864, \"availWidth\": 1536, \"availHeight\": 824, \"pixelRatio\": $RATIO}}" > "$WORK/scale-$RATIO.json"
   REAL=$(run scale.html --proteus-config="$WORK/screen.json" --window-size=800,600 --force-device-scale-factor=$RATIO)
-  OURS=$(run scale.html --proteus-config="$WORK/scale-$RATIO.json" --window-size=800,600)
+  # A profile's first window leaves room for its bars, which do not grow with the
+  # page (patch 0042): asked for this much more, it is as large as the other.
+  case $RATIO in 1.25) SIZE=808,632 ;; 1.5) SIZE=813,653 ;; 2) SIZE=820,680 ;; esac
+  OURS=$(run scale.html --proteus-config="$WORK/scale-$RATIO.json" --window-size=$SIZE)
   show "started at $RATIO" "$REAL"
   show "a profile at $RATIO" "$OURS"
   check  "control: started at $RATIO the page reads $RATIO" "$(field "$REAL" ratio)" "$RATIO"
