@@ -656,12 +656,13 @@ Worth knowing before relying on it:
   machine's own — which includes every phone profile — claims that system's fonts and
   hides the machine's, but draws them with substitutes. A page finds the names;
   careful measurement of the glyphs can tell a substitute from the real font.
-- **A profile's camera has one size.** A covered lens, or a video file, is offered
-  to a page at one size (640 by 480 for the covered lens, the size a page gets from
-  any camera when it asks for none in particular) and not at the others the claimed
-  camera has; every camera a profile lists shows the same picture. A profile set to
-  use the machine's camera gives this machine's picture and sound and the sizes its
-  hardware offers.
+- **A profile's cameras show one picture.** A covered lens, or a `.y4m` video, is
+  offered in the sizes a camera has (up to 1280 by 720 on a computer, 1920 by 1080 on
+  a phone), cut and scaled from the one picture; that list is the same for every
+  profile and not the claimed camera's own, a `.mjpeg` video has its one size, and
+  every camera a profile lists shows the same picture. A profile set to use the
+  machine's camera gives this machine's picture and sound and the sizes its hardware
+  offers.
 - **Tested on few machines.** Results on detection sites depend on the host; what
   holds on one Windows 11 machine is not a guarantee elsewhere.
 - **No protection is complete.** Sites combine many signals — address reputation,

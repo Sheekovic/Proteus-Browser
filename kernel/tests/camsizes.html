@@ -1,0 +1,45 @@
+<!doctype html>
+<body>
+<img src="/slow?ms=12000" alt="">
+<video id="video" autoplay muted playsinline></video>
+<script>
+// Emits one line of key=value pairs with what a page gets when it asks the camera for a size.
+const out = [];
+const video = document.getElementById('video');
+async function ask(key, constraints) {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: constraints });
+    const [track] = stream.getVideoTracks();
+    const settings = track.getSettings();
+    video.srcObject = stream;
+    await video.play();
+    await new Promise(resolve => video.requestVideoFrameCallback(resolve));
+    // The picture itself: its size, and whether it is dark all over (a covered lens).
+    const canvas = new OffscreenCanvas(video.videoWidth, video.videoHeight);
+    const context = canvas.getContext('2d');
+    context.drawImage(video, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let brightest = 0;
+    for (let i = 0; i < pixels.length; i += 4) brightest = Math.max(brightest, pixels[i], pixels[i + 1], pixels[i + 2]);
+    out.push(key + '=' + settings.width + 'x' + settings.height + '/' + video.videoWidth + 'x' + video.videoHeight + '/' + (brightest < 60 ? 'dark' : 'bright' + brightest));
+    if (key === 'plain') {
+      const capabilities = track.getCapabilities();
+      out.push('most=' + capabilities.width.max + 'x' + capabilities.height.max);
+      out.push('turns=' + ['pan', 'tilt', 'zoom'].filter(name => name in capabilities).join('/'));
+    }
+    for (const each of stream.getTracks()) each.stop();
+    video.srcObject = null;
+  } catch (error) {
+    out.push(key + '=' + error.name);
+  }
+}
+(async () => {
+  await ask('plain', true);
+  await ask('wide', { width: { ideal: 1280 }, height: { ideal: 720 } });
+  await ask('small', { width: { exact: 320 }, height: { exact: 240 } });
+  await ask('full', { width: { exact: 1920 }, height: { exact: 1080 } });
+  await ask('odd', { width: { ideal: 1000 }, height: { ideal: 700 } });
+  document.body.innerText = 'RESULT ' + out.join(' ');
+})();
+</script>
+</body>

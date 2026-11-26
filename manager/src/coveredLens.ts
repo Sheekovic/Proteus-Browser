@@ -7,9 +7,8 @@
 // without being asked for.
 
 // The size a page gets from any camera when it asks for none in particular. The
-// kernel offers a camera played from a file at the file's size only, so this is the
-// one size that is right for the most common question; the other sizes the claimed
-// camera has are not offered (see the README).
+// kernel makes the other sizes a camera offers from these frames (kernel patch 0036);
+// an earlier kernel offers this one size, the right one for the most common question.
 export const COVERED_WIDTH = 640;
 export const COVERED_HEIGHT = 480;
 const FRAMES = 12;
