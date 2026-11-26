@@ -1,0 +1,21 @@
+<!doctype html>
+<body>
+<script>
+// Emits one line of key=value pairs with what a page learns of the screen's colours and
+// of the window around it.
+const out = [];
+const matches = query => +matchMedia(query).matches;
+out.push('gamut=' + ['(color-gamut: srgb)', '(color-gamut: p3)', '(color-gamut: rec2020)'].map(matches).join(''));
+out.push('range=' + ['(dynamic-range: standard)', '(dynamic-range: high)'].map(matches).join(''));
+const frame = document.createElement('iframe');
+frame.onload = () => {
+  setTimeout(() => {
+    // Read last: a page that has just started is told its window's size a moment later.
+    out.push('bars=' + (outerWidth - innerWidth) + 'x' + (outerHeight - innerHeight));
+    document.body.innerText = 'RESULT ' + out.join(' ');
+  }, 400);
+};
+frame.srcdoc = '<body>';
+document.body.appendChild(frame);
+</script>
+</body>

@@ -643,6 +643,17 @@ Worth knowing before relying on it:
   resource's timing that the kernel's version of Chrome does not have yet. (The
   others the phone has and a desktop Chrome keeps switched off are switched on: a
   file field's `capture`, `navigator.globalPrivacyControl`, and the like.)
+- **A window's frame is this machine's.** How thick the bars around the page are
+  (the window's size less the page's) is what this machine's windows have, whatever
+  system the profile claims; a Mac's or a Linux desktop's are not known and not
+  imitated. A profile run without a window (`--headless=new` among the extra launch
+  arguments) has the bars a window on Windows has: read in a window and without one,
+  the same profile agreed in every one of thirty things a page reads, the browser's
+  name, plugins, permissions, graphics card and voices among them.
+- **A phone's screen colours are this machine's.** Whether the screen shows the P3
+  gamut and a high dynamic range follows the claimed system for a computer and an
+  iPhone (a Windows or Linux computer neither, a Mac P3, an iPhone both); for an
+  Android phone nothing was read, and a page gets what the monitor has.
 - **A profile's page has the profile's scale, its window the machine's.** A screen
   comes with the pixel ratio it was read at (1536 by 864 is a 1920 by 1080 panel at
   125%, a Mac's is 2). Pages are laid out at that ratio, so that everything a page
