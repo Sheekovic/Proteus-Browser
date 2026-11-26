@@ -62,8 +62,10 @@ curl -s -X POST http://127.0.0.1:5310/api/profiles -H 'Content-Type: application
   "startUrl": "https://example.com/"
 }'
 
-# "cameraFile": "C:\\videos\\room.y4m" makes pages that are allowed the camera get that
-# video (.y4m or .mjpeg, on this machine) and a silent microphone, not the machine's own.
+# A page that is allowed the camera gets a covered lens (a dark picture) and a silent
+# microphone, not the machine's own. "cameraFile": "C:\\videos\\room.y4m" shows that
+# video instead (.y4m or .mjpeg, on this machine); "cameraFile": "machine" gives the
+# machine's real camera and microphone, which a video call needs.
 
 # Change (takes effect at the next start), give a new device identity, copy, delete
 curl -s -X PATCH  http://127.0.0.1:5310/api/profiles/<id> -H 'Content-Type: application/json' -d '{"timezone": "Europe/Berlin"}'
@@ -84,11 +86,13 @@ What matters when choosing fields:
   an iPhone). Prefer the system of the computer Proteus runs on unless the user asks
   for another: a profile of another system draws that system's fonts with stand-ins.
 - `proxy`: `type` is `http` or `socks5`. Leave it out for a direct connection.
-- `matchProxy: true` looks up where the proxy comes out at every start and sets time
-  zone, location and the WebRTC address to match. Use it whenever there is a proxy,
-  unless the user fixed those values themselves.
+- `matchProxy: true` (the default) looks up where the proxy comes out at every start
+  and sets time zone, languages, location and the WebRTC address to match. A value
+  the profile sets itself stays. If no lookup service tells the exit's time zone and
+  the profile has none, the profile does not start, rather than show this machine's.
 - `languages` (for example `["de-DE", "de", "en"]`) and `timezone` (an IANA name) can be
-  given; with `matchProxy` the time zone follows the proxy.
+  given; left out, with a proxy and `matchProxy`, they follow the proxy's country at
+  every start and are not saved in the profile.
 - `fingerprintId` takes the identity from a device the user has read
   (`GET /api/fingerprints` lists them) instead of generating one.
 - `preset` makes the profile one of the ready-made setups instead
@@ -98,8 +102,9 @@ What matters when choosing fields:
 - `deviceMemory` must be a value that system's browser reports: 2, 4, 8, 16 or 32 on
   `windows`, `macos` and `linux`; 1, 2, 4 or 8 on `android`. Anything else is refused
   with the accepted values in the error. Leave it out and a fitting one is chosen.
-- `languages` left out means the computer's own; they are saved into the profile at
-  its first start, so the profile then reports the same on any computer.
+- `languages` left out on a profile without a proxy means the computer's own; they
+  are saved into the profile at its first start, so the profile then reports the same
+  on any computer. Set `languages` to `[]` to let a proxy's country decide again.
 - Two profiles should not share one proxy address: sites link them by it. The bulk
   route refuses that unless `shareProxies` is true.
 
