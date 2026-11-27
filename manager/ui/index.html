@@ -578,12 +578,13 @@ function profileCard(p, index) {
   more.append(toggle);
   actions.append(more);
 
-  // The proxy no longer comes out where it did when the profile started (or cannot be
-  // reached): the browser's time zone and WebRTC address are those of the first exit.
+  // The proxy no longer comes out where the browser is, and the browser could not be
+  // moved there (or the proxy cannot be reached): its time zone and WebRTC address
+  // are those of the exit before.
   const warnings = [];
   if (p.status.exitNow) {
     warnings.push(el('p', 'note bad', `The proxy now comes out at ${p.status.exitNow.ipv4 || p.status.exitNow.ip}` +
-        `${p.status.exitNow.timezone ? ' (' + p.status.exitNow.timezone + ')' : ''}. Restart the profile to match it.`));
+        `${p.status.exitNow.timezone ? ' (' + p.status.exitNow.timezone + ')' : ''}, and this browser could not be moved there while it runs. Restart the profile to match it.`));
   } else if (p.status.exitProblem) {
     warnings.push(el('p', 'note bad', `The proxy does not answer: ${p.status.exitProblem}.`));
   }

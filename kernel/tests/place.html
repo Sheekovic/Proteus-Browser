@@ -1,0 +1,95 @@
+<!doctype html>
+<body>
+<img src="/slow?ms=20000" alt="">
+<script>
+// Patch 0043. Reads the place a page sees (time zone, languages, position, WebRTC
+// address), waits for the place to move while the page stays open, and reads it
+// again: in this page, in a worker that was running all along, in a worker made
+// after the move, in a frame of another site made after the move (a new process),
+// and in the request headers.
+// usage: place.html?frame=<origin of another site serving place-frame.html>
+const enc = v => encodeURIComponent(String(v));
+const zone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+const offset = () => new Date(2026, 0, 15, 12).getTimezoneOffset();
+
+const WORKER = `
+  let events = 0;
+  addEventListener('languagechange', () => events++);
+  onmessage = () => postMessage({
+    languages: navigator.languages.join(','),
+    zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    offset: new Date(2026, 0, 15, 12).getTimezoneOffset(),
+    events });`;
+function makeWorker() { return new Worker(URL.createObjectURL(new Blob([WORKER]))); }
+function ask(worker) {
+  return new Promise(resolve => { worker.onmessage = e => resolve(e.data); worker.postMessage(0); });
+}
+function position() {
+  return new Promise(resolve => navigator.geolocation.getCurrentPosition(
+      p => resolve(p.coords.latitude + ',' + p.coords.longitude),
+      e => resolve('error' + e.code), { timeout: 3000, maximumAge: 0 }));
+}
+function publicAddress() {
+  // The address is told, not found: nothing is sent to this server.
+  return new Promise(resolve => {
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:192.0.2.1:3478' }] });
+    const found = [];
+    pc.onicecandidate = e => {
+      if (e.candidate && / typ srflx/.test(e.candidate.candidate)) found.push(e.candidate.candidate.split(' ')[4]);
+      if (!e.candidate) resolve(found.join(',') || 'none');
+    };
+    pc.createDataChannel('x');
+    pc.createOffer().then(o => pc.setLocalDescription(o));
+    setTimeout(() => resolve(found.join(',') || 'timeout'), 3000);
+  });
+}
+function otherSite(origin) {
+  return new Promise(resolve => {
+    if (!origin) return resolve({ zone: 'skipped', languages: 'skipped' });
+    addEventListener('message', e => { if (e.data && e.data.placeFrame) resolve(e.data); });
+    const frame = document.createElement('iframe');
+    frame.src = origin + '/place-frame.html';
+    document.body.append(frame);
+    setTimeout(() => resolve({ zone: 'timeout', languages: 'timeout' }), 4000);
+  });
+}
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+(async () => {
+  let events = 0;
+  addEventListener('languagechange', () => events++);
+  const old = makeWorker();
+  const before = {
+    zone: zone(), offset: offset(), languages: navigator.languages.join(','),
+    worker: await ask(old),
+    header: (await (await fetch('/headers')).json())['accept-language'],
+    position: await position(), address: await publicAddress(),
+  };
+  // The test moves the place a few seconds after the browser started.
+  const start = Date.now();
+  while (zone() === before.zone && Date.now() - start < 8000) await sleep(200);
+  const waited = Date.now() - start;
+  await sleep(500);
+  const worker = await ask(old);
+  const fresh = await ask(makeWorker());
+  const other = await otherSite(new URLSearchParams(location.search).get('frame'));
+  document.body.innerText = 'RESULT ' + [
+    'zoneBefore=' + enc(before.zone), 'offsetBefore=' + before.offset,
+    'languagesBefore=' + enc(before.languages), 'headerBefore=' + enc(before.header),
+    'workerBefore=' + enc(before.worker.zone + '|' + before.worker.languages),
+    'positionBefore=' + enc(before.position), 'addressBefore=' + enc(before.address),
+    'moved=' + (zone() !== before.zone), 'waited=' + (waited < 8000 ? 'ok' : 'timeout'),
+    'zone=' + enc(zone()), 'offset=' + offset(),
+    // The list first: in any Chrome, reading navigator.language first after a change
+    // of languages leaves a list the page has read before as it was.
+    'languages=' + enc(navigator.languages.join(',')), 'language=' + enc(navigator.language),
+    'events=' + events,
+    'worker=' + enc(worker.zone + '|' + worker.offset + '|' + worker.languages), 'workerEvents=' + worker.events,
+    'newWorker=' + enc(fresh.zone + '|' + fresh.offset + '|' + fresh.languages),
+    'otherSite=' + enc(other.zone + '|' + other.languages),
+    'header=' + enc((await (await fetch('/headers')).json())['accept-language']),
+    'position=' + enc(await position()), 'address=' + enc(await publicAddress()),
+  ].join(' ');
+})();
+</script>
+</body>

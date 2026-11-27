@@ -13,6 +13,7 @@
 #include "base/containers/span.h"
 #include "base/no_destructor.h"
 #include "base/proteus/proteus_config.h"
+#include "base/proteus/proteus_place.h"
 #include "base/strings/stringprintf.h"
 #include "base/uuid.h"
 
@@ -93,11 +94,13 @@ Candidates Build(const std::string& sdp, bool has_stun_or_turn_server) {
       host_foundation, MdnsHostname().c_str(), port, ufrag));
   // The public candidate needs an address to show; the host candidate does not,
   // and a browser that reports no candidate at all leaves pages waiting forever.
-  if (has_stun_or_turn_server && !config.webrtc_public_ip.empty()) {
+  // The address is the place's (patch 0043): the one the proxy comes out at now.
+  const std::string& public_ip = base::proteus::GetPlace().webrtc_public_ip;
+  if (has_stun_or_turn_server && !public_ip.empty()) {
     result.lines.push_back(base::StringPrintf(
         "candidate:%u 1 udp 1677729535 %s %d typ srflx raddr 0.0.0.0 rport 0 "
         "generation 0 ufrag %s network-cost 999",
-        srflx_foundation, config.webrtc_public_ip.c_str(), port, ufrag));
+        srflx_foundation, public_ip.c_str(), port, ufrag));
   }
   return result;
 }

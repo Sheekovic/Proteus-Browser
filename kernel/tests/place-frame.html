@@ -1,0 +1,10 @@
+<!doctype html>
+<script>
+// Loaded by place.html from another site, so in a process of its own: tells its
+// parent the time zone and languages that process has.
+parent.postMessage({
+  placeFrame: true,
+  zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  languages: navigator.languages.join(','),
+}, '*');
+</script>

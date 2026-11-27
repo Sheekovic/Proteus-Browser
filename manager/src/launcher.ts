@@ -1,7 +1,8 @@
 // Starts and stops kernel processes, one per running profile.
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { access, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -63,9 +64,17 @@ export interface ProfileStatus {
    */
   lastProxyExit?: ProxyExit & { at: string };
   /**
-   * Where it comes out now, when that is no longer where it did at the start. The
-   * browser still shows the time zone and WebRTC address of the first exit, which no
-   * longer agree with the address sites see: the profile should be restarted.
+   * When the running browser was last moved to a new exit: its proxy came out
+   * somewhere else, and the time zone, languages, position and WebRTC address were
+   * changed to that place's without a restart. `proxyExit` is the new exit.
+   */
+  exitMovedAt?: string;
+  /**
+   * Where it comes out now, when that is no longer where the browser is and the
+   * browser could not be moved there (a kernel older than the ability, or an exit
+   * whose time zone nobody can tell). The browser still shows the time zone and
+   * WebRTC address of the exit in `proxyExit`, which no longer agree with the
+   * address sites see: the profile should be restarted.
    */
   exitNow?: ProxyExit & { since: string };
   /** Why the proxy could not be reached at the last look, while that lasts. */
@@ -74,7 +83,46 @@ export interface ProfileStatus {
   lastExit?: { code: number | null; signal: string | null; at: string };
 }
 
+/**
+ * The part of a kernel configuration that follows the proxy's exit, and that a
+ * running kernel takes anew from "place.json" (kernel patch 0043).
+ */
+export interface Place {
+  timezone: string;
+  languages: string[];
+  webRtcPublicIp: string;
+  geolocation?: unknown;
+}
+
+/**
+ * The place in `config`. What a new exit does not tell (its time zone, its country's
+ * languages, its position) stays as it was in `before`; the address does not, since
+ * the old one is the one thing known to be wrong.
+ */
+export function placeOf(config: Record<string, unknown>, before?: Place): Place {
+  const languages = Array.isArray(config.languages) ? config.languages as string[] : [];
+  const geolocation = config.geolocation ?? before?.geolocation;
+  return {
+    timezone: typeof config.timezone === 'string' && config.timezone !== '' ? config.timezone : before?.timezone ?? '',
+    languages: languages.length > 0 ? languages : before?.languages ?? [],
+    webRtcPublicIp: typeof config.webRtcPublicIp === 'string' ? config.webRtcPublicIp : '',
+    ...(geolocation !== undefined ? { geolocation } : {}),
+  };
+}
+
 interface Running {
+  /** The profile's id and folder. */
+  id: string;
+  profileDir: string;
+  /** Whether the browser was matched to its proxy's exit, and so follows it. */
+  matched: boolean;
+  /** The place the browser is in. */
+  place: Place;
+  exitMovedAt?: string;
+  /** The kernel did not take a new place: it is one from before it could. */
+  cannotMove?: boolean;
+  /** What is being done about a sighting of the exit; the next sighting waits for it. */
+  settling?: Promise<void>;
   child: ChildProcess;
   startedAt: string;
   debuggerUrl?: string;
@@ -134,9 +182,9 @@ export function stateOf(status: ProfileStatus): { state: ProfileStatus['state'];
  * replies have them, so one way of reading the exit works on every reply.
  */
 export function entryStateOf(status: ProfileStatus) {
-  const { proxyExit, exitSeenAt, lastProxyExit, exitNow, exitProblem } = status;
-  const exit = Object.fromEntries(Object.entries({ proxyExit, exitSeenAt, lastProxyExit, exitNow, exitProblem })
-      .filter(([, value]) => value !== undefined)) as Pick<ProfileStatus, 'proxyExit' | 'exitSeenAt' | 'lastProxyExit' | 'exitNow' | 'exitProblem'>;
+  const { proxyExit, exitSeenAt, lastProxyExit, exitMovedAt, exitNow, exitProblem } = status;
+  const exit = Object.fromEntries(Object.entries({ proxyExit, exitSeenAt, lastProxyExit, exitMovedAt, exitNow, exitProblem })
+      .filter(([, value]) => value !== undefined)) as Pick<ProfileStatus, 'proxyExit' | 'exitSeenAt' | 'lastProxyExit' | 'exitMovedAt' | 'exitNow' | 'exitProblem'>;
   return { ...exit, ...stateOf(status) };
 }
 
@@ -168,9 +216,88 @@ export class Launcher {
     this.exits = new ExitMemory(join(store.dataDir, 'exits.json'));
   }
 
-  /** Records where `proxy` was just found to come out (a proxy check), for the profiles that use it. */
+  /**
+   * How long a kernel is given to say it took a new place. It looks for one every
+   * second; a kernel that says nothing in this time is one from before it could move.
+   */
+  moveWaitMs = 6000;
+
+  /**
+   * Records where `proxy` was just found to come out (a proxy check), for the profiles
+   * that use it. A running profile matched to that proxy is moved there at once, so a
+   * program that makes its proxy change exits can check the proxy and go on.
+   */
   async noteExit(proxy: ProxySettings, exit: ProxyExit): Promise<void> {
-    await this.exits.note(proxyKey(proxy), exit);
+    const key = proxyKey(proxy);
+    const seen = await this.exits.note(key, exit);
+    const using: Promise<void>[] = [];
+    for (const entry of this.running.values()) {
+      if (!entry.matched) continue;
+      const profile = await this.store.getProfile(entry.id).catch(() => undefined);
+      if (profile?.proxy && proxyKey(profile.proxy) === key) using.push(this.exitSeen(entry, exit, seen.at));
+    }
+    await Promise.all(using);
+  }
+
+  /**
+   * The exit of a running profile's proxy was just seen to be `now`. If that is not
+   * where the browser is, the browser is moved there; if it cannot be, the status
+   * says so (`exitNow`).
+   */
+  private exitSeen(entry: Running, now: ProxyExit, at: string): Promise<void> {
+    const settle = async (): Promise<void> => {
+      entry.exitProblem = undefined;
+      if (!entry.proxyExit || exitAddress(now) === exitAddress(entry.proxyExit)) {
+        entry.exitSeenAt = at;
+        entry.exitNow = undefined;
+        return;
+      }
+      if (await this.move(entry, now)) {
+        entry.proxyExit = now;
+        entry.exitSeenAt = at;
+        entry.exitMovedAt = new Date().toISOString();
+        entry.exitNow = undefined;
+      } else if (!entry.exitNow || exitAddress(entry.exitNow) !== exitAddress(now)) {
+        entry.exitNow = { ...now, since: new Date().toISOString() };
+      }
+    };
+    entry.settling = (entry.settling ?? Promise.resolve()).then(settle, settle);
+    return entry.settling;
+  }
+
+  /**
+   * Moves a running browser to `exit`: writes the place of that exit beside the
+   * kernel's configuration and waits for the kernel to say it took it. False when
+   * the browser stays where it was.
+   */
+  private async move(entry: Running, exit: ProxyExit): Promise<boolean> {
+    if (entry.cannotMove) return false;
+    const stored = await this.store.getProfile(entry.id).catch(() => undefined);
+    if (!stored?.proxy || !stored.matchProxy) return false;
+    const place = placeOf(buildKernelConfig(withProxyExit(stored, exit), Date.now(), this.fontDir), entry.place);
+    // As at a start: without a time zone the browser would not be in the new place.
+    if (stored.timezone === '' && exit.timezone === '') return false;
+    const id = randomUUID();
+    const file = join(entry.profileDir, 'place.json');
+    const taken = join(entry.profileDir, 'place.taken');
+    try {
+      // Written whole, then put in place: the kernel never reads half a file.
+      await writeFile(`${file}.new`, JSON.stringify({ id, ...place }), 'utf8');
+      await rename(`${file}.new`, file);
+    } catch {
+      return false;
+    }
+    const deadline = Date.now() + this.moveWaitMs;
+    while (this.running.get(entry.id) === entry) {
+      if ((await readFile(taken, 'utf8').catch(() => '')) === id) {
+        entry.place = place;
+        return true;
+      }
+      if (Date.now() >= deadline) break;
+      await delay(Math.min(100, this.moveWaitMs));
+    }
+    if (this.running.get(entry.id) === entry) entry.cannotMove = true;
+    return false;
   }
 
   /**
@@ -197,6 +324,7 @@ export class Launcher {
       debuggerUrl: entry.debuggerUrl,
       ...(entry.proxyExit ? { proxyExit: entry.proxyExit } : {}),
       ...(entry.proxyExit && entry.exitSeenAt ? { exitSeenAt: entry.exitSeenAt } : {}),
+      ...(entry.exitMovedAt ? { exitMovedAt: entry.exitMovedAt } : {}),
       ...(entry.exitNow ? { exitNow: entry.exitNow } : {}),
       ...(entry.exitProblem ? { exitProblem: entry.exitProblem } : {}),
     };
@@ -296,12 +424,16 @@ export class Launcher {
     // The kernel hands the file's text, deflated, to each of its child processes on
     // their command line, which Windows limits to 32,767 characters. Past that, the
     // children cannot start and the browser dies at once.
-    const config = JSON.stringify(buildKernelConfig(profile, Date.now(), this.fontDir));
+    const kernelConfig = buildKernelConfig(profile, Date.now(), this.fontDir);
+    const config = JSON.stringify(kernelConfig);
     if (packedConfigLength(config) > MAX_PACKED_CONFIG) {
       throw new LaunchError(`This profile's settings are too large to start (${packedConfigLength(config)} characters ` +
           `when packed; the limit is ${MAX_PACKED_CONFIG}). Shorten its font or voice list.`);
     }
     await writeFile(configFile, config, 'utf8');
+    // A place an earlier run was moved to is not this run's.
+    await rm(join(profileDir, 'place.json'), { force: true });
+    await rm(join(profileDir, 'place.taken'), { force: true });
 
     // A camera picture from a file: the file must be there, and beside it goes a
     // second of silence for the microphone (the kernel's stand-in would beep).
@@ -355,7 +487,11 @@ export class Launcher {
       throw error;
     }
 
-    const entry: Running = { child, startedAt: new Date().toISOString(), proxyExit, exitSeenAt };
+    const matched = Boolean(stored.proxy && stored.matchProxy && lookupOn);
+    const entry: Running = {
+      id: profile.id, profileDir, matched, place: placeOf(kernelConfig),
+      child, startedAt: new Date().toISOString(), proxyExit, exitSeenAt,
+    };
     this.running.set(profile.id, entry);
     this.lastExit.delete(profile.id);
     if (stored.proxy && stored.matchProxy && lookupOn) {
@@ -364,8 +500,8 @@ export class Launcher {
       // is the second sighting that lets the next start take this exit from memory.
       // (Not with exitCacheMinutes 0: then every start asks first, and only once.)
       if (settings.exitCacheMinutes > 0) void this.lookAgain(entry, proxy, settings.exitLookupUrl);
-      // A proxy's exit can change or go away while the profile runs, and the browser
-      // cannot be re-matched without a restart: look again now and then, and say so.
+      // A proxy's exit can change or go away while the profile runs: look again now
+      // and then, move the browser to a new exit, and say so when it cannot be.
       if (settings.exitWatchMinutes > 0) {
         entry.watch = setInterval(() => {
           void this.lookAgain(entry, proxy, settings.exitLookupUrl);
@@ -422,13 +558,7 @@ export class Launcher {
     try {
       const now = await lookupProxyExit(proxy, lookupSetting);
       const seen = await this.exits.note(proxyKey(proxy), now);
-      entry.exitProblem = undefined;
-      if (!entry.proxyExit || exitAddress(now) === exitAddress(entry.proxyExit)) {
-        entry.exitSeenAt = seen.at;
-        entry.exitNow = undefined;
-      } else if (!entry.exitNow || exitAddress(entry.exitNow) !== exitAddress(now)) {
-        entry.exitNow = { ...now, since: new Date().toISOString() };
-      }
+      await this.exitSeen(entry, now, seen.at);
     } catch (error) {
       entry.exitProblem = (error as Error).message;
     } finally {

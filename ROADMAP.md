@@ -15,6 +15,7 @@ from tests.
 - [x] A long session: what happens when the exit changes or goes away while browsing
 - [x] The exit address of every profile, running or stopped, in the interface, the API and MCP
 - [x] A start that does not wait for an exit already seen twice
+- [x] A proxy that changes its exit moves the running profile: time zone, languages, position and WebRTC address become the new exit's in the open pages, their workers and every later process, without a restart (edit 0043, `place.json`); a proxy check moves it at once
 
 ## 2. Managing many profiles
 

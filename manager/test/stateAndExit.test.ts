@@ -69,6 +69,8 @@ before(async () => {
   launcher = new Launcher(store, (_kernel, args) =>
       spawn(process.execPath, [join(here, 'stub-kernel.mjs'), ...args], { stdio: 'ignore' }), async () => true,
       async () => ({}));
+  // The stand-in kernel is one from before a running browser could be moved.
+  launcher.moveWaitMs = 40;
   await writeFile(join(dir, 'kernel'), '');
   await store.updateSettings({ kernelPath: join(dir, 'kernel'), exitLookupUrl: lookup, exitWatchMinutes: 0 });
   server = createApiServer({ store, launcher, uiDir: join(here, '..', 'ui') });

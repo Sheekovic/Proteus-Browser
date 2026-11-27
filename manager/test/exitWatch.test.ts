@@ -51,6 +51,9 @@ test('a changed or lost exit is noticed while the profile runs', async () => {
   const store = new Store(dir);
   const launcher = new Launcher(store, (_kernel, args) =>
     spawn(process.execPath, [join(here, 'stub-kernel.mjs'), ...args], { stdio: 'ignore' }), async () => true);
+  // This kernel is one from before a running browser could be moved: it never says
+  // it took a new place, and is not waited for long.
+  launcher.moveWaitMs = 40;
   try {
     await writeFile(join(dir, 'kernel'), '');
     // A look every 60 milliseconds, so the test does not wait minutes.

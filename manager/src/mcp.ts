@@ -101,6 +101,7 @@ function summary(profile: Awaited<ReturnType<typeof profileWithStatus>>) {
     // Where the proxy comes out (running), or came out the last time it was asked (stopped).
     ...(profile.status.proxyExit ? { proxyExit: profile.status.proxyExit } : {}),
     ...(profile.status.lastProxyExit ? { lastProxyExit: profile.status.lastProxyExit } : {}),
+    ...(profile.status.exitMovedAt ? { exitMovedAt: profile.status.exitMovedAt } : {}),
     ...(profile.status.exitNow ? { exitNow: profile.status.exitNow } : {}),
     ...(profile.status.exitProblem ? { exitProblem: profile.status.exitProblem } : {}),
     ...(profile.status.debuggerUrl ? { debuggerUrl: profile.status.debuggerUrl } : {}),

@@ -64,7 +64,8 @@ In `status`:
 | `proxyExit` | running, with a proxy | The address (and time zone, position) the proxy comes out on. With `matchProxy` on it is always there and the browser was matched to it. With `matchProxy` off nobody is asked at a start, so it is what the last proxy check or matched run found, if anything. |
 | `exitSeenAt` | with `proxyExit` | When that address was last seen. |
 | `lastProxyExit` | stopped, with a proxy | Where the proxy came out the last time it was asked, with `at`. |
-| `exitNow` | running | The proxy has moved to this address since the start: restart the profile to match it. |
+| `exitMovedAt` | running | When the browser was last moved to a new exit while it ran: `proxyExit` is that exit, and the time zone, languages, position and WebRTC address are its. |
+| `exitNow` | running | The proxy comes out at this address now and the browser could not be moved there (a kernel from release 0.1.0 or before, or an exit whose time zone nobody can tell): restart the profile to match it. |
 | `exitProblem` | running | Why the proxy could not be reached at the last look. |
 | `lastExit` | stopped | How the last run ended, if it ended on its own. |
 
@@ -169,9 +170,26 @@ starts in about 1.5 s. Behind a proxy almost all of the time is the exit lookup:
 to 27 s in our runs through a residential proxy. Once the exit has been the same
 twice it is remembered for `exitCacheMinutes` (30 by default, a setting) and the
 start takes about 1.4 s; the lookup then runs while the browser comes up, and
-`exitNow` says so if the exit has moved after all. A proxy that gives a new address
+the browser is moved if the exit has moved after all. A proxy that gives a new address
 on every connection never qualifies and is always asked first, as is any proxy with
 the setting at 0.
+
+**A proxy that changes its exit.** A running profile follows it: no restart. While a
+matched profile runs its proxy is asked again every `exitWatchMinutes` (10 by default,
+a setting; fractions are taken), and when it comes out somewhere else the browser is
+moved there as it stands: the time zone, the languages (unless you chose them), the
+position and the address WebRTC shows become the new exit's, in the pages that are
+open, in their workers and in everything opened afterwards. A page sees what it would
+see on a laptop carried to another country: the clock changes, and `languagechange`
+fires. `proxyExit` is then the new exit and `exitMovedAt` says when.
+
+A program that makes the proxy change (a rotation link, a provider's API) need not
+wait for the next look: `POST /api/proxy/check` with `{"profileId": "<id>"}` asks the
+proxy now, and the running profile is moved by the time the reply comes.
+
+What does not move: the language the browser's own texts and `Intl` formats default
+to (`--lang`, set at the start, as a real Chrome's is until it is restarted), and
+connections that were already open, which stay on the address they were made from.
 
 **Lists a profile carries.** Fonts, voices and media devices are part of a profile
 from the moment it is made. Its languages are not, unless given: the first time such a

@@ -147,8 +147,14 @@ Starting opens a real browser window on the user's screen and returns the status
 - `lastProxyExit` - on a stopped profile: where its proxy came out the last time it
   was asked, and when (`at`). The list shows it too, so "which address is this
   profile on?" needs no start.
-- `exitNow` - present when the proxy has since moved to another address: the browser
-  still shows the first exit's time zone, so tell the user and restart the profile.
+- `exitMovedAt` - present when the proxy came out somewhere else while the profile
+  ran and the browser was moved there without a restart: `proxyExit` is the new exit,
+  and the time zone, languages, position and WebRTC address are its.
+- `exitNow` - present when the proxy has moved to another address and the browser
+  could not be moved there (an old kernel, or an exit without a time zone): it still
+  shows the earlier exit's time zone, so tell the user and restart the profile.
+- After making a proxy change its exit yourself, call the proxy check for the profile
+  (`check_proxy` with its id): the running profile is moved before the reply.
 - `exitProblem` - present while the proxy cannot be reached.
 
 A start fails with a clear message when the proxy does not work; report it rather
@@ -169,7 +175,7 @@ A profile without a proxy starts in about 1.5 seconds. Behind a proxy the first
 start waits for the exit lookup (seconds, sometimes tens of them). Once the exit has
 been the same twice, later starts within `exitCacheMinutes` (a setting, 30 by
 default) do not wait: they use the remembered exit and check it while the browser
-comes up. If `exitNow` then appears, the exit moved: restart the profile.
+comes up. If the exit moved after all, the running browser is moved to it.
 
 ## 5. Working inside a running profile
 

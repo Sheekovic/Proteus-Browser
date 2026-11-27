@@ -155,6 +155,9 @@ it back — still pass. Reading the same thing twice gives the same answer.
   Chrome installed in that country's language), the position and the WebRTC address
   are the exit's. A value you set yourself stays. A profile whose exit's time zone
   nobody can tell does not start, rather than show this machine's.
+- **A proxy that changes its exit takes the running profile with it.** No restart:
+  the open pages get the new place's clock, languages, position and WebRTC address,
+  as on a laptop carried to another country.
 - A profile that came out at the same address twice starts without waiting for the
   lookup, which is repeated while the browser comes up.
 
@@ -335,6 +338,14 @@ not part of this repository:
 ```bash
 mkdir libraries && cd libraries && npm init -y && npm install puppeteer-core playwright-core && cd ..
 node manager/test/e2e/automation.mjs <path to chrome> libraries
+```
+
+**A moving proxy** — a profile runs on the real kernel behind a proxy of the test's
+own, the proxy starts coming out somewhere else, and the page that was open has to be
+in the new place:
+
+```bash
+node manager/test/e2e/move.mjs <path to chrome>
 ```
 
 **Updating** — a pretend release folder runs the manager, a pretend GitHub on this
