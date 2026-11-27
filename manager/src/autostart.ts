@@ -10,7 +10,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import * as path from 'node:path';
 
 export const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 export const RUN_VALUE = 'Proteus';
@@ -44,6 +44,8 @@ function desktopWord(word: string): string {
  */
 export function autostartPlan(place: AutostartPlace): AutostartPlan | null {
   const exists = place.exists ?? existsSync;
+  // A Windows path is taken apart as one, whatever system this runs on.
+  const { dirname, join } = place.platform === 'win32' ? path.win32 : path;
   const root = dirname(place.managerDir);
   const main = join(place.managerDir, 'src', 'main.ts');
   if (place.platform === 'win32') {
@@ -76,7 +78,7 @@ const runProgram: Run = (program, args) => new Promise((resolve, reject) => {
 export async function setAutostart(on: boolean, plan: AutostartPlan, run: Run = runProgram): Promise<void> {
   if (plan.kind === 'desktop') {
     if (!on) return rm(plan.file, { force: true });
-    await mkdir(dirname(plan.file), { recursive: true });
+    await mkdir(path.dirname(plan.file), { recursive: true });
     return writeFile(plan.file, plan.text, 'utf8');
   }
   if (on) {

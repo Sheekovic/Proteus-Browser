@@ -18,7 +18,8 @@ before(async () => {
   dir = await mkdtemp(join(tmpdir(), 'proteus-camera-'));
   store = new Store(dir);
 });
-after(async () => { await rm(dir, { recursive: true, force: true }); });
+// A browser that was just stopped may hold its folder a moment longer on Windows.
+after(async () => { await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); });
 
 test('a profile shows a covered lens unless it names a video file or asks for the machine', async () => {
   const profile = await store.createProfile({ os: 'windows' });
