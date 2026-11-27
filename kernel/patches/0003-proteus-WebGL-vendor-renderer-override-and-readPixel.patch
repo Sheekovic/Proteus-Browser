@@ -1,7 +1,7 @@
 From fc140981c92629f9962533f3eedc073a2ed67e0d Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 13:06:15 +0000
-Subject: [PATCH 03/33] proteus: WebGL vendor/renderer override and readPixels
+Subject: [PATCH 03/34] proteus: WebGL vendor/renderer override and readPixels
  noise
 
 ---

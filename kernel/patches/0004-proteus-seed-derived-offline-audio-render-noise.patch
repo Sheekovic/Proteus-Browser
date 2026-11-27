@@ -1,7 +1,7 @@
 From df3d1b865d4f17478028ab4b9fb0acc6d6cfac65 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Sun, 15 Nov 2026 13:20:54 +0000
-Subject: [PATCH 04/33] proteus: seed-derived offline audio render noise
+Subject: [PATCH 04/34] proteus: seed-derived offline audio render noise
 
 ---
  base/proteus/proteus_config.cc                |  1 +

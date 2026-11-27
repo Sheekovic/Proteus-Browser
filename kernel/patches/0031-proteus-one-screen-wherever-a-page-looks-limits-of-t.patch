@@ -1,7 +1,7 @@
 From 7b1780f40487f02ed0790077c9868be9bd605e44 Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Thu, 26 Nov 2026 05:04:28 +0000
-Subject: [PATCH 31/33] proteus: one screen wherever a page looks, limits of
+Subject: [PATCH 31/34] proteus: one screen wherever a page looks, limits of
  the claimed card held where the drawing is done, pages laid out at the
  profile scale with the window at the machine scale, a camera from a file in
  the sizes a camera has, fonts that come with Proteus counted as installed,

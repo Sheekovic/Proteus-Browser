@@ -1,7 +1,7 @@
 From a34c17941909cb4fe291129ce2ba80b245de398c Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Thu, 26 Nov 2026 11:26:10 +0000
-Subject: [PATCH 32/33] proteus: what reading it back on Windows showed: places
+Subject: [PATCH 32/34] proteus: what reading it back on Windows showed: places
  a driving program gives are in the page own pixels, a step of the wheel is
  exact, the one screen has the profile scale, and the fonts folder reaches the
  font service pages ask on Windows

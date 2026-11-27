@@ -1,0 +1,759 @@
+From 4671492a3314b4b31081e188e9c076c7b6eecbfa Mon Sep 17 00:00:00 2001
+From: Proteus <proteus@localhost>
+Date: Fri, 27 Nov 2026 16:12:49 +0000
+Subject: [PATCH 34/34] proteus: A proxy that changes its exit moves the
+ running profile (0043)
+
+---
+ base/BUILD.gn                                 |   2 +
+ base/proteus/proteus_place.cc                 | 278 ++++++++++++++++++
+ base/proteus/proteus_place.h                  |  86 ++++++
+ .../browser/chrome_content_browser_client.cc  |   7 +
+ .../net/profile_network_context_service.cc    |   9 +-
+ .../geolocation/geolocation_provider_impl.cc  |  11 +-
+ .../geolocation_system_permission_manager.cc  |   3 +-
+ .../time_zone_monitor/time_zone_monitor.cc    |  24 +-
+ .../time_zone_monitor/time_zone_monitor.h     |   7 +
+ .../renderer/core/frame/navigator_language.cc |   3 +-
+ .../core/timezone/timezone_controller.cc      |  60 +++-
+ .../peerconnection/proteus_webrtc_spoof.cc    |   7 +-
+ 12 files changed, 485 insertions(+), 12 deletions(-)
+ create mode 100644 base/proteus/proteus_place.cc
+ create mode 100644 base/proteus/proteus_place.h
+
+diff --git a/base/BUILD.gn b/base/BUILD.gn
+index be5ef5369c..1516f3acb0 100644
+--- a/base/BUILD.gn
++++ b/base/BUILD.gn
+@@ -275,6 +275,8 @@ component("base") {
+     "base64.h",
+     "proteus/proteus_config.cc",
+     "proteus/proteus_config.h",
++    "proteus/proteus_place.cc",
++    "proteus/proteus_place.h",
+     "base64url.cc",
+     "base64url.h",
+     "base_switches.h",
+diff --git a/base/proteus/proteus_place.cc b/base/proteus/proteus_place.cc
+new file mode 100644
+index 0000000000..0740922742
+--- /dev/null
++++ b/base/proteus/proteus_place.cc
+@@ -0,0 +1,278 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "base/proteus/proteus_place.h"
++
++#include <atomic>
++#include <tuple>
++#include <utility>
++#include <vector>
++
++#include "base/base64.h"
++#include "base/command_line.h"
++#include "base/files/file.h"
++#include "base/files/file_path.h"
++#include "base/files/file_util.h"
++#include "base/functional/bind.h"
++#include "base/json/json_reader.h"
++#include "base/json/json_writer.h"
++#include "base/location.h"
++#include "base/memory/scoped_refptr.h"
++#include "base/no_destructor.h"
++#include "base/proteus/proteus_config.h"
++#include "base/strings/string_split.h"
++#include "base/synchronization/lock.h"
++#include "base/task/sequenced_task_runner.h"
++#include "base/task/task_traits.h"
++#include "base/task/thread_pool.h"
++#include "base/time/time.h"
++#include "base/values.h"
++
++namespace base::proteus {
++
++const char kPlaceSwitch[] = "proteus-place";
++
++namespace {
++
++// Ahead of a place sent where a time zone's name is sent. No time zone has a
++// colon in its name.
++constexpr std::string_view kMessagePrefix = "proteus-place:";
++constexpr size_t kMaxPlaceBytes = 64 * 1024;
++constexpr TimeDelta kLookEvery = Seconds(1);
++
++std::atomic<bool> g_moved{false};
++
++// The keys are the configuration's own (proteus_config.cc).
++Place FromDict(const DictValue& dict) {
++  Place place;
++  if (const std::string* timezone = dict.FindString("timezone")) {
++    place.timezone = *timezone;
++  }
++  if (const std::string* address = dict.FindString("webRtcPublicIp")) {
++    place.webrtc_public_ip = *address;
++  }
++  if (const ListValue* languages = dict.FindList("languages")) {
++    for (const Value& language : *languages) {
++      if (!language.is_string() || language.GetString().empty()) {
++        continue;
++      }
++      if (!place.accept_languages.empty()) {
++        place.accept_languages += ",";
++      }
++      place.accept_languages += language.GetString();
++    }
++  }
++  if (const DictValue* geo = dict.FindDict("geolocation")) {
++    const std::optional<double> latitude = geo->FindDouble("latitude");
++    const std::optional<double> longitude = geo->FindDouble("longitude");
++    if (latitude && longitude && *latitude >= -90 && *latitude <= 90 &&
++        *longitude >= -180 && *longitude <= 180) {
++      place.has_geolocation = true;
++      place.geolocation_latitude = *latitude;
++      place.geolocation_longitude = *longitude;
++      const double accuracy = geo->FindDouble("accuracy").value_or(50.0);
++      place.geolocation_accuracy = accuracy > 0 ? accuracy : 50.0;
++    }
++  }
++  return place;
++}
++
++std::string ToJson(const Place& place) {
++  DictValue dict;
++  dict.Set("timezone", place.timezone);
++  dict.Set("webRtcPublicIp", place.webrtc_public_ip);
++  ListValue languages;
++  for (const std::string& language :
++       SplitString(place.accept_languages, ",", TRIM_WHITESPACE,
++                   SPLIT_WANT_NONEMPTY)) {
++    languages.Append(language);
++  }
++  dict.Set("languages", std::move(languages));
++  if (place.has_geolocation) {
++    DictValue geo;
++    geo.Set("latitude", place.geolocation_latitude);
++    geo.Set("longitude", place.geolocation_longitude);
++    geo.Set("accuracy", place.geolocation_accuracy);
++    dict.Set("geolocation", std::move(geo));
++  }
++  return WriteJson(dict).value_or(std::string());
++}
++
++std::optional<Place> FromJson(std::string_view json) {
++  std::optional<DictValue> dict = JSONReader::ReadDict(json, JSON_PARSE_RFC);
++  if (!dict) {
++    return std::nullopt;
++  }
++  return FromDict(*dict);
++}
++
++// The place this process starts in: the one it was given on its command line
++// (a process started after a move), or else the configuration's.
++Place InitialPlace() {
++  if (CommandLine::InitializedForCurrentProcess()) {
++    const CommandLine& command_line = *CommandLine::ForCurrentProcess();
++    if (command_line.HasSwitch(kPlaceSwitch)) {
++      std::string json;
++      if (Base64Decode(command_line.GetSwitchValueASCII(kPlaceSwitch),
++                       &json)) {
++        if (std::optional<Place> given = FromJson(json)) {
++          return *given;
++        }
++      }
++    }
++  }
++  const Config& config = GetConfig();
++  Place place;
++  place.timezone = config.timezone;
++  place.accept_languages = config.accept_languages;
++  place.webrtc_public_ip = config.webrtc_public_ip;
++  place.has_geolocation = config.has_geolocation;
++  place.geolocation_latitude = config.geolocation_latitude;
++  place.geolocation_longitude = config.geolocation_longitude;
++  place.geolocation_accuracy = config.geolocation_accuracy;
++  return place;
++}
++
++// The place now. A place that was replaced is never freed: a reference to it,
++// or to one of its strings, may be in use on another thread. A profile moves a
++// few times in a run at most.
++std::atomic<const Place*>& Slot() {
++  static std::atomic<const Place*> slot{new Place(InitialPlace())};
++  return slot;
++}
++
++Lock& ObserversLock() {
++  static NoDestructor<Lock> lock;
++  return *lock;
++}
++
++std::vector<RepeatingClosure>& Observers() {
++  static NoDestructor<std::vector<RepeatingClosure>> observers;
++  return *observers;
++}
++
++// What tells one state of the file from the next.
++struct FileState {
++  bool there = false;
++  Time modified;
++  int64_t size = 0;
++
++  bool operator==(const FileState& other) const {
++    return there == other.there && modified == other.modified &&
++           size == other.size;
++  }
++};
++
++FileState StateOf(const FilePath& path) {
++  File::Info info;
++  if (!GetFileInfo(path, &info)) {
++    return FileState();
++  }
++  return {true, info.last_modified, info.size};
++}
++
++// Looks at the file, takes it for the place if it has changed since `seen`, and
++// looks again later. A file that cannot be read whole (it is being written) is
++// read at the next look.
++void Look(scoped_refptr<SequencedTaskRunner> runner,
++          FilePath path,
++          FileState seen) {
++  const FileState now = StateOf(path);
++  if (now.there && !(now == seen)) {
++    std::string json;
++    if (ReadFileToStringWithMaxSize(path, &json, kMaxPlaceBytes)) {
++      if (std::optional<DictValue> dict =
++              JSONReader::ReadDict(json, JSON_PARSE_RFC)) {
++        SetPlace(FromDict(*dict));
++        seen = now;
++        // Whoever wrote the file learns from this that the browser has moved:
++        // the file's "id" comes back in "place.taken" beside it.
++        const std::string* id = dict->FindString("id");
++        std::ignore = WriteFile(path.DirName().AppendASCII("place.taken"),
++                                id ? *id : std::string());
++      }
++    }
++  }
++  runner->PostDelayedTask(FROM_HERE, BindOnce(&Look, runner, path, seen),
++                          kLookEvery);
++}
++
++void LookFirst(scoped_refptr<SequencedTaskRunner> runner, FilePath path) {
++  // What is there now was left by an earlier run.
++  const FileState seen = StateOf(path);
++  Look(std::move(runner), std::move(path), seen);
++}
++
++}  // namespace
++
++Place::Place() = default;
++Place::Place(const Place&) = default;
++Place& Place::operator=(const Place&) = default;
++Place::~Place() = default;
++
++const Place& GetPlace() {
++  return *Slot().load(std::memory_order_acquire);
++}
++
++void SetPlace(Place place) {
++  Slot().store(new Place(std::move(place)), std::memory_order_release);
++  g_moved.store(true, std::memory_order_release);
++  std::vector<RepeatingClosure> observers;
++  {
++    AutoLock locker(ObserversLock());
++    observers = Observers();
++  }
++  for (const RepeatingClosure& observer : observers) {
++    observer.Run();
++  }
++}
++
++bool PlaceHasMoved() {
++  return g_moved.load(std::memory_order_acquire);
++}
++
++void AddPlaceObserver(RepeatingClosure observer) {
++  AutoLock locker(ObserversLock());
++  Observers().push_back(std::move(observer));
++}
++
++std::string PlaceMessage(const Place& place) {
++  return std::string(kMessagePrefix) + ToJson(place);
++}
++
++std::optional<Place> PlaceFromMessage(std::string_view message) {
++  if (!message.starts_with(kMessagePrefix)) {
++    return std::nullopt;
++  }
++  return FromJson(message.substr(kMessagePrefix.size()));
++}
++
++std::string PlaceSwitchValue() {
++  if (!PlaceHasMoved()) {
++    return std::string();
++  }
++  return Base64Encode(ToJson(GetPlace()));
++}
++
++void WatchPlaceFile() {
++  static std::atomic<bool> started{false};
++  if (started.exchange(true) || !CommandLine::InitializedForCurrentProcess()) {
++    return;
++  }
++  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
++  if (!command_line.HasSwitch(kConfigFileSwitch) || !GetConfig().active) {
++    return;
++  }
++  FilePath path = command_line.GetSwitchValuePath(kConfigFileSwitch)
++                      .DirName()
++                      .AppendASCII("place.json");
++  scoped_refptr<SequencedTaskRunner> runner =
++      ThreadPool::CreateSequencedTaskRunner(
++          {MayBlock(), TaskPriority::USER_VISIBLE,
++           TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
++  runner->PostTask(FROM_HERE,
++                   BindOnce(&LookFirst, runner, std::move(path)));
++}
++
++}  // namespace base::proteus
+diff --git a/base/proteus/proteus_place.h b/base/proteus/proteus_place.h
+new file mode 100644
+index 0000000000..3c254b55fd
+--- /dev/null
++++ b/base/proteus/proteus_place.h
+@@ -0,0 +1,86 @@
++// Copyright 2026 The Proteus Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef BASE_PROTEUS_PROTEUS_PLACE_H_
++#define BASE_PROTEUS_PROTEUS_PLACE_H_
++
++#include <optional>
++#include <string>
++#include <string_view>
++
++#include "base/base_export.h"
++#include "base/functional/callback.h"
++
++namespace base::proteus {
++
++// The name of the switch a child process started after a move is given the place
++// with (the place's text, base64).
++BASE_EXPORT extern const char kPlaceSwitch[];
++
++// Where a profile is: the part of its configuration that follows the address its
++// connections come out at, and so the part that may change while it runs. A proxy
++// that starts coming out somewhere else has moved the browser there, as a laptop
++// carried to another country is moved: its time zone, languages, position and
++// the address WebRTC shows are then the new place's.
++//
++// Everything else of a profile is read once (proteus_config.h) and stays.
++struct BASE_EXPORT Place {
++  Place();
++  Place(const Place&);
++  Place& operator=(const Place&);
++  ~Place();
++
++  // IANA time zone id, or empty for the host's.
++  std::string timezone;
++  // Preferred languages, most preferred first, comma separated; empty for the
++  // browser's own.
++  std::string accept_languages;
++  // The public address WebRTC reports, or empty for none.
++  std::string webrtc_public_ip;
++  // The position navigator.geolocation reports, if any.
++  bool has_geolocation = false;
++  double geolocation_latitude = 0;
++  double geolocation_longitude = 0;
++  double geolocation_accuracy = 0;
++};
++
++// The place as it is now, in this process. It starts as the configuration's (or,
++// in a process started after a move, as the place that process was given). The
++// reference stays valid for the life of the process: a replaced place is kept.
++// Safe on any thread.
++BASE_EXPORT const Place& GetPlace();
++
++// Replaces the place in this process and runs the observers. Safe on any thread.
++BASE_EXPORT void SetPlace(Place place);
++
++// Whether the place has been replaced since this process read its configuration.
++BASE_EXPORT bool PlaceHasMoved();
++
++// Runs `observer` after every SetPlace(), on the thread that called it; bind it to
++// the sequence it belongs on. Observers are never removed: bind weakly.
++BASE_EXPORT void AddPlaceObserver(RepeatingClosure observer);
++
++// A place as one line of text that is no time zone's name, to send where a time
++// zone's name is sent, and back. PlaceFromMessage gives nothing for a text that
++// is not such a line.
++BASE_EXPORT std::string PlaceMessage(const Place& place);
++BASE_EXPORT std::optional<Place> PlaceFromMessage(std::string_view message);
++
++// The value of kPlaceSwitch for a child process started now, or empty when the
++// place has not moved (the child then reads the configuration, as before).
++BASE_EXPORT std::string PlaceSwitchValue();
++
++// In the browser process of a profile started from a configuration file: looks
++// now and then at "place.json" beside that file and makes what it holds the
++// place. The file has the configuration's own keys: "timezone", "languages",
++// "geolocation" and "webRtcPublicIp". Once the place is taken, the file's "id"
++// (any text) is written to "place.taken" beside it, which tells the writer that
++// this browser can be moved and has been. A file that was there at the start is
++// not read until it changes. Does nothing without a configuration file, and nothing
++// the second time.
++BASE_EXPORT void WatchPlaceFile();
++
++}  // namespace base::proteus
++
++#endif  // BASE_PROTEUS_PROTEUS_PLACE_H_
+diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+index 9ae32c9124..355507f79b 100644
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -42,6 +42,7 @@
+ #include "base/notreached.h"
+ #include "base/path_service.h"
+ #include "base/proteus/proteus_config.h"
++#include "base/proteus/proteus_place.h"
+ #include "base/stl_util.h"
+ #include "base/strings/strcat.h"
+ #include "base/strings/string_number_conversions.h"
+@@ -3103,6 +3104,12 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
+     command_line->AppendSwitchASCII(base::proteus::kConfigDataSwitch,
+                                     proteus_config.serialized);
+   }
++  // Proteus: see patch 0043.
++  if (const std::string place = base::proteus::PlaceSwitchValue();
++      !place.empty() &&
++      !command_line->HasSwitch(base::proteus::kPlaceSwitch)) {
++    command_line->AppendSwitchASCII(base::proteus::kPlaceSwitch, place);
++  }
+   // Proteus: see patch 0042.
+   if (base::CommandLine::ForCurrentProcess()->HasSwitch("headless") &&
+       !command_line->HasSwitch("proteus-headless")) {
+diff --git a/chrome/browser/net/profile_network_context_service.cc b/chrome/browser/net/profile_network_context_service.cc
+index 212002505a..f134139fbf 100644
+--- a/chrome/browser/net/profile_network_context_service.cc
++++ b/chrome/browser/net/profile_network_context_service.cc
+@@ -24,6 +24,8 @@
+ #include "base/metrics/field_trial_params.h"
+ #include "base/notreached.h"
+ #include "base/proteus/proteus_config.h"
++#include "base/proteus/proteus_place.h"
++#include "base/task/bind_post_task.h"
+ #include "base/strings/strcat.h"
+ #include "base/strings/string_split.h"
+ #include "base/strings/string_util.h"
+@@ -538,6 +540,11 @@ ProfileNetworkContextService::ProfileNetworkContextService(Profile* profile)
+       base::BindRepeating(&ProfileNetworkContextService::UpdateReferrersEnabled,
+                           base::Unretained(this)));
+   cookie_settings_ = CookieSettingsFactory::GetForProfile(profile);
++  // Proteus: see patch 0043.
++  base::proteus::AddPlaceObserver(base::BindPostTaskToCurrentDefault(
++      base::BindRepeating(&ProfileNetworkContextService::UpdateAcceptLanguage,
++                          weak_factory_.GetWeakPtr())));
++  base::proteus::WatchPlaceFile();
+   cookie_settings_observation_.Observe(cookie_settings_.get());
+ 
+   DisableQuicIfNotAllowed();
+@@ -715,7 +722,7 @@ void ProfileNetworkContextService::OnThirdPartyCookieBlockingChanged(
+ 
+ std::string ProfileNetworkContextService::ComputeAcceptLanguage() const {
+   if (const std::string& forced =
+-          base::proteus::GetConfig().accept_languages;
++          base::proteus::GetPlace().accept_languages;
+       !forced.empty()) {
+     return ComputeAcceptLanguageFromPref(forced);
+   }
+diff --git a/services/device/geolocation/geolocation_provider_impl.cc b/services/device/geolocation/geolocation_provider_impl.cc
+index caea6a5743..f5a45c84da 100644
+--- a/services/device/geolocation/geolocation_provider_impl.cc
++++ b/services/device/geolocation/geolocation_provider_impl.cc
+@@ -19,6 +19,7 @@
+ #include "base/no_destructor.h"
+ #include "base/notreached.h"
+ #include "base/proteus/proteus_config.h"
++#include "base/proteus/proteus_place.h"
+ #include "base/task/single_thread_task_runner.h"
+ #include "base/time/default_tick_clock.h"
+ #include "build/build_config.h"
+@@ -43,14 +44,14 @@ namespace {
+ 
+ // The profile's position as a fresh fix, or null without one.
+ mojom::GeopositionResultPtr ProteusForcedPosition() {
+-  const base::proteus::Config& config = base::proteus::GetConfig();
+-  if (!config.has_geolocation) {
++  const base::proteus::Place& place = base::proteus::GetPlace();
++  if (!place.has_geolocation) {
+     return nullptr;
+   }
+   auto position = mojom::Geoposition::New();
+-  position->latitude = config.geolocation_latitude;
+-  position->longitude = config.geolocation_longitude;
+-  position->accuracy = config.geolocation_accuracy;
++  position->latitude = place.geolocation_latitude;
++  position->longitude = place.geolocation_longitude;
++  position->accuracy = place.geolocation_accuracy;
+   position->timestamp = base::Time::Now();
+   return mojom::GeopositionResult::NewPosition(std::move(position));
+ }
+diff --git a/services/device/public/cpp/geolocation/geolocation_system_permission_manager.cc b/services/device/public/cpp/geolocation/geolocation_system_permission_manager.cc
+index c640583006..b9e162b7d0 100644
+--- a/services/device/public/cpp/geolocation/geolocation_system_permission_manager.cc
++++ b/services/device/public/cpp/geolocation/geolocation_system_permission_manager.cc
+@@ -7,6 +7,7 @@
+ #include "base/check_op.h"
+ #include "base/no_destructor.h"
+ #include "base/proteus/proteus_config.h"
++#include "base/proteus/proteus_place.h"
+ #include "base/sequence_checker.h"
+ #include "services/device/public/cpp/device_features.h"
+ 
+@@ -95,7 +96,7 @@ GeolocationSystemPermissionManager::SystemGeolocationSourceForTest() {
+ LocationSystemPermissionStatus
+ GeolocationSystemPermissionManager::GetSystemPermission() const {
+   CHECK(features::IsOsLevelGeolocationPermissionSupportEnabled());
+-  if (base::proteus::GetConfig().has_geolocation) {
++  if (base::proteus::GetPlace().has_geolocation) {
+     return LocationSystemPermissionStatus::kAllowed;
+   }
+   return permission_cache_;
+diff --git a/services/device/time_zone_monitor/time_zone_monitor.cc b/services/device/time_zone_monitor/time_zone_monitor.cc
+index 5851ef75ab..7707290ae9 100644
+--- a/services/device/time_zone_monitor/time_zone_monitor.cc
++++ b/services/device/time_zone_monitor/time_zone_monitor.cc
+@@ -4,8 +4,11 @@
+ 
+ #include "services/device/time_zone_monitor/time_zone_monitor.h"
+ 
++#include "base/functional/bind.h"
+ #include "base/logging.h"
+ #include "base/memory/ptr_util.h"
++#include "base/proteus/proteus_place.h"
++#include "base/task/bind_post_task.h"
+ #include "base/trace_event/trace_event.h"
+ #include "third_party/icu/source/common/unicode/unistr.h"
+ #include "third_party/icu/source/i18n/unicode/timezone.h"
+@@ -13,7 +16,21 @@
+ namespace device {
+ 
+ TimeZoneMonitor::TimeZoneMonitor()
+-    : timezone_(icu::TimeZone::createDefault()) {}
++    : timezone_(icu::TimeZone::createDefault()) {
++  // Proteus: see patch 0043.
++  base::proteus::AddPlaceObserver(base::BindPostTaskToCurrentDefault(
++      base::BindRepeating(&TimeZoneMonitor::ProteusPlaceMoved,
++                          proteus_weak_factory_.GetWeakPtr())));
++}
++
++void TimeZoneMonitor::ProteusPlaceMoved() {
++  DCHECK(thread_checker_.CalledOnValidThread());
++  const std::string message =
++      base::proteus::PlaceMessage(base::proteus::GetPlace());
++  for (auto& client : clients_) {
++    client->OnTimeZoneChange(message);
++  }
++}
+ 
+ TimeZoneMonitor::~TimeZoneMonitor() {
+   DCHECK(thread_checker_.CalledOnValidThread());
+@@ -71,6 +88,11 @@ void TimeZoneMonitor::AddClient(
+   DCHECK(thread_checker_.CalledOnValidThread());
+   auto id = clients_.Add(std::move(client));
+   clients_.Get(id)->OnTimeZoneChange(GetTimeZoneId(*timezone_));
++  // Proteus: a process that started while the place was being moved.
++  if (base::proteus::PlaceHasMoved()) {
++    clients_.Get(id)->OnTimeZoneChange(
++        base::proteus::PlaceMessage(base::proteus::GetPlace()));
++  }
+ }
+ 
+ }  // namespace device
+diff --git a/services/device/time_zone_monitor/time_zone_monitor.h b/services/device/time_zone_monitor/time_zone_monitor.h
+index 0150aa4711..e3df594926 100644
+--- a/services/device/time_zone_monitor/time_zone_monitor.h
++++ b/services/device/time_zone_monitor/time_zone_monitor.h
+@@ -9,6 +9,7 @@
+ #include <string>
+ #include <string_view>
+ 
++#include "base/memory/weak_ptr.h"
+ #include "base/threading/thread_checker.h"
+ #include "mojo/public/cpp/bindings/pending_receiver.h"
+ #include "mojo/public/cpp/bindings/pending_remote.h"
+@@ -89,6 +90,12 @@ class TimeZoneMonitor : public device::mojom::TimeZoneMonitor {
+ 
+   mojo::ReceiverSet<device::mojom::TimeZoneMonitor> receivers_;
+   mojo::RemoteSet<device::mojom::TimeZoneMonitorClient> clients_;
++
++  // Proteus: sends a profile's place to every client once it has moved
++  // (patch 0043).
++  void ProteusPlaceMoved();
++
++  base::WeakPtrFactory<TimeZoneMonitor> proteus_weak_factory_{this};
+ };
+ 
+ }  // namespace device
+diff --git a/third_party/blink/renderer/core/frame/navigator_language.cc b/third_party/blink/renderer/core/frame/navigator_language.cc
+index 0cf1ef6f7c..5959faf251 100644
+--- a/third_party/blink/renderer/core/frame/navigator_language.cc
++++ b/third_party/blink/renderer/core/frame/navigator_language.cc
+@@ -8,6 +8,7 @@
+ 
+ #include "base/containers/span.h"
+ #include "base/proteus/proteus_config.h"
++#include "base/proteus/proteus_place.h"
+ 
+ #include "services/network/public/cpp/features.h"
+ #include "third_party/blink/renderer/core/probe/core_probes.h"
+@@ -87,7 +88,7 @@ void NavigatorLanguage::EnsureUpdatedLanguage() {
+ 
+   if (languages_dirty_) {
+     if (const std::string& forced =
+-            base::proteus::GetConfig().accept_languages;
++            base::proteus::GetPlace().accept_languages;
+         !forced.empty()) {
+       languages_ =
+           ParseAndSanitize(String::FromUtf8(base::as_byte_span(forced)));
+diff --git a/third_party/blink/renderer/core/timezone/timezone_controller.cc b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+index 2db3d30acb..eb3aae5ca2 100644
+--- a/third_party/blink/renderer/core/timezone/timezone_controller.cc
++++ b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+@@ -5,12 +5,15 @@
+ #include "third_party/blink/renderer/core/timezone/timezone_controller.h"
+ 
+ #include <memory>
++#include <optional>
+ #include <string>
++#include <utility>
+ 
+ #include "base/command_line.h"
+ #include "base/containers/span.h"
+ #include "base/feature_list.h"
+ #include "base/proteus/proteus_config.h"
++#include "base/proteus/proteus_place.h"
+ #include "mojo/public/cpp/bindings/pending_remote.h"
+ #include "mojo/public/cpp/bindings/remote.h"
+ #include "third_party/blink/public/common/features.h"
+@@ -25,8 +28,12 @@
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+ #include "third_party/blink/renderer/core/page/page.h"
+ #include "third_party/blink/renderer/core/workers/worker_backing_thread.h"
++#include "third_party/blink/renderer/core/workers/worker_global_scope.h"
++#include "third_party/blink/renderer/core/workers/worker_navigator.h"
+ #include "third_party/blink/renderer/core/workers/worker_or_worklet_global_scope.h"
+ #include "third_party/blink/renderer/core/workers/worker_thread.h"
++#include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
++#include "third_party/blink/renderer/platform/heap/member.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+ #include "third_party/blink/renderer/platform/scheduler/public/main_thread.h"
+ #include "third_party/blink/renderer/platform/scheduler/public/main_thread_scheduler.h"
+@@ -89,6 +96,37 @@ void DispatchTimeZoneChangeEventToFrames() {
+   }
+ }
+ 
++// Proteus: a profile's languages have moved with its place (patch 0043).
++// Every navigator of this process reads them again and is told, as when the
++// user changes the browser's languages.
++void ProteusLanguagesMovedOnWorkerThread(WorkerThread* worker_thread) {
++  DCHECK(worker_thread->IsCurrentThread());
++  if (auto* scope =
++          DynamicTo<WorkerGlobalScope>(worker_thread->GlobalScope())) {
++    scope->navigator()->NotifyUpdate();
++  }
++}
++
++void ProteusLanguagesMoved() {
++  // The event runs the page's script, which may close pages.
++  HeapVector<Member<LocalFrame>> frames;
++  for (const Page* page : Page::OrdinaryPages()) {
++    for (Frame* frame = page->MainFrame(); frame;
++         frame = frame->Tree().TraverseNext()) {
++      if (auto* local_frame = DynamicTo<LocalFrame>(frame)) {
++        frames.push_back(local_frame);
++      }
++    }
++  }
++  for (LocalFrame* frame : frames) {
++    if (LocalDOMWindow* window = frame->DomWindow()) {
++      window->AcceptLanguagesChanged();
++    }
++  }
++  WorkerThread::CallOnAllWorkerThreads(&ProteusLanguagesMovedOnWorkerThread,
++                                       TaskType::kInternalDefault);
++}
++
+ void NotifyTimezoneChangeOnMainThread() {
+   Thread::MainThread()
+       ->Scheduler()
+@@ -110,7 +148,7 @@ TimeZoneController::~TimeZoneController() = default;
+ 
+ // static
+ void TimeZoneController::Init() {
+-  if (const std::string& forced = base::proteus::GetConfig().timezone;
++  if (const std::string& forced = base::proteus::GetPlace().timezone;
+       !forced.empty()) {
+     std::unique_ptr<icu::TimeZone> zone(icu::TimeZone::createTimeZone(
+         icu::UnicodeString::fromUTF8(forced)));
+@@ -267,6 +305,26 @@ bool TimeZoneController::SetIcuTimeZoneAndNotifyV8(const String& timezone_id) {
+ void TimeZoneController::OnTimeZoneChange(const String& timezone_id) {
+   DCHECK(IsMainThread());
+ 
++  // Proteus: not a time zone but a profile's new place (patch 0043).
++  if (std::optional<base::proteus::Place> place =
++          base::proteus::PlaceFromMessage(timezone_id.Utf8())) {
++    const String zone = String::FromUtf8(place->timezone);
++    const bool languages_moved = place->accept_languages !=
++                                 base::proteus::GetPlace().accept_languages;
++    base::proteus::SetPlace(std::move(*place));
++    if (!zone.empty()) {
++      base::AutoLock locker(instance().lock_);
++      if (!CanonicalEquals(instance().override_timezone_id_, zone) &&
++          SetIcuTimeZoneAndNotifyV8(zone)) {
++        instance().override_timezone_id_ = zone;
++      }
++    }
++    if (languages_moved) {
++      ProteusLanguagesMoved();
++    }
++    return;
++  }
++
+   base::AutoLock locker(instance().lock_);
+ 
+   // Remember requested timezone id so we can set it when timezone
+diff --git a/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.cc b/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.cc
+index b038ac9601..9feab755df 100644
+--- a/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.cc
++++ b/third_party/blink/renderer/modules/peerconnection/proteus_webrtc_spoof.cc
+@@ -13,6 +13,7 @@
+ #include "base/containers/span.h"
+ #include "base/no_destructor.h"
+ #include "base/proteus/proteus_config.h"
++#include "base/proteus/proteus_place.h"
+ #include "base/strings/stringprintf.h"
+ #include "base/uuid.h"
+ 
+@@ -93,11 +94,13 @@ Candidates Build(const std::string& sdp, bool has_stun_or_turn_server) {
+       host_foundation, MdnsHostname().c_str(), port, ufrag));
+   // The public candidate needs an address to show; the host candidate does not,
+   // and a browser that reports no candidate at all leaves pages waiting forever.
+-  if (has_stun_or_turn_server && !config.webrtc_public_ip.empty()) {
++  // The address is the place's (patch 0043): the one the proxy comes out at now.
++  const std::string& public_ip = base::proteus::GetPlace().webrtc_public_ip;
++  if (has_stun_or_turn_server && !public_ip.empty()) {
+     result.lines.push_back(base::StringPrintf(
+         "candidate:%u 1 udp 1677729535 %s %d typ srflx raddr 0.0.0.0 rport 0 "
+         "generation 0 ufrag %s network-cost 999",
+-        srflx_foundation, config.webrtc_public_ip.c_str(), port, ufrag));
++        srflx_foundation, public_ip.c_str(), port, ufrag));
+   }
+   return result;
+ }
+-- 
+2.43.0
+

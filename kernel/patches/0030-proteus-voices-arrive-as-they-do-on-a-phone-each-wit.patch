@@ -1,7 +1,7 @@
 From e7ac8da527928f58d3c19c8fb4c923bd3382939b Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Wed, 25 Nov 2026 15:30:48 +0000
-Subject: [PATCH 30/33] proteus: voices arrive as they do on a phone, each with
+Subject: [PATCH 30/34] proteus: voices arrive as they do on a phone, each with
  its address
 
 ---

@@ -1,7 +1,7 @@
 From 021ecbf27c5281bb7d93d1a9cedb0549bd882f3b Mon Sep 17 00:00:00 2001
 From: Proteus <proteus@localhost>
 Date: Thu, 26 Nov 2026 13:40:27 +0000
-Subject: [PATCH 33/33] proteus: a profile run without a window has a window
+Subject: [PATCH 33/34] proteus: a profile run without a window has a window
  bars, the screen colours follow the claimed system, and a first window is
  never larger than its screen
 
