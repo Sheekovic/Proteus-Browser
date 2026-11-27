@@ -71,7 +71,7 @@ from tests.
 
 ## 6. No limitation left in the README
 
-The goal: every entry under [Limitations](README.md#limitations) removed because it
+The goal: every entry under [Limitations](guide/limitations.md) removed because it
 stopped being true, not reworded. One item per entry, with what removing it takes;
 an entry is struck from the README in the commit that ticks its item here.
 

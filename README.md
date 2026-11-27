@@ -1,187 +1,179 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="branding/proteus-logo-dark.svg">
-    <img src="branding/proteus-logo.svg" alt="Proteus" width="420">
+    <img src="branding/proteus-logo.svg" alt="Proteus" width="440">
   </picture>
 </p>
 
-# Proteus
+<h3 align="center">One browser. Many devices. Each one keeps its shape.</h3>
 
-[![Manager tests](https://github.com/Sheekovic/Proteus-Browser/actions/workflows/manager-tests.yml/badge.svg)](https://github.com/Sheekovic/Proteus-Browser/actions/workflows/manager-tests.yml)
-[![License: BSD 3-Clause](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](LICENSE)
+<p align="center">
+  A patched Chromium and a small manager that give every profile a device of its own:<br>
+  its own cookies, its own screen, graphics card, fonts and voice, the same every time it starts.
+</p>
 
-A browser for keeping separate online identities separate.
+<p align="center">
+  <a href="https://github.com/Sheekovic/Proteus-Browser/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/Sheekovic/Proteus-Browser?label=release&color=1857c9"></a>
+  <img alt="Windows and Linux" src="https://img.shields.io/badge/runs%20on-Windows%20%C2%B7%20Linux-22c1c9">
+  <img alt="Chromium 157" src="https://img.shields.io/badge/Chromium-157.0.8103.79-0b2559">
+  <a href="https://github.com/Sheekovic/Proteus-Browser/actions/workflows/manager-tests.yml"><img alt="Manager tests" src="https://github.com/Sheekovic/Proteus-Browser/actions/workflows/manager-tests.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: BSD 3-Clause" src="https://img.shields.io/badge/license-BSD%203--Clause-1857c9"></a>
+</p>
 
-Proteus is two things that work together:
+<p align="center">
+  <a href="#download"><b>Download</b></a> ·
+  <a href="https://sheekovic.github.io/Proteus-Browser/test.html"><b>Test your browser</b></a> ·
+  <a href="#what-a-profile-controls">What it changes</a> ·
+  <a href="guide/api.md">API</a> ·
+  <a href="guide/automation.md">Automation</a> ·
+  <a href="guide/limitations.md">Limitations</a> ·
+  <a href="ROADMAP.md">Roadmap</a>
+</p>
 
-- **The kernel** — a set of patches on top of Chromium that let one JSON file decide
-  how the browser describes its device to websites: user agent and client hints,
-  screen, graphics card, fonts, voices, time zone, location, and the small rendering
-  differences that canvas, WebGL and audio fingerprints are made of.
-- **The manager** — a small local app that stores profiles, generates a coherent
-  device identity for each one, and launches the kernel with it.
+---
 
-Each profile has its own cookies and storage and looks like a different device. The
-same profile looks like the same device every time it starts.
+> In the old story Proteus, the old man of the sea, became a lion, a serpent, water,
+> a tree: whatever shape kept him from being held. The one who held on through every
+> change got the truth out of him.
+>
+> A Proteus profile takes one shape and holds it. A site that reads it a hundred ways
+> gets the same device a hundred times, and never the machine underneath.
 
-**Website and browser test:** <https://sheekovic.github.io/Proteus-Browser/>
+## The two halves
 
-> **Status: a first release.** It works and is tested on Windows 11, Windows Server 2022
-> and Linux. Nothing is code-signed yet, so Windows warns before running it; what a
-> profile does not hide is listed under [Limitations](#limitations).
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🌊 The kernel
+
+Patches on top of Chromium that let one JSON file decide how the browser describes
+its device: user agent and client hints, screen, graphics card, fonts, voices, time
+zone, location, and the small rendering differences that canvas, WebGL and audio
+fingerprints are made of.
+
+Nothing is injected into pages. The values change where Chromium computes them.
+
+</td>
+<td width="50%" valign="top">
+
+### 🔱 The manager
+
+A small local app that stores profiles, makes a coherent device identity for each
+one, matches it to its proxy, and starts the kernel with it.
+
+A window to click in, a JSON API, and MCP tools for AI assistants. No dependencies:
+Node's standard library only.
+
+</td>
+</tr>
+</table>
+
+```mermaid
+flowchart LR
+    P["profile.json<br>stored"] --> M["manager<br>makes the identity,<br>asks where the proxy comes out"]
+    M --> K["kernel.json"]
+    K --> C["patched Chromium<br>read once, in every process"]
+    C --> W(["what a website sees:<br>one device, the same every time"])
+```
+
+The kernel reads its configuration once at start and hands it to its child processes.
+There is no extension and no script running before the page's own, so the values are
+the same in the page, in iframes and in workers, and native functions still look
+native. Without a profile the kernel behaves like the Chromium it is built from.
 
 ## Download
 
-Builds for Windows and Linux (x64) are on the
-[releases page](https://github.com/Sheekovic/Proteus-Browser/releases). Each is one
-folder holding the kernel, the manager, the Node.js runtime it needs and the fonts
-profiles are drawn with: unpack it and run `Start Proteus.cmd` (Windows; or `Install
-Proteus.cmd` first, which needs no administrator rights) or `./start-proteus.sh`
-(Linux). Check the download against `SHA256SUMS.txt`; that list is signed, and a
-Proteus that updates itself checks the signature.
+| System | File | Start it |
+| --- | --- | --- |
+| **Windows** 10 and 11, 64-bit | [`Proteus-…-win-x64.zip`](https://github.com/Sheekovic/Proteus-Browser/releases/latest) | `Start Proteus.cmd`, or `Install Proteus.cmd` first (no administrator rights) |
+| **Linux**, 64-bit | [`Proteus-…-linux-x64.tar.xz`](https://github.com/Sheekovic/Proteus-Browser/releases/latest) | `./start-proteus.sh` |
 
-They are not code-signed, so Windows warns before running them. On Linux systems that restrict unprivileged user namespaces (Ubuntu
-23.10 and later) the start script says so and names the one command that lets the
-browser use its sandbox: `sudo ./linux-sandbox.sh --install`.
+Each is one folder with everything in it: the kernel, the manager, the Node.js runtime
+it needs and the fonts profiles are drawn with. Unpack, start, create a profile, press
+**Start**. Then see how the profile looks to a website on the
+[test page](https://sheekovic.github.io/Proteus-Browser/test.html).
 
-### Updates
+> [!NOTE]
+> **A first release.** Tested on Windows 11, Windows Server 2022 and Ubuntu. Nothing is
+> code-signed yet, so Windows warns before running it (*More info*, then *Run anyway*).
+> What a profile does not hide is under [Limitations](#limitations).
 
-A release folder updates itself. At each start, and once a day while it runs, the
-manager asks GitHub which release is the newest: one small request, made by the manager
-itself and not through any profile's proxy. When there is a newer one, a bar at the top
-of the window says so, with an **Update** button. Nothing is downloaded before that
-button is pressed. Then the release's file for your system is fetched into the data
-folder, its SHA-256 is compared with the one the release lists, it is unpacked, and
-Proteus closes, puts the new kernel, manager and Node.js in the place of the old ones
-and opens again. Profiles and settings are not in the program folder and stay as they
-are. No profile may be running when the new version is put in.
+> [!TIP]
+> On Linux systems that restrict unprivileged user namespaces (Ubuntu 23.10 and later)
+> the start script says so and names the one command that lets the browser use its
+> sandbox: `sudo ./linux-sandbox.sh --install`.
 
-- Turn the asking off in the settings ("Ask GitHub at each start…"); the button
-  "Check for a newer version" there still asks when pressed.
-- The checksum shows the file is the one the release holds. Who made the release is
-  shown by a signature on the list of checksums, made with a key that never leaves the
-  maker's machine ([`sign-release.mjs`](release/sign-release.mjs)): a Proteus that
-  knows the key takes only a release it signed. Releases up to preview 8 were not
-  signed and know no key: they go by the checksum alone, and so take the first signed
-  release, which brings the key; every update after it is checked against it.
-- A working tree (and the `dist` folder made from one) is not a release and is not
-  updated this way. Nor is a Proteus whose data folder is inside its program folder.
-- If an update did not take, `update/apply.log` in the data folder says what the last
-  attempt did.
+**It updates itself, when you say so.** At each start the manager asks GitHub which
+release is the newest; a bar in the window offers an **Update** button, and nothing is
+downloaded before you press it. The download is checked against the release's signed
+list of checksums. Profiles and settings stay as they are.
+[How updates work →](guide/updates.md)
 
-## Contents
+## What a profile controls
 
-- [What it does](#what-it-does)
-- [How it works](#how-it-works)
-- [Getting started](#getting-started)
-- [Device fingerprints from real devices](#device-fingerprints-from-real-devices)
-- [Building the kernel](#building-the-kernel)
-- [Tests](#tests)
-- [Repository layout](#repository-layout)
-- [Limitations](#limitations)
-- [Responsible use](#responsible-use)
-- [License](#license)
+| | Area | What changes |
+| :-: | --- | --- |
+| 🪪 | **Identity** | `navigator.userAgent`, `platform`, `vendor`, client hints in script and in request headers, with brand lists built the way that Chrome version builds them |
+| 🖥️ | **Hardware** | Processor count, device memory, the screen, its work area and its scale |
+| 🎨 | **Graphics** | WebGL vendor and renderer, the card's limits, extensions and shader precision, WebGPU adapter info |
+| 🧬 | **Fingerprints** | Canvas, WebGL and audio readbacks carry a small noise from the profile's seed: stable for a profile, different between profiles |
+| 🔤 | **Fonts** | An allow-list of installed fonts; Android's own fonts come with Proteus, and stand-ins with the right measures for Windows' and Apple's |
+| 🌍 | **Locale** | Languages, `Accept-Language`, time zone: those of the place the proxy comes out in |
+| 📡 | **Network** | WebRTC that never reveals the machine's address; a TLS and HTTP/2 handshake that fits the claimed browser |
+| 📍 | **Location** | The position `navigator.geolocation` reports |
+| 🗣️ | **Speech** | The list of speech synthesis voices |
+| 🎥 | **Devices** | Which microphones, cameras and speakers exist and what they are called; a covered lens instead of your room; the battery; on Android, the kind of connection |
+| 📱 | **Phones** | Android (Chrome) and iPhone (Safari) profiles: phone screen, touch, pixel ratio, mobile layout, and the names each browser has or lacks |
 
-## What it does
-
-### Kernel
-
-| Area | What a profile controls |
-| --- | --- |
-| Identity | `navigator.userAgent`, `platform`, `vendor`, client hints in script and in request headers, with brand lists generated the way that Chrome version builds them |
-| Hardware | Processor count, device memory, screen and available screen size |
-| Graphics | WebGL vendor and renderer, the card's limits, extensions and shader precision, WebGPU adapter info |
-| Fingerprints | Canvas, WebGL and audio readbacks carry a small noise derived from the profile's seed: stable for a profile, different between profiles |
-| Fonts | An allow-list of installed fonts, with substitutes for claimed fonts the machine lacks; phone profiles claim Android's or iOS's fonts, not the machine's |
-| Locale | Languages, `Accept-Language`, time zone |
-| Network | WebRTC that never reveals the machine's address, and shows the address you choose instead |
-| Location | The position `navigator.geolocation` reports |
-| Speech | The list of speech synthesis voices |
-| Devices | Which microphones, cameras and speakers exist and what they are called, in the device list and on opened tracks; the battery; on Android, the kind of network connection |
-| Phones | Android (Chrome) and iPhone (Safari) profiles: phone screen and page area, touch, pixel ratio, mobile layout |
+<details>
+<summary><b>Why the noise does not give itself away</b></summary>
+<br>
 
 The noise is deliberately conservative. It is applied only to content that already
 differs between devices (text, curves, gradients), never to flat fills or to pixels a
 page wrote itself, so the checks sites use to catch noise — draw a known colour, read
 it back — still pass. Reading the same thing twice gives the same answer.
 
-Without a profile the kernel behaves like the Chromium it is built from.
+</details>
 
-### Manager
+## What the manager does
 
-- Profiles stored as plain JSON files, each with its own browser data directory.
+**Profiles**
+- Plain JSON files, each with its own browser data directory.
 - Identity generators for Windows, macOS, Linux, Android and iPhone, and ready-made
   setups (ordinary laptops, desktops and phones) to choose from instead. A Windows or
   Mac identity gets a graphics card read from a real computer, with its capabilities.
-- Proxies per profile (HTTP and SOCKS5, with or without a login).
-- Proxies checked before use (where one comes out, and how fast), and tolerant of the
-  way real ones behave: retries, several lookup services, time limits.
-- Many profiles at once from a pasted proxy list, each a device of its own; editing,
+- Many at once from a pasted proxy list, each a device of its own; editing,
   duplicating and tagging them; cookies in and out as the files other browsers export.
-- A profile behind a proxy is a browser of the place the proxy comes out in: before
-  each start the exit is looked up and the time zone, the languages (the list of a
+
+**Proxies**
+- Per profile, HTTP and SOCKS5, with or without a login; checked before use (where one
+  comes out, and how fast), and tolerant of the way real ones behave.
+- **A profile behind a proxy is a browser of the place the proxy comes out in.** Before
+  each start the exit is looked up, and the time zone, the languages (the list of a
   Chrome installed in that country's language), the position and the WebRTC address
-  are the exit's. A value you set yourself stays, and a profile whose exit's time
-  zone nobody can tell does not start, rather than show this machine's. On for every
-  new profile; the exit address is shown for every profile, running or stopped.
+  are the exit's. A value you set yourself stays. A profile whose exit's time zone
+  nobody can tell does not start, rather than show this machine's.
 - A profile that came out at the same address twice starts without waiting for the
   lookup, which is repeated while the browser comes up.
-- A light interface in a window of its own, drawn by the kernel itself, so nothing
-  heavier than a web page is running.
-- Everything it does can be done by a program: a JSON API, and the same abilities as
-  [Model Context Protocol](https://modelcontextprotocol.io) tools for AI assistants.
-  Both are bound to `127.0.0.1` only.
-- Driving the browser, not only starting it: open tabs, go to a page, read its text,
-  run a script in it, take a picture of it, read and set cookies.
-- Every started profile also exposes a DevTools endpoint, so Puppeteer, Playwright or
-  Selenium can drive it directly.
-- Updates itself from the releases on GitHub, when you say so (see [Updates](#updates)).
-- No dependencies: Node's standard library only.
 
-## How it works
+**Driving it**
+- Everything the window does a program can do: a [JSON API](guide/api.md), and the
+  same abilities as [MCP tools](guide/automation.md#mcp-for-ai-assistants) for AI
+  assistants. Both are bound to `127.0.0.1` only.
+- Not only starting the browser: open tabs, go to a page, read its text, run a script
+  in it, take a picture of it, read and set cookies.
+- Every started profile exposes a DevTools endpoint, so
+  [Puppeteer, Playwright or Selenium](guide/automation.md) can drive it directly.
 
-```
- profile.json ──► manager ──► kernel.json ──► chrome --proteus-config=kernel.json
-   (stored)      (generates                    (the patched Chromium reads it in
-                  and launches)                 every process and answers pages
-                                                accordingly)
-```
+**Itself**
+- A light interface in a window of its own, drawn by the kernel, so nothing heavier
+  than a web page is running.
+- Starts with the computer if you tick it in the settings. Off until you do.
+- Updates itself from the releases on GitHub, when you say so.
 
-The kernel reads its configuration once at start and hands it to its child processes
-on their command lines. Nothing is injected into pages: there is no extension and no
-script running before the page's own. The values are changed where Chromium computes
-them, so they are consistent in the page, in iframes and in workers, and native
-functions still look native.
-
-## Getting started
-
-With a [release build](#download) there is nothing to set up. To run from this
-repository instead you need [Node.js](https://nodejs.org) 24 or newer and a built
-kernel (see [Building the kernel](#building-the-kernel)).
-
-```bash
-cd manager
-PROTEUS_KERNEL=/path/to/chrome node src/main.ts --open
-```
-
-The Proteus window opens. Create a profile and press **Start**.
-
-- Starting Proteus while it is already running shows its window again.
-- Proteus can start by itself when you sign in to the computer: tick **Start Proteus
-  when you sign in to this computer** under **Settings**. It is off until you do. On
-  Windows that is a value in your own account's startup list, on Linux an entry in
-  `~/.config/autostart`; neither needs administrator rights, and unticking it (or
-  removing an installed Proteus) takes it away again.
-- `--open` shows the manager in a window of its own; closing it ends Proteus, unless
-  profiles are still running. `--open-browser` uses your usual browser instead, and
-  without either the manager only serves <http://127.0.0.1:5310>.
-- `PROTEUS_KERNEL` names the kernel the first time; after that it is remembered (and
-  can be changed under **Settings**). A kernel in a `kernel` folder next to `manager`
-  is found by itself.
-- `--port <n>` or `PROTEUS_PORT` choose another port, and `PROTEUS_HOME` another data
-  directory (the default is `%APPDATA%\Proteus` on Windows and `~/.proteus` elsewhere).
-
-### API
+## Drive it from a program
 
 ```bash
 # Create a profile
@@ -192,265 +184,35 @@ curl -X POST http://127.0.0.1:5310/api/profiles \
 # Start it; the reply carries a DevTools endpoint ("debuggerUrl")
 curl -X POST http://127.0.0.1:5310/api/profiles/<id>/start \
      -H 'Content-Type: application/json' -d '{}'
-
-# Ten at once, each with its own identity and its own proxy from a list
-curl -X POST http://127.0.0.1:5310/api/profiles/bulk \n     -H 'Content-Type: application/json' \n     -d '{"count": 10, "name": "Shop", "common": {"os": "windows"}, "proxies": "host:port:user:password
-…"}'
-
-# Where does a proxy come out?
-curl -X POST http://127.0.0.1:5310/api/proxy/check \n     -H 'Content-Type: application/json' -d '{"profileId": "<id>"}'
-
-# Open a page in it, read what it shows, take a picture
-curl -X POST http://127.0.0.1:5310/api/profiles/<id>/tabs \
-     -H 'Content-Type: application/json' -d '{"url": "https://example.com/"}'
-curl http://127.0.0.1:5310/api/profiles/<id>/tabs/<tab>/text
-curl -o page.png http://127.0.0.1:5310/api/profiles/<id>/tabs/<tab>/screenshot
-
-# Run a script in the page
-curl -X POST http://127.0.0.1:5310/api/profiles/<id>/tabs/<tab>/evaluate \
-     -H 'Content-Type: application/json' -d '{"expression": "document.title"}'
-
-# Move a session in: set cookies exported from another browser
-curl -X PUT http://127.0.0.1:5310/api/profiles/<id>/cookies \
-     -H 'Content-Type: application/json' \
-     -d '[{"name": "sid", "value": "…", "domain": ".example.com", "path": "/", "secure": true}]'
 ```
-
-`GET /api` lists every route; they are described at the top of
-[`manager/src/server.ts`](manager/src/server.ts).
-
-**A profile's state has one shape in every reply.** `state` is `"running"` or
-`"stopped"`, and `status` holds the details:
-
-```json
-{ "id": "…", "name": "Shop account", "…": "…",
-  "state": "running",
-  "status": { "state": "running", "pid": 4242, "startedAt": "…", "debuggerUrl": "http://127.0.0.1:41233",
-              "proxyExit": { "ip": "203.0.113.50", "timezone": "Asia/Tokyo" }, "exitSeenAt": "…" } }
-```
-
-The list, a single profile, and the replies to creating, editing and duplicating one
-all look like that. They also carry `proxyExit` (or `lastProxyExit`), `exitSeenAt`,
-`exitNow` and `exitProblem` at the top level when there is one, so `entry.proxyExit`
-reads the same on a list entry as on a start reply. The status, start and stop replies carry `state` and `status` too,
-and also keep the details at the top level (`debuggerUrl`, `pid`, …), where they were
-before, so both `reply.status.debuggerUrl` and `reply.debuggerUrl` work there.
-
-In `status`:
-
-| Field | When | Meaning |
-| --- | --- | --- |
-| `proxyExit` | running, with a proxy | The address (and time zone, position) the proxy comes out on. With `matchProxy` on it is always there and the browser was matched to it. With `matchProxy` off nobody is asked at a start, so it is what the last proxy check or matched run found, if anything. |
-| `exitSeenAt` | with `proxyExit` | When that address was last seen. |
-| `lastProxyExit` | stopped, with a proxy | Where the proxy came out the last time it was asked, with `at`. |
-| `exitNow` | running | The proxy has moved to this address since the start: restart the profile to match it. |
-| `exitProblem` | running | Why the proxy could not be reached at the last look. |
-| `lastExit` | stopped | How the last run ended, if it ended on its own. |
-
-**Ready-made setups.** `GET /api/presets` lists them (`windows-office-laptop`,
-`windows-laptop`, `windows-desktop`, `windows-gaming-desktop`, `macbook-air`,
-`macbook-pro-14`, `linux-desktop`, `pixel-8`, `galaxy-a34`, `iphone-15`). Passing
-`"preset": "<id>"` when creating a profile (or to the bulk route) fixes the screen,
-graphics card, processor and memory to that device; the noise seed is new each time,
-so two profiles from one preset are two devices of the same model. Without a preset
-an identity is generated as before. They are hand-written compositions of common
-configurations, not readings of real devices; for those, see below.
-
-**How a profile introduces itself.** Before any page loads, a server sees the shape of
-the browser's TLS hello and of its HTTP/2 opening, and can compare it with the version
-the browser claims. `GET /api/profiles/<id>/transport` measures both and sets them
-beside the claim:
-
-```json
-{ "claims":   { "browser": "Chrome", "version": "157.0.8103.79", "userAgent": "Mozilla/5.0 …" },
-  "kernel":   { "version": "157.0.8103.79" },
-  "produces": { "tls":   { "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99", "ciphers": ["1301", "…"], "extensions": ["0000", "…"], "…": "…" },
-                "http2": { "fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p", "settings": [[1, 65536], "…"],
-                           "pseudoHeaders": [":method", ":authority", ":scheme", ":path"], "headers": ["sec-ch-ua", "…"] },
-                "userAgent": "Mozilla/5.0 …" },
-  "expected": { "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99", "http2": "1:65536;…|m,a,s,p", "measuredFrom": "Chrome 157.0.8103.79, Windows 11" },
-  "agrees": true, "differences": [], "notes": ["…"] }
-```
-
-`produces` is measured, each time: a second, windowless copy of the kernel is started
-with the profile's settings in a folder of its own and sent to a recorder on
-`localhost` ([`transport.ts`](manager/src/transport.ts)). It takes about half a second,
-works on a running or a stopped profile, touches neither its browser data nor its
-tabs, uses no proxy and can reach nothing but the recorder. `tls.ja4` is the
-[JA4](https://github.com/FoxIO-LLC/ja4) TLS fingerprint; `http2.fingerprint` is
-settings, window update, priority frames and pseudo-header order. `expected` is what a
-stock browser of the claimed kind sent to the same recorder, and `differences` says in
-words what does not fit (an extra TLS extension, a claimed version the kernel is not,
-…). `agrees` is true when there is none.
-
-A profile is started so that its handshake is the one its claim goes with
-([`transportClaim.ts`](manager/src/transportClaim.ts)). Chromium builds that are not
-Google's switch on an experiment Chrome has off (`AddTLSServerHandshakePadding`), which
-adds a TLS extension, `0x12e0`; with it a profile sent
-`t13d1518h2_8daaf6152771_4980c97edce0`. The manager now turns it off. What each
-ready-made setup claims and produces, measured on Windows 11 with kernel 157.0.8103.79:
-
-| Setup | Claims | TLS (JA4) | HTTP/2 | Agrees |
-| --- | --- | --- | --- | --- |
-| `windows-office-laptop` | Chrome 157.0.8103.79, Windows | `t13d1517h2_8daaf6152771_cb7bf5808d99` | `1:65536;2:0;4:6291456;6:262144\|15663105\|0\|m,a,s,p` | yes |
-| `windows-laptop` | Chrome 157.0.8103.79, Windows | same | same | yes |
-| `windows-desktop` | Chrome 157.0.8103.79, Windows | same | same | yes |
-| `windows-gaming-desktop` | Chrome 157.0.8103.79, Windows | same | same | yes |
-| `macbook-air` | Chrome 157.0.8103.79, macOS | same | same | yes |
-| `macbook-pro-14` | Chrome 157.0.8103.79, macOS | same | same | yes |
-| `linux-desktop` | Chrome 157.0.8103.79, Linux | same | same | yes |
-| `pixel-8` | Chrome 157.0.8103.79, Android | same | same | yes |
-| `galaxy-a34` | Chrome 157.0.8103.79, Android | same | same | yes |
-| `iphone-15` | Safari 27.2, iPhone | `t13d2013h2_a09f3c656075_7f0f34a4126d` | `2:0;3:100;4:2097152;9:1\|10420225\|0\|m,s,a,p` | yes |
-
-Nine of them claim the Chrome the kernel is, so they produce one shape: the same as
-stock Chrome 157.0.8103.79 on the same machine, byte for byte in what the fingerprints
-cover. The kernel is that same release: stable Chrome was 157.0.8103.79 for 99% of its
-users when this was measured, with 158 at the start of its rollout, and a browser on
-a version almost nobody has yet stands out by that alone. (An earlier kernel was
-158.0.8127.37; its patch series is in the history of `kernel/patches`.) The version a
-setup names is the kernel's: the manager reads it from the kernel itself, and a Chrome
-profile made for another kernel version is moved to this one the next time it starts
-(only the version changes; the device stays the same). So a newer kernel moves claim
-and shape together. Three things the
-table does not show:
-
-- The reference was measured on Windows only. Chrome uses the same network code on
-  macOS, Linux and Android, but no stock Chrome there was measured.
-- The iPhone setup shakes hands as Safari does: the kernel (patch 0028) makes Safari's
-  TLS hello and HTTP/2 opening when a profile's configuration asks for it. What it is
-  held to was recorded from Safari 27.2 on an iPhone 17 Pro Max: the cipher suites,
-  the extensions with their content and order, the HTTP/2 settings and window, and
-  the headers of a page load (their order, Safari's `Accept`, and none of the two
-  Chrome adds, `Upgrade-Insecure-Requests` and `Sec-Fetch-User`). Three things are not
-  Safari's: such a profile stays off QUIC (HTTP/3), where the kernel would be Chrome
-  again; the headers of requests other than a page load (pictures, scripts, `fetch`)
-  were not measured, and over HTTP/1.1 they are Chrome's; and an iPhone profile made before
-  this keeps the Safari 18.5 or 18.6 it claimed, held to the same shape.
-- A profile whose User-Agent names another Chrome version than the kernel (set by
-  hand, or made for an older kernel) still shakes hands as the kernel's version. The
-  report says so; a new identity brings the claim back in line.
-
-A connection that resumes an earlier session carries one more extension (`0x0029`),
-in every Chrome; fingerprints taken on a second visit therefore differ from these.
-
-**Memory.** `deviceMemory` is held to what the profile's browser can report:
-`2, 4, 8, 16, 32` for Chrome on a computer and `1, 2, 4, 8` for Chrome on Android
-(checked against an unmodified Chromium 158, which reports 32 on a machine with more;
-Chrome versions before the limit was raised stopped at 8). A value outside that is
-refused with `{"error": …}` naming the accepted ones, when the value or the system is
-set. A generated profile gets a value that fits its processor. Profiles saved earlier
-keep whatever they have.
-
-**Start times.** Measured on Windows 11 with the earlier kernel, 158: a profile without a proxy
-starts in about 1.5 s. Behind a proxy almost all of the time is the exit lookup: 3 s
-to 27 s in our runs through a residential proxy. Once the exit has been the same
-twice it is remembered for `exitCacheMinutes` (30 by default, a setting) and the
-start takes about 1.4 s; the lookup then runs while the browser comes up, and
-`exitNow` says so if the exit has moved after all. A proxy that gives a new address
-on every connection never qualifies and is always asked first, as is any proxy with
-the setting at 0.
-
-**Lists a profile carries.** Fonts, voices and media devices are part of a profile
-from the moment it is made. Its languages are not, unless given: the first time such a
-profile runs, the manager asks its browser which languages (and, for profiles saved
-by early versions, voices) it reported and saves them in the profile, so that it
-reports the same on any computer afterwards.
-
-### Puppeteer and Playwright
-
-A started profile is driven by connecting to its `debuggerUrl`. The profile was
-started by the manager, without the switches those libraries start a browser with, so
-what a page looks at stays a person's browser:
 
 ```js
-// Puppeteer. defaultViewport: null leaves the window as it is; without it Puppeteer
-// sets the page area to 800 by 600, whatever the profile's screen.
+// Puppeteer. defaultViewport: null leaves the window as the profile has it.
 const browser = await puppeteer.connect({ browserURL: status.debuggerUrl, defaultViewport: null });
 
-// Playwright. Use the context that is there: a new one would be a browser without
-// the profile's cookies.
+// Playwright. Use the context that is there: it has the profile's cookies.
 const browser = await chromium.connectOverCDP(status.debuggerUrl);
 const page = await browser.contexts()[0].newPage();
 ```
 
-[`manager/test/e2e/automation.mjs`](manager/test/e2e/automation.mjs) checks it on the
-real kernel, with a page that looks for what detection scripts look for. Driven by
-either library, on kernel 157.0.8103.79: `navigator.webdriver` is false, nothing the
-page logs is read by the debugger client (the page's own getter is not run), no names
-are left on the page, the page area and pixel ratio stay the profile's, and a click is
-the browser's own, placed on the screen where the window is, after the pointer moved
-there. Two things are the script's own business. A function of the page that the
-script calls sees the caller in its stack (`pptr:evaluate` for Puppeteer, an `eval`
-frame for Playwright), so a script should read from a page and not call into it. And
-how fast and how straight the pointer moves is the library's, not a hand's.
+| Guide | What is in it |
+| --- | --- |
+| [**The API**](guide/api.md) | Every route by example, the shape of a profile's state, ready-made setups, the handshake report (TLS and HTTP/2 against the claim), memory, start times |
+| [**Driving a profile**](guide/automation.md) | Puppeteer, Playwright and Selenium with the bundled driver, what a detection page finds, what a profile's camera shows, MCP for AI assistants |
+| [**Updates**](guide/updates.md) | What is asked, what is fetched, how a release is checked and signed |
+| [**Limitations**](guide/limitations.md) | Everything a profile does not hide, in full |
 
-Selenium drives a browser through a driver program, and the stock one (chromedriver)
-gives itself away: it keeps seven names on every page it drives
-(`cdc_adoQpoasnfa76pfcZLmcfl_Array`, …), which is the first thing a site looks for.
-The kernel folder has a `chromedriver` of its own, built with the kernel and of its
-version, that does not make them. Point Selenium at it and at the running profile:
+> [!WARNING]
+> The API and the MCP endpoint have no login. They answer only requests addressed to
+> localhost and refuse requests from other websites' pages. Whoever can reach them can
+> run scripts in your profiles' pages and read their cookies, so do not put the
+> manager's port behind a proxy that others can reach.
 
-```python
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
+## Identities from real devices
 
-options = webdriver.ChromeOptions()
-options.debugger_address = "127.0.0.1:53421"    # the profile's DevTools address
-driver = webdriver.Chrome(service=Service(r"...\Proteus\kernel\chromedriver.exe"), options=options)
-```
-
-The same check, speaking to that driver as Selenium does, finds what it finds for the
-two libraries: nothing of the above, and a page function the script calls sees an
-`eval` frame in its stack. With the stock driver of the same version it finds the
-seven names.
-
-### What a profile's camera shows
-
-A page that is allowed the camera of a profile gets a covered lens: a dark picture
-with the grain of a sensor, each profile's its own, and a silent microphone. The room
-this machine stands in and the voice in it are the same in every profile, so no
-profile gives them away unless it is told to. The devices keep the names the profile
-gives them, and the user is still asked before a page gets either.
-
-A profile can show something else: set `cameraFile` (in the profile's settings, or
-through the API) to the path of a `.y4m` or `.mjpeg` video, which the page then gets
-in a loop with a silent microphone, or to `machine` for a video call: pages you allow
-then get this machine's own camera and microphone. A profile saved before profiles
-had devices of their own uses the machine's as before.
-
-### MCP (for AI assistants)
-
-The manager is also a [Model Context Protocol](https://modelcontextprotocol.io)
-server, so an assistant can create profiles, start them and work in them. It offers
-26 tools: profiles (`list_profiles`, `create_profile`, `create_profiles`, `duplicate_profile`,
-`update_profile`, `delete_profile`, `start_profile`, `stop_profile`, `new_identity`), proxies
-(`check_proxy`), the handshake report (`transport_report`), ready-made setups (`list_presets`), devices and settings, and the browser itself (`list_tabs`, `open_tab`, `navigate`, `page_text`,
-`evaluate`, `screenshot`, `close_tab`, `get_cookies`, `set_cookies`).
-
-- Assistants that connect over HTTP use `http://127.0.0.1:5310/mcp` while the manager
-  runs.
-- Assistants that start a program and talk to it use the bridge, which forwards to
-  the running manager:
-
-  ```json
-  { "mcpServers": { "proteus": { "command": "node", "args": ["/path/to/manager/src/mcp-stdio.ts"] } } }
-  ```
-
-[`.claude/skills/proteus`](.claude/skills/proteus/SKILL.md) is a skill that teaches an
-assistant to do all of this: Claude Code picks it up by itself inside this repository,
-and copying the folder to `~/.claude/skills/` makes it available everywhere.
-
-The API and the MCP endpoint have no login. They answer only requests addressed to
-localhost and refuse requests from other websites' pages. Whoever can reach them can
-run scripts in your profiles' pages and read their cookies, which is the point of
-them — so do not put the manager's port behind a proxy that others can reach.
-
-## Device fingerprints from real devices
-
-A generated identity is built from lists of ordinary configurations. For more
-variety, and for identities that match hardware that really exists, Proteus can read
-a real device and make profiles from the reading.
+A generated identity is built from lists of ordinary configurations. For identities
+that match hardware that really exists, Proteus can read a real device and make
+profiles from the reading.
 
 1. Open the collector page on the device, in Chrome (or in Safari on an iPhone):
    - on the computer running the manager: **Device fingerprints → Read this
@@ -464,15 +226,36 @@ a real device and make profiles from the reading.
 
 The page reads what any website can read about the device: browser and system
 version, phone model, screen, processor count, memory class, graphics card name and
-limits, font names from a fixed list, speech voices, and which kinds of media device are
-listed (not their names). It does not read the IP address,
-location, language, time zone, cookies or history, and nothing leaves the page until
-you press a button.
+limits, font names from a fixed list, speech voices, and which kinds of media device
+are listed (not their names). It does not read the IP address, location, language,
+time zone, cookies or history, and nothing leaves the page until you press a button.
 
 Profiles made from one reading are the same *model* of device, each with its own
 noise seed — not copies of one device.
 
-## Building the kernel
+## Run it from this repository
+
+With a [release build](#download) there is nothing to set up. To run from the source
+instead you need [Node.js](https://nodejs.org) 24 or newer and a built kernel.
+
+```bash
+cd manager
+PROTEUS_KERNEL=/path/to/chrome node src/main.ts --open
+```
+
+The Proteus window opens. Create a profile and press **Start**.
+
+| Switch or variable | What it does |
+| --- | --- |
+| `--open` | Shows the manager in a window of its own; closing it ends Proteus, unless profiles are still running. Starting Proteus again shows that window. |
+| `--open-browser` | Uses your usual browser instead. Without either, the manager only serves <http://127.0.0.1:5310>. |
+| `PROTEUS_KERNEL` | Names the kernel the first time; after that it is remembered (and can be changed under **Settings**). A kernel in a `kernel` folder next to `manager` is found by itself. |
+| `--port <n>`, `PROTEUS_PORT` | Another port. |
+| `PROTEUS_HOME` | Another data directory (the default is `%APPDATA%\Proteus` on Windows and `~/.proteus` elsewhere). |
+
+<details>
+<summary><b>Building the kernel</b></summary>
+<br>
 
 The kernel is Chromium **157.0.8103.79** (pinned in
 [`kernel/CHROMIUM_VERSION`](kernel/CHROMIUM_VERSION)) with the patches in
@@ -517,7 +300,11 @@ refreshes it after every commit.
 `kernel/src` and `kernel/scripts/edits` are the patches in their editable form: new
 source files, and small scripts that make the in-place edits to Chromium's own files.
 
-## Tests
+</details>
+
+<details>
+<summary><b>Tests</b></summary>
+<br>
 
 **Manager** — unit and API tests, no browser needed:
 
@@ -542,8 +329,8 @@ node manager/test/e2e/real-kernel.mjs <path to chrome> http://127.0.0.1:8793
 ```
 
 **Automation** — drives a profile with Puppeteer and with Playwright and prints what
-a page can tell (see [Puppeteer and Playwright](#puppeteer-and-playwright)). The two
-libraries are not part of this repository:
+a page can tell (see [Driving a profile](guide/automation.md)). The two libraries are
+not part of this repository:
 
 ```bash
 mkdir libraries && cd libraries && npm init -y && npm install puppeteer-core playwright-core && cd ..
@@ -573,7 +360,11 @@ checks detection scripts commonly run (does a known pixel read back unchanged, d
 the page and a worker agree, do the fonts fit the claimed system, …). An unmodified
 browser passes all of them, and so should a profile.
 
-## Repository layout
+</details>
+
+<details>
+<summary><b>Repository layout</b></summary>
+<br>
 
 ```
 kernel/
@@ -583,126 +374,35 @@ kernel/
   src/               new source files, in Chromium's directory layout
   scripts/           build and test scripts; edits/ makes the in-place changes
   tests/             test pages and the scripts that check them
-docs/                the website (GitHub Pages), including the browser test page
-release/             what a release bundle adds, and the script that assembles one
 manager/
   src/               the manager (TypeScript, run directly by Node)
   ui/                the web UI and the fingerprint collector page
   test/              unit, API and end-to-end tests
+guide/               the longer texts this page points to
+docs/                the website (GitHub Pages), including the browser test page
+release/             what a release bundle adds, and the script that assembles one
 ```
+
+</details>
 
 ## Limitations
 
-Worth knowing before relying on it:
+Even Proteus could be held. Worth knowing before relying on it; each of these is told
+in full, with what was measured, in [the limitations guide](guide/limitations.md).
 
-- **It is Chromium underneath.** An iPhone profile reports Safari's identity and
-  lacks what Safari lacks, and its TLS and HTTP/2 handshake is Safari's, but a site
-  that probes engine behaviour can still tell it is not WebKit. The handshake is that
-  of the one Safari that was measured, and such a profile does not use HTTP/3. There
-  is no Firefox kernel. (A Chrome profile always claims the Chrome its kernel is: one
-  made for another kernel is moved to this one when it starts, so what it says and how
-  it shakes hands are the same version.)
-- **A generated identity is put together, not copied from one computer.** A new
-  Windows or Mac identity takes a graphics card that Chrome reported on a real
-  computer, with that card's own WebGL limits, extensions, shader precision and WebGPU
-  names, and a processor it was seen with (178 cards on Windows, 16 Apple chips). Its
-  screen is one that was read as well, with its work area, colour depth and pixel ratio
-  (22 on Windows, 37 on a Mac, 22 on Linux). But card and screen are drawn each on its
-  own, and the memory and the fonts are chosen from what is common, so the whole is a
-  plausible computer, not a record of one; a profile made from a device's own reading
-  is. A Linux identity still names a card without its capabilities and reports the
-  machine's own: the readings have none complete for Linux.
-- **A phone profile has what its browser was read to have, as far as removing goes.**
-  The kernel is desktop Chrome. What it offers a page was compared, name by name, with
-  what Safari on an iPhone 17 Pro Max and Chrome on a Galaxy offer
-  ([`read-surface.mjs`](manager/tools/read-surface.mjs) serves the page that reads it).
-  An iPhone profile hides everything Safari was read not to have: the 291 members of
-  the global object (`EyeDropper`, `Notification`, `requestIdleCallback`, WebUSB,
-  WebXR, …; all but `MediaSource` and its buffers, kept so that video in pieces still
-  plays), what Safari has in a page and not in a worker or the other way round, the
-  423 members of 117 interfaces, their static members and their constants. Read back
-  on the kernel, four are left that nothing can remove from outside: `Symbol.dispose`
-  and `Symbol.asyncDispose`, and the constants `PERSISTENT` and `TEMPORARY` of a
-  page's global object. The other side, what Safari has and the kernel lacks, a page
-  is given as far as a name goes: of the 99 names (`ApplePaySession`, `GestureEvent`,
-  …) the profile has 96, each an interface with the members, constants and parent it
-  was read to have on the phone, a function or an event handler, and none of them
-  does anything: there are no objects of these interfaces, and they answer only the
-  question whether they are there. Three are objects that are simply there in Safari
-  and cannot be made up (`browser`, `openDatabase`, `pushManager`). Some 225 members
-  of interfaces both browsers have are still missing, since one that did nothing
-  would mislead a page that uses it; and `navigator.gpu` is hidden although Safari
-  has it, because the kernel's would describe this machine's graphics card. An Android
-  profile was compared with a Galaxy's Chrome before and after an update (152 and
-  158, one older and one newer than the kernel) and hides what neither has (window
-  sharing, local fonts, the built-in language models, …), with `navigator.contacts`,
-  `NDEFReader`, `BarcodeDetector` and the like switched on. Read back on the kernel
-  it has nothing the phone's Chrome 158 lacks, in a page or in a worker, and of the
-  members the phone has, three are missing: a link's `hrefTranslate`, which waits for
-  a translating service a profile's browser does not start, and two members of a
-  resource's timing that the kernel's version of Chrome does not have yet. (The
-  others the phone has and a desktop Chrome keeps switched off are switched on: a
-  file field's `capture`, `navigator.globalPrivacyControl`, and the like.)
-- **A window's frame is this machine's.** How thick the bars around the page are
-  (the window's size less the page's) is what this machine's windows have, whatever
-  system the profile claims; a Mac's or a Linux desktop's are not known and not
-  imitated. A profile run without a window (`--headless=new` among the extra launch
-  arguments) has the bars a window on Windows has: read in a window and without one,
-  the same profile agreed in every one of thirty things a page reads, the browser's
-  name, plugins, permissions, graphics card and voices among them.
-- **A phone's screen colours are this machine's.** Whether the screen shows the P3
-  gamut and a high dynamic range follows the claimed system for a computer and an
-  iPhone (a Windows or Linux computer neither, a Mac P3, an iPhone both); for an
-  Android phone nothing was read, and a page gets what the monitor has.
-- **A profile's page has the profile's scale, its window the machine's.** A screen
-  comes with the pixel ratio it was read at (1536 by 864 is a 1920 by 1080 panel at
-  125%, a Mac's is 2). Pages are laid out at that ratio, so that everything a page
-  measures agrees with it, while the window and its bars are drawn at your monitor's
-  own scale. Nothing is resampled: on a monitor at another scale a page's text is
-  smaller or larger than in your other programs, as it would be on the profile's
-  screen. Read back on Windows, on a monitor at 150% with two more beside it, a
-  profile at 100%, 125% and 200% agreed with a browser really started at that scale
-  in everything a page measures. What does not come out to the pixel: a window can
-  only be as large as whole units of the machine allow, so a size a page asks of a
-  window (`resizeTo`, a new window's size) may read back a pixel or two off, and a
-  click a driving program places lands within a pixel of where it aimed. A profile
-  made before this has no ratio and uses the machine's.
-- **A limit above the machine's is the machine's.** What goes beyond a WebGL limit
-  of the profile's card is refused as that card refuses it, where the drawing is
-  done: a texture or renderbuffer too large, a canvas wider than it can draw, and a
-  shader that uses more uniforms, varyings or samplers than it has. A limit the
-  profile claims above the machine's own is the machine's when tried, and the memory
-  a profile claims is a number: a page that allocates gets what the machine has.
-- **One thing still comes from the machine a profile runs on.** A profile without a
-  device reading reports the machine's graphics limits (above). Moved to another
-  computer, a profile keeps everything else.
-- **Some fonts of another system are stand-ins.** A profile of a system other than
-  the machine's own claims that system's fonts and hides the machine's. Android's
-  fonts come with Proteus (Roboto, Noto Sans and Serif, the emoji, Droid Sans Mono and
-  the rest: they may be passed on), so an Android profile draws them as a phone does,
-  and draws the names Android only answers to (Arial, Times New Roman, …) with the
-  faces Android uses. Windows' and Apple's fonts may not be passed on. Six of them
-  are drawn with fonts made to have their measures, so text breaks its lines where
-  the real one does though the letters differ (Arial and Helvetica as Arimo, Times
-  New Roman as Tinos, Courier New as Cousine, Calibri as Carlito, Cambria as Caladea,
-  Georgia as Gelasio); the others with a font of their kind, the same on every
-  machine. A page finds every name; careful measurement of the glyphs can tell such a
-  stand-in from the real font. Japanese stands in for all of Android's Chinese,
-  Japanese and Korean. Read back on Windows and on Linux, an Android profile finds
-  every one of Android's fonts and they measure the same on both. Without the `fonts`
-  folder (running from the repository, or a release updated from one that had none)
-  the stand-ins are fonts of the machine.
-- **A profile's cameras show one picture.** A covered lens, or a `.y4m` video, is
-  offered in the sizes a camera has (up to 1280 by 720 on a computer, 1920 by 1080 on
-  a phone), cut and scaled from the one picture; that list is the same for every
-  profile and not the claimed camera's own, a `.mjpeg` video has its one size, and
-  every camera a profile lists shows the same picture. A profile set to use the
-  machine's camera gives this machine's picture and sound and the sizes its hardware
-  offers.
-- **Tested on few machines.** Results on detection sites depend on the host; what
-  holds on one Windows 11 machine is not a guarantee elsewhere.
-- **No protection is complete.** Sites combine many signals — address reputation,
-  behaviour, account history — that no browser controls.
+| | In short |
+| --- | --- |
+| **It is Chromium underneath** | An iPhone profile says Safari, lacks what Safari lacks and shakes hands as Safari does, but a site that probes how the engine behaves can tell it is not WebKit. There is no Firefox kernel. |
+| **A generated identity is put together** | Card and screen are each read from real computers, but drawn separately: a plausible computer, not a record of one. A profile made from a device's own reading is. |
+| **A phone profile is a desktop engine** | It hides what the phone's browser lacks and has the names it has; some 225 Safari members are still missing, and `navigator.gpu` is hidden on an iPhone. |
+| **A window's frame is this machine's** | The thickness of the bars around the page is not imitated for a Mac or a Linux desktop. |
+| **A phone's screen colours** | Follow the claimed system for computers and iPhones; an Android profile gets what the monitor has. |
+| **Scale** | A page is laid out at the profile's scale, the window drawn at your monitor's; a size a page asks of a window may read back a pixel or two off. |
+| **Limits above the machine's** | A claimed graphics limit below the machine's is enforced; one above it cannot be given, and claimed memory is only a number. |
+| **Fonts of another system** | Android's are the real ones. Windows' and Apple's may not be passed on: six have stand-ins with the same measures, and careful measurement of the glyphs can tell. |
+| **Cameras** | Every camera a profile lists shows the same picture, in the same list of sizes. |
+| **Tested on few machines** | What holds on one Windows 11 machine is not a guarantee elsewhere. |
+| **No protection is complete** | Sites combine many signals — address reputation, behaviour, account history — that no browser controls. |
 
 ## Responsible use
 
@@ -714,19 +414,7 @@ use it for fraud, to evade a ban, or to impersonate someone else.
 The patches are original work written for this project. Proteus is not affiliated
 with, and contains no code or data from, any commercial anti-detect browser.
 
-The graphics cards a new identity is drawn from
-([`manager/src/gpus.json`](manager/src/gpus.json)) are taken from readings of real
-browsers that Scrapfly published with
-[fingerprint-generator](https://github.com/scrapfly/fingerprint-generator) under the
-Apache License 2.0 ([its text](manager/licenses/fingerprint-generator-LICENSE.txt)).
-[`manager/tools/build-readings.mjs`](manager/tools/build-readings.mjs) makes the file from a
-release of that model: per card, the capabilities most often read with it, leaving
-out software renderers, virtual machines and readings that lack something. On the
-computer this was written on, the file's entry for its own card matched what the
-kernel reads there in every one of 55 limits, both extension lists and the shader
-precision.
-
-## License
+## Credits and licence
 
 Proteus is released under the [BSD 3-Clause License](LICENSE).
 
@@ -734,3 +422,19 @@ The kernel patches modify [Chromium](https://www.chromium.org/), which is the wo
 The Chromium Authors and is distributed under its own licences (BSD 3-Clause for
 Chromium itself, others for the third-party code it includes). Those continue to
 apply to the code the patches are applied to.
+
+The graphics cards a new identity is drawn from
+([`manager/src/gpus.json`](manager/src/gpus.json)) are taken from readings of real
+browsers that Scrapfly published with
+[fingerprint-generator](https://github.com/scrapfly/fingerprint-generator) under the
+Apache License 2.0 ([its text](manager/licenses/fingerprint-generator-LICENSE.txt)).
+[`manager/tools/build-readings.mjs`](manager/tools/build-readings.mjs) makes the file
+from a release of that model: per card, the capabilities most often read with it,
+leaving out software renderers, virtual machines and readings that lack something. On
+the computer this was written on, the file's entry for its own card matched what the
+kernel reads there in every one of 55 limits, both extension lists and the shader
+precision.
+
+<p align="center">
+  <sub>🌊 &nbsp;Hold on through every change.</sub>
+</p>
